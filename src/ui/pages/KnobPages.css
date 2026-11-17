@@ -1,0 +1,146 @@
+.pages {
+  flex: none;
+  width: 250px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+
+.pages-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.pages h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.pages-empty {
+  margin: 0;
+  color: var(--text-dim);
+}
+
+.pages-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.pages-tab {
+  padding: 2px 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: none;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.pages-tab-current {
+  background: var(--text);
+  border-color: var(--text);
+  color: var(--surface);
+  font-weight: 600;
+}
+
+.pages-name {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.pages-name input {
+  width: 130px;
+  padding: 3px 7px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: var(--surface);
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.pages-knobs {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pages-knobs li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+}
+
+.pages-knob-number {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #201a0f;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.pages-knob-target {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 1px 4px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  text-align: left;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.pages-knob-target:hover {
+  background: var(--surface-raised);
+}
+
+.pages-swatch {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  background: var(--category);
+}
+
+.pages-knob-free {
+  padding-left: 4px;
+  color: var(--text-dim);
+}
+
+.pages-clear {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--text-dim);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.pages-clear:hover {
+  background: var(--surface-raised);
+  color: var(--text);
+}

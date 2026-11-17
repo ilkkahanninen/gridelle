@@ -1,0 +1,18 @@
+#N canvas 0 50 800 600 12;
+#X obj 30 30 inlet;
+#X obj 30 70 ge-voice;
+#X obj 30 140 ge-osc-saw ge1;
+#X obj 290 140 ge-filter-lp ge2;
+#X obj 550 140 ge-amp ge3;
+#X obj 30 230 ge-env-adsr ge5;
+#X obj 420 230 ge-env-adsr ge6;
+#X obj 30 315 outlet~;
+#X connect 0 0 1 0;
+#X connect 2 0 3 0;
+#X connect 5 0 3 1;
+#X connect 3 0 4 0;
+#X connect 6 0 4 1;
+#X connect 1 0 2 0;
+#X connect 1 1 5 0;
+#X connect 1 1 6 0;
+#X connect 4 0 7 0;

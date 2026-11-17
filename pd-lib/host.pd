@@ -1,0 +1,11 @@
+#N canvas 0 0 450 300 12;
+#X obj 30 30 catch~ outL;
+#X obj 150 30 catch~ outR;
+#X obj 30 80 clip~ -1 1;
+#X obj 150 80 clip~ -1 1;
+#X obj 30 130 dac~ 1 2;
+#X text 30 180 Preview stand-in for the Organelle host patch. Never exported.;
+#X connect 0 0 2 0;
+#X connect 1 0 3 0;
+#X connect 2 0 4 0;
+#X connect 3 0 4 1;

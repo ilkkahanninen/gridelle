@@ -1,0 +1,253 @@
+.canvas {
+  position: relative;
+  overflow: hidden;
+  background-color: var(--canvas);
+  background-image:
+    linear-gradient(to right, var(--canvas-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--canvas-line) 1px, transparent 1px);
+  touch-action: none;
+}
+
+.canvas-panning {
+  cursor: grabbing;
+}
+
+.world {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  transform-origin: 0 0;
+}
+
+.canvas-empty {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  display: grid;
+  place-items: center;
+  color: var(--text-dim);
+  font-size: 16px;
+  pointer-events: none;
+}
+
+/* Tiles */
+
+.tile {
+  position: absolute;
+  background: var(--tile);
+  /* Shadows instead of borders, so ports sit exactly where the cable geometry expects them. */
+  box-shadow:
+    inset 0 3px 0 var(--category),
+    0 0 0 1px var(--line);
+  border-radius: 4px;
+  --knob-color: var(--category);
+}
+
+.tile-selected {
+  outline: 2px solid var(--text);
+  outline-offset: 0;
+  z-index: 1;
+}
+
+.tile-dragging {
+  z-index: 2;
+  opacity: 0.88;
+  cursor: grabbing;
+}
+
+.tile-blocked {
+  outline-color: var(--danger);
+}
+
+.tile-name {
+  position: absolute;
+  inset: 7px 0 auto 0;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding-inline: 6px;
+  pointer-events: none;
+}
+
+.tile-knobs {
+  position: absolute;
+  inset: auto 0 5px 0;
+  display: flex;
+  justify-content: center;
+  gap: 7px;
+}
+
+.tile-knob {
+  position: relative;
+}
+
+.tile-knob .knob {
+  gap: 1px;
+}
+
+/* Marks a setting that an Organelle knob plays, with the knob's number. */
+.tile-knob-badge {
+  position: absolute;
+  top: -5px;
+  right: 1px;
+  width: 14px;
+  height: 14px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #201a0f;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.tile-knob .knob-label {
+  width: 44px;
+  text-align: center;
+  white-space: nowrap;
+  font-size: 11.5px;
+}
+
+.tile-narrow .tile-knob .knob-label {
+  width: 60px;
+}
+
+/* Ports: a ring when free, filled when cabled, a small centre dot when fed automatically. */
+
+.port {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 18px;
+  margin-top: -9px;
+  cursor: crosshair;
+}
+
+.port-in {
+  margin-left: -8px;
+  padding-right: 6px;
+}
+
+.port-out {
+  margin-right: -8px;
+  padding-left: 6px;
+  flex-direction: row-reverse;
+}
+
+.port-dot {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  margin: 2px;
+  border-radius: 50%;
+  border: 2px solid var(--hint);
+  background: var(--tile);
+}
+
+.port-cabled .port-dot {
+  background: var(--hint);
+}
+
+.port-precord .port-dot {
+  background: radial-gradient(circle, var(--hint) 0 2.2px, var(--tile) 2.8px);
+}
+
+.port:hover .port-dot {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--hint) 35%, transparent);
+}
+
+.port-label {
+  font-size: 11.5px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.tile-narrow .port-label {
+  display: none;
+}
+
+/* While a cable is in hand, the ports it can land on light up and the rest recede. */
+.canvas-cabling-out .port-in .port-dot,
+.canvas-cabling-in .port-out .port-dot {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--hint) 35%, transparent);
+}
+
+.canvas-cabling-out .port-out,
+.canvas-cabling-in .port-in {
+  opacity: 0.35;
+}
+
+/* Cables */
+
+.cables {
+  position: absolute;
+  left: 0;
+  top: 0;
+  overflow: visible;
+  pointer-events: none;
+  z-index: 3;
+}
+
+.cable path {
+  fill: none;
+  stroke-linecap: round;
+}
+
+.cable-hit {
+  stroke: transparent;
+  stroke-width: 12;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+
+.cable-shadow {
+  stroke: rgb(0 0 0 / 0.45);
+  stroke-width: 5;
+}
+
+.cable-line {
+  fill: none;
+  stroke: var(--hint);
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+
+.cable:hover .cable-line {
+  stroke-width: 4;
+}
+
+.cable-selected .cable-shadow {
+  stroke: var(--text);
+  stroke-width: 7;
+}
+
+.cable-dragging {
+  stroke-dasharray: 2 7;
+  opacity: 0.9;
+}
+
+.tile-ghost {
+  position: absolute;
+  border: 2px dashed var(--accent);
+  border-radius: 4px;
+  background: rgb(227 180 108 / 0.12);
+  pointer-events: none;
+}
+
+.marquee {
+  position: absolute;
+  border: 1px solid var(--text);
+  background: rgb(235 231 221 / 0.08);
+  pointer-events: none;
+  z-index: 4;
+}

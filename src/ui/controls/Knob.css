@@ -1,0 +1,49 @@
+.knob {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  user-select: none;
+}
+
+.knob-dial {
+  cursor: ns-resize;
+  touch-action: none;
+  outline: none;
+}
+
+.knob-dial:focus-visible .knob-cap {
+  stroke: var(--accent);
+}
+
+.knob-track,
+.knob-value {
+  fill: none;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+}
+
+.knob-track {
+  stroke: var(--line-strong);
+}
+
+.knob-value {
+  stroke: var(--knob-color, var(--accent));
+}
+
+.knob-cap {
+  fill: var(--surface-raised);
+  stroke: var(--line-strong);
+  stroke-width: 1;
+}
+
+.knob-pointer {
+  stroke: var(--text);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.knob-label {
+  font-size: 12px;
+  color: var(--text-dim);
+}

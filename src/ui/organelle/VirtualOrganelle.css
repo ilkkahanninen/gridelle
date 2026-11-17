@@ -1,0 +1,101 @@
+.organelle {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 12px 14px 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  width: max-content;
+  flex: none;
+}
+
+.organelle-top {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+}
+
+.oled {
+  width: 21ch;
+  box-sizing: content-box;
+  padding: 8px 10px;
+  background: #050607;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.35;
+  color: #e9f1ff;
+  text-shadow: 0 0 6px rgb(160 200 255 / 0.45);
+  white-space: pre;
+}
+
+.oled-line {
+  overflow: hidden;
+}
+
+.organelle-knobs {
+  display: flex;
+  gap: 14px;
+}
+
+.organelle-led {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1px solid var(--line-strong);
+  transition: background 80ms;
+}
+
+.organelle-keys {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.key-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.key-row {
+  display: grid;
+  grid-template-columns: repeat(28, 16px);
+  column-gap: 2px;
+}
+
+.key-row-white .key {
+  grid-column-end: span 2;
+}
+
+.key-black {
+  grid-column-end: span 2;
+}
+
+.key {
+  width: 30px;
+  height: 30px;
+  justify-self: center;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid #6d5a3c;
+  background: radial-gradient(circle at 35% 30%, #e2c592, #b8935a);
+  cursor: pointer;
+  touch-action: none;
+}
+
+.key-black {
+  background: radial-gradient(circle at 35% 30%, #a98558, #7a5b36);
+}
+
+.key-aux {
+  background: radial-gradient(circle at 35% 30%, #cfd3d8, #8b9097);
+  border-color: #5c6066;
+}
+
+.key-down {
+  filter: brightness(0.72);
+  transform: translateY(1px);
+}

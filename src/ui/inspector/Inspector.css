@@ -1,0 +1,132 @@
+.inspector {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 14px;
+  overflow-y: auto;
+  padding: 12px 14px 16px;
+  background: var(--chrome);
+  border-left: 1px solid var(--line);
+}
+
+.inspector-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.inspector h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.inspector h3 {
+  margin: 0 0 6px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-dim);
+}
+
+.inspector section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.inspector-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: var(--category);
+}
+
+.inspector-param {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  row-gap: 2px;
+}
+
+.inspector-param output {
+  color: var(--text-dim);
+}
+
+.inspector-param input {
+  grid-column: 1 / -1;
+  width: 100%;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.inspector-field {
+  display: grid;
+  grid-template-columns: 56px 1fr;
+  align-items: center;
+  gap: 8px;
+}
+
+.inspector-field span {
+  color: var(--text-dim);
+}
+
+.inspector-field input {
+  min-width: 0;
+  padding: 4px 7px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: var(--surface);
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.inspector-field input[type="number"] {
+  width: 64px;
+}
+
+.inspector-check {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+}
+
+.inspector-check input {
+  accent-color: var(--accent);
+}
+
+.inspector-note {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
+.inspector-problems {
+  margin: 0;
+  padding-left: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.problem-error {
+  color: var(--danger);
+}
+
+.problem-warning {
+  color: var(--hint-gate);
+}
+
+.inspector-knob {
+  grid-column: 1 / -1;
+  margin-top: 2px;
+  padding: 2px 4px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 13px;
+}
+
+.inspector section:has(.inspector-param) {
+  gap: 12px;
+}

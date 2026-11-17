@@ -1,0 +1,267 @@
+/**
+ * Edits to a patch document. Every function returns a new document (or the same
+ * one when nothing changed) and never mutates its input, so undo history can keep
+ * old documents around cheaply.
+ */
+
+import { getModuleDef } from "../modules/registry";
+import { clampParam } from "../modules/params";
+import {
+  KNOBS_PER_PAGE,
+  MAX_PAGES,
+  type Cable,
+  type KnobAssignment,
+  type ModuleId,
+  type ModuleInstance,
+  type PatchDocument,
+  type PortRef,
+} from "./types";
+
+export interface Cell {
+  x: number;
+  y: number;
+}
+
+interface Rect extends Cell {
+  width: number;
+  height: number;
+}
+
+function rectOf(module: ModuleInstance, at: Cell = module): Rect | null {
+  const def = getModuleDef(module.type);
+  return def ? { x: at.x, y: at.y, width: def.width, height: def.height } : null;
+}
+
+function overlaps(a: Rect, b: Rect): boolean {
+  return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+}
+
+/** True when `rect` is free of every module except those in `ignore`. */
+function isFree(doc: PatchDocument, rect: Rect, ignore: ReadonlySet<ModuleId> = new Set()): boolean {
+  return doc.modules.every((m) => {
+    if (ignore.has(m.id)) return true;
+    const other = rectOf(m);
+    return !other || !overlaps(rect, other);
+  });
+}
+
+/** Smallest unused `ge<n>` id. */
+export function nextModuleId(doc: PatchDocument): ModuleId {
+  const used = new Set(doc.modules.map((m) => m.id));
+  for (let n = 1; ; n++) if (!used.has(`ge${n}`)) return `ge${n}`;
+}
+
+/** Whether a new module of `type` fits with its top-left corner at `at`. */
+export function canPlace(doc: PatchDocument, type: string, at: Cell): boolean {
+  const def = getModuleDef(type);
+  return !!def && isFree(doc, { ...at, width: def.width, height: def.height });
+}
+
+/** The free spot for `type` closest to `near`, searching outwards in rings. */
+export function findFreeCell(doc: PatchDocument, type: string, near: Cell): Cell {
+  for (let radius = 0; radius < 200; radius++) {
+    let best: Cell | null = null;
+    let bestDistance = Infinity;
+    for (let dy = -radius; dy <= radius; dy++) {
+      for (let dx = -radius; dx <= radius; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== radius) continue;
+        const cell = { x: near.x + dx, y: near.y + dy };
+        const distance = dx * dx + dy * dy;
+        if (distance < bestDistance && canPlace(doc, type, cell)) {
+          best = cell;
+          bestDistance = distance;
+        }
+      }
+    }
+    if (best) return best;
+  }
+  return near;
+}
+
+/** Add a module at `at`. Returns the unchanged document if the type is unknown or the spot is taken. */
+export function addModule(doc: PatchDocument, type: string, at: Cell): { doc: PatchDocument; id: ModuleId | null } {
+  if (!canPlace(doc, type, at)) return { doc, id: null };
+  const id = nextModuleId(doc);
+  return { doc: { ...doc, modules: [...doc.modules, { id, type, x: at.x, y: at.y, params: {} }] }, id };
+}
+
+/** Whether the modules `ids` can all shift by `delta` without landing on another module. */
+export function canMove(doc: PatchDocument, ids: ReadonlySet<ModuleId>, delta: Cell): boolean {
+  return doc.modules.every((m) => {
+    if (!ids.has(m.id)) return true;
+    const rect = rectOf(m, { x: m.x + delta.x, y: m.y + delta.y });
+    return !rect || isFree(doc, rect, ids);
+  });
+}
+
+export function moveModules(doc: PatchDocument, ids: ReadonlySet<ModuleId>, delta: Cell): PatchDocument {
+  if ((delta.x === 0 && delta.y === 0) || ids.size === 0 || !canMove(doc, ids, delta)) return doc;
+  return {
+    ...doc,
+    modules: doc.modules.map((m) => (ids.has(m.id) ? { ...m, x: m.x + delta.x, y: m.y + delta.y } : m)),
+  };
+}
+
+/** Remove modules together with their cables and knob assignments. */
+export function removeModules(doc: PatchDocument, ids: ReadonlySet<ModuleId>): PatchDocument {
+  if (!doc.modules.some((m) => ids.has(m.id))) return doc;
+  return {
+    ...doc,
+    modules: doc.modules.filter((m) => !ids.has(m.id)),
+    cables: doc.cables.filter((c) => !ids.has(c.from.module) && !ids.has(c.to.module)),
+    pages: doc.pages.map((page) => ({
+      ...page,
+      knobs: page.knobs.map((k) => (k && ids.has(k.module) ? null : k)),
+    })),
+  };
+}
+
+const samePort = (a: PortRef, b: PortRef) => a.module === b.module && a.port === b.port;
+
+export const sameCable = (a: Cable, b: Cable) => samePort(a.from, b.from) && samePort(a.to, b.to);
+
+function hasPort(doc: PatchDocument, ref: PortRef, side: "inputs" | "outputs"): boolean {
+  const module = doc.modules.find((m) => m.id === ref.module);
+  return !!module && !!getModuleDef(module.type)?.[side].some((p) => p.id === ref.port);
+}
+
+/** Whether `to` is reachable from `from` by following cables downstream. */
+function reaches(doc: PatchDocument, from: ModuleId, to: ModuleId): boolean {
+  const seen = new Set<ModuleId>();
+  const pending = [from];
+  while (pending.length > 0) {
+    const id = pending.pop()!;
+    if (id === to) return true;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    for (const cable of doc.cables) if (cable.from.module === id) pending.push(cable.to.module);
+  }
+  return false;
+}
+
+/** Why a cable from output `from` to input `to` cannot be made, or `null` if it can. */
+export function connectionProblem(doc: PatchDocument, from: PortRef, to: PortRef): string | null {
+  if (!hasPort(doc, from, "outputs") || !hasPort(doc, to, "inputs")) return "That port does not exist.";
+  if (reaches(doc, to.module, from.module)) return "That would create a feedback loop, which is not supported yet.";
+  return null;
+}
+
+/**
+ * Patch a cable from an output to an input. An input holds one cable, so any
+ * existing cable into `to` is replaced. Invalid connections leave the document unchanged.
+ */
+export function connect(doc: PatchDocument, from: PortRef, to: PortRef): PatchDocument {
+  if (connectionProblem(doc, from, to)) return doc;
+  const cable = { from, to };
+  if (doc.cables.some((c) => sameCable(c, cable))) return doc;
+  return { ...doc, cables: [...doc.cables.filter((c) => !samePort(c.to, to)), cable] };
+}
+
+export function disconnect(doc: PatchDocument, cable: Cable): PatchDocument {
+  const cables = doc.cables.filter((c) => !sameCable(c, cable));
+  return cables.length === doc.cables.length ? doc : { ...doc, cables };
+}
+
+/** Set a parameter, clamped to its range. Unknown modules or parameters leave the document unchanged. */
+export function setParam(doc: PatchDocument, id: ModuleId, param: string, value: number): PatchDocument {
+  const module = doc.modules.find((m) => m.id === id);
+  const def = module && getModuleDef(module.type)?.params.find((p) => p.id === param);
+  if (!module || !def) return doc;
+  const clamped = clampParam(def, value);
+  if ((module.params[param] ?? def.default) === clamped) return doc;
+  return {
+    ...doc,
+    modules: doc.modules.map((m) => (m === module ? { ...m, params: { ...m.params, [param]: clamped } } : m)),
+  };
+}
+
+/** Turn an input's pre-cord (its implicit pitch/gate connection) on or off. */
+export function setPrecord(doc: PatchDocument, id: ModuleId, port: string, enabled: boolean): PatchDocument {
+  const module = doc.modules.find((m) => m.id === id);
+  const def = module && getModuleDef(module.type)?.inputs.find((p) => p.id === port);
+  if (!module || !def?.precord || (module.precords?.[port] ?? true) === enabled) return doc;
+  return {
+    ...doc,
+    modules: doc.modules.map((m) => (m === module ? { ...m, precords: { ...m.precords, [port]: enabled } } : m)),
+  };
+}
+
+/** Current value of a parameter, falling back to its default. */
+export function paramValue(module: ModuleInstance, param: string): number {
+  const def = getModuleDef(module.type)?.params.find((p) => p.id === param);
+  return module.params[param] ?? def?.default ?? 0;
+}
+
+/** Add an empty knob page at the end. Does nothing once the page limit is reached. */
+export function addPage(doc: PatchDocument, name = `Page ${doc.pages.length + 1}`): PatchDocument {
+  if (doc.pages.length >= MAX_PAGES) return doc;
+  return { ...doc, pages: [...doc.pages, { name, knobs: Array(KNOBS_PER_PAGE).fill(null) }] };
+}
+
+export function removePage(doc: PatchDocument, index: number): PatchDocument {
+  if (!doc.pages[index]) return doc;
+  return { ...doc, pages: doc.pages.filter((_, i) => i !== index) };
+}
+
+export function renamePage(doc: PatchDocument, index: number, name: string): PatchDocument {
+  if (!doc.pages[index] || doc.pages[index].name === name) return doc;
+  return { ...doc, pages: doc.pages.map((page, i) => (i === index ? { ...page, name } : page)) };
+}
+
+export interface KnobSlot {
+  page: number;
+  /** 0–3 for the Organelle's knobs 1–4. */
+  knob: number;
+}
+
+/** Where a parameter is assigned, if anywhere. */
+export function findAssignment(doc: PatchDocument, module: ModuleId, param: string): KnobSlot | null {
+  for (const [page, { knobs }] of doc.pages.entries()) {
+    const knob = knobs.findIndex((k) => k?.module === module && k.param === param);
+    if (knob >= 0) return { page, knob };
+  }
+  return null;
+}
+
+/**
+ * Put a parameter on a knob, or clear the knob with `null`. A parameter lives on
+ * at most one knob, so assigning it somewhere new removes it from where it was.
+ */
+export function assignKnob(doc: PatchDocument, slot: KnobSlot, assignment: KnobAssignment | null): PatchDocument {
+  const page = doc.pages[slot.page];
+  if (!page || slot.knob < 0 || slot.knob >= KNOBS_PER_PAGE) return doc;
+  if (assignment) {
+    const module = doc.modules.find((m) => m.id === assignment.module);
+    if (!module || !getModuleDef(module.type)?.params.some((p) => p.id === assignment.param)) return doc;
+  }
+  const current = page.knobs[slot.knob];
+  if (current?.module === assignment?.module && current?.param === assignment?.param) return doc;
+  const isMoved = (k: KnobAssignment | null) =>
+    !!k && !!assignment && k.module === assignment.module && k.param === assignment.param;
+  return {
+    ...doc,
+    pages: doc.pages.map((p, pageIndex) => ({
+      ...p,
+      knobs: p.knobs.map((k, knobIndex) =>
+        pageIndex === slot.page && knobIndex === slot.knob ? assignment : isMoved(k) ? null : k,
+      ),
+    })),
+  };
+}
+
+/** Put a parameter on the first free knob, adding a page if every knob is taken. */
+export function assignToFreeKnob(doc: PatchDocument, assignment: KnobAssignment): PatchDocument {
+  for (const [page, { knobs }] of doc.pages.entries()) {
+    const knob = knobs.indexOf(null);
+    if (knob >= 0) return assignKnob(doc, { page, knob }, assignment);
+  }
+  const withPage = addPage(doc);
+  if (withPage === doc) return doc;
+  return assignKnob(withPage, { page: withPage.pages.length - 1, knob: 0 }, assignment);
+}
+
+/** Take a parameter off whatever knob it is on. */
+export function unassign(doc: PatchDocument, module: ModuleId, param: string): PatchDocument {
+  const slot = findAssignment(doc, module, param);
+  return slot ? assignKnob(doc, slot, null) : doc;
+}
