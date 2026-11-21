@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { exportToOrganelle, newPatch, openPatch, savePatch } from "./state/actions";
+import { exportToOrganelle, newPatch, openPatch, savePatch, sendToOrganelle } from "./state/actions";
 import { startPreviewSync } from "./state/preview";
 import { useEditor } from "./state/store";
 import { useUi } from "./state/ui";
@@ -35,7 +35,8 @@ function useShortcuts() {
         void newPatch();
       } else if (command && key === "e") {
         e.preventDefault();
-        void exportToOrganelle();
+        // Shift sends it over Wi-Fi instead of writing a folder.
+        void (e.shiftKey ? sendToOrganelle() : exportToOrganelle());
       } else if (isTextField(e.target)) {
         // Let text fields keep undo, select-all and delete for themselves.
       } else if (command && key === "z") {

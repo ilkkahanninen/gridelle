@@ -1,8 +1,10 @@
 import * as files from "../bridge/files";
+import { sendPatch, type SendReport } from "../bridge/organelle";
 import { compile } from "../core/compiler";
 import { exportFolderName, parseDocument, serializeDocument } from "../core/model/serialize";
 import { emptyDocument } from "../core/model/types";
 import { abstractionLibrary } from "../core/pdlib";
+import { useOrganelle } from "./organelle";
 import { hasUnsavedChanges, useEditor } from "./store";
 
 const text = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -71,5 +73,51 @@ export async function exportToOrganelle(): Promise<void> {
     await files.showInfo(`Exported to ${written}`);
   } catch (e) {
     await files.showError(`Could not export the patch. ${text(e)}`);
+  }
+}
+
+/**
+ * Compile the patch, put it on the Organelle over the network and start it there.
+ * Progress and the outcome go to the panel under the Send button, not to dialogs.
+ */
+export async function sendToOrganelle(): Promise<void> {
+  const { address, status } = useOrganelle.getState();
+  if (status.kind === "sending") return;
+  useOrganelle.setState({ panelOpen: true });
+  // Without an address the panel, now open, asks for one.
+  if (!address.trim()) return;
+
+  const { doc } = useEditor.getState();
+  const result = compile(doc, abstractionLibrary);
+  if (!result.ok) {
+    const problems = result.diagnostics.filter((d) => d.severity === "error").map((d) => d.message);
+    useOrganelle.setState({ status: { kind: "error", message: `This patch cannot be sent yet. ${problems.join(" ")}` } });
+    return;
+  }
+
+  const folder = exportFolderName(doc.name);
+  useOrganelle.setState({ status: { kind: "sending" } });
+  try {
+    let report: SendReport;
+    try {
+      report = await sendPatch(address, folder, result.files, false);
+    } catch (e) {
+      if (text(e) !== "exists") throw e;
+      const replace = await files.confirm(
+        `The Organelle already has a patch named “${folder}” that Gridelle did not make. Replace its files?`,
+        "Replace",
+      );
+      if (!replace) {
+        useOrganelle.setState({ status: { kind: "idle" } });
+        return;
+      }
+      report = await sendPatch(address, folder, result.files, true);
+    }
+    const message = report.started
+      ? `${folder} is running on the Organelle.`
+      : `${folder} is on the Organelle but did not start by itself. Pick it from the Organelle's menu.`;
+    useOrganelle.setState({ status: { kind: "sent", message } });
+  } catch (e) {
+    useOrganelle.setState({ status: { kind: "error", message: text(e) } });
   }
 }

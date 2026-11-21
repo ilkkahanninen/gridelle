@@ -1,6 +1,7 @@
 import { exportToOrganelle, newPatch, openPatch, savePatch } from "../../state/actions";
 import { usePreview } from "../../state/preview";
 import { hasUnsavedChanges, useEditor } from "../../state/store";
+import { SendToOrganelle } from "./SendPanel";
 
 const ORGANELLE_SAMPLE_RATE = 44100;
 
@@ -59,9 +60,14 @@ export function TopBar() {
       </div>
       <div className="topbar-spacer" />
       <EngineStatus />
-      <button className="button button-primary" onClick={() => void exportToOrganelle()}>
-        Export to Organelle…
+      <button
+        className="button"
+        title="Write the patch as a folder, for the Organelle's USB drive (⌘E)"
+        onClick={() => void exportToOrganelle()}
+      >
+        Export…
       </button>
+      <SendToOrganelle />
     </header>
   );
 }

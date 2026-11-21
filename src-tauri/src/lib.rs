@@ -1,4 +1,5 @@
 pub mod engine;
+pub mod organelle;
 
 use std::collections::HashMap;
 
@@ -111,6 +112,21 @@ fn export_patch(
     Ok(dir.to_string_lossy().into_owned())
 }
 
+/// Send a patch folder to an Organelle on the network and start it there.
+/// Fails with "exists" under the same rule as [`organelle::send_patch`].
+#[tauri::command(async)]
+fn organelle_send(
+    address: String,
+    folder: String,
+    files: HashMap<String, String>,
+    replace: bool,
+) -> Result<organelle::SendReport, String> {
+    if !is_plain_name(&folder) || files.keys().any(|name| !is_plain_name(name)) {
+        return Err("invalid patch or file name".into());
+    }
+    organelle::send_patch(&address, &folder, &files, replace)
+}
+
 fn start_engine(app: &AppHandle) -> EngineState {
     let handle = app.clone();
     EngineState(Engine::start(move |event| {
@@ -143,7 +159,8 @@ pub fn run() {
             engine_peak,
             read_text_file,
             write_text_file,
-            export_patch
+            export_patch,
+            organelle_send
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

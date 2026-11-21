@@ -1,0 +1,70 @@
+.send {
+  position: relative;
+}
+
+.send-buttons {
+  display: flex;
+}
+
+.send-buttons .button:first-child {
+  border-radius: 4px 0 0 4px;
+}
+
+.send-toggle {
+  padding-inline: 7px;
+  border-radius: 0 4px 4px 0;
+  border-left-color: rgb(32 26 15 / 0.35);
+}
+
+.send-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 20;
+  width: 310px;
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  box-shadow: 0 10px 28px rgb(0 0 0 / 0.45);
+}
+
+.send-panel label {
+  color: var(--text-dim);
+}
+
+.send-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.send-row input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 7px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: var(--surface);
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.send-status {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 13px;
+  /* Errors are worth copying. */
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.send-status-sent {
+  color: var(--text);
+}
+
+.send-status-error {
+  color: var(--danger);
+}

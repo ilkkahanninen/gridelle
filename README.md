@@ -29,6 +29,23 @@ The engine test against a real audio device is opt-in (it plays at -40 dB):
 cd src-tauri && cargo test --test engine_audio -- --ignored
 ```
 
+## Send over Wi-Fi
+
+With the Organelle on the same network and its web server running, **Send to Organelle**
+(⇧⌘E) puts the patch in the device's `Patches` folder and starts it. Enter the Organelle's
+IP address or host name the first time; it is remembered.
+
+A patch folder Gridelle made earlier is replaced without asking; a same-named folder that
+it did not make asks first. Works with the web servers of Organelle OS 3.x–4.x (tried on a
+device running 3.2) and OS 5 (written from its source, not yet tried on a device).
+
+To try the sending code against a device from the command line (it creates and starts a
+patch named `Gridelle_Test`):
+
+```sh
+cd src-tauri && ORGANELLE_ADDRESS=<address> cargo test --test organelle_send -- --ignored --nocapture
+```
+
 ## Layout
 
 | Path | What |
@@ -36,7 +53,7 @@ cd src-tauri && cargo test --test engine_audio -- --ignored
 | `src/core` | Document model, module registry, compiler, Pd file builder. Pure TypeScript. |
 | `src/ui` | React UI. |
 | `src/bridge` | The preview engine interface the UI talks to. |
-| `src-tauri` | Rust backend: libpd wrapper, audio output, Tauri commands. |
+| `src-tauri` | Rust backend: libpd wrapper, audio output, sending to the Organelle, Tauri commands. |
 | `pd-lib/modules` | Hand-written Pd abstractions, one per module, vanilla Pd 0.49 only. |
 | `pd-lib/host.pd` | Preview stand-in for the Organelle's host patch. Never exported. |
 | `pd-lib/spike` | Hand-written test patch for checking a device (copy it to `Patches/`). |

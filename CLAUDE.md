@@ -27,6 +27,7 @@ Single tests:
 npx vitest run src/core/compiler/compiler.test.ts -t "is deterministic"
 cd src-tauri && cargo test --test compiled_patches
 cd src-tauri && cargo test --test engine_audio -- --ignored   # opt-in: plays through the real audio device at -40 dB
+cd src-tauri && ORGANELLE_ADDRESS=<ip> cargo test --test organelle_send -- --ignored --nocapture   # opt-in: writes the patch Gridelle_Test to a real Organelle and starts it
 ```
 
 ### Golden files tie the two test suites together
@@ -90,7 +91,8 @@ Params are stored and sent in real units (Hz, ms, semitones). `params.ts` maps a
 
 - `store.ts`: the document, undo/redo history (with coalescing for continuous gestures such as knob drags), selection, file path.
 - `preview.ts`: `startPreviewSync()` subscribes to the store. A structural change (different `structureKey`) recompiles and reloads the patch after a short debounce; a value-only change sends each changed param to its receiver and nudges the matching `ge-slot-<page>-<knob>` so the on-device knob state and screen follow. It also keeps what the patch sends back (screen lines, LED, Pd console) in the `usePreview` store; the components only draw it.
-- `actions.ts`: New / Open / Save / Export flows.
+- `actions.ts`: New / Open / Save / Export / Send flows.
+- `organelle.ts`: the Organelle's network address (kept in `localStorage`) and the state of the Send panel.
 - `ui.ts`: transient canvas state (view, cable drag, palette placement).
 
 Hot reload does not survive an edit to these store modules: the UI switches to a new store instance while the sync started by `App` keeps feeding the old one, so the preview looks dead (blank screen, no reloads) until the window is reloaded or `tauri dev` restarted.
@@ -117,3 +119,23 @@ Exported patches must run on the device's stock Pd (0.49 vanilla on OS 4.x, no e
 - Output to the host: `throw~ outL` / `throw~ outR`, `screenLine1`–`screenLine5`, `led`.
 - Exports never contain `dac~`. In the preview and in the Rust tests `pd-lib/host.pd` stands in for the host (catch → clip → `dac~`), and `src/ui/organelle/VirtualOrganelle.tsx` sends and displays exactly the messages above.
 - `pd-lib/spike` is a hand-written patch for checking a real device, not compiler output.
+
+### Sending over Wi-Fi (`src-tauri/src/organelle.rs`)
+
+"Send to Organelle" runs the same compile as Export and hands the files to the `organelle_send` command, which talks to the web file manager the Organelle runs while it is on Wi-Fi. There is no documentation for that server; the facts below come from the Organelle_OS source (tags v3.2, v4.4, v5.1) and from a device running OS 3.2.
+
+| | OS 3.x–4.x ("classic") | OS 5 |
+|---|---|---|
+| Server | CherryPy, port 80, under `/files` | Flask, port 8080, no prefix |
+| List / make folder / delete | `GET /files/fmdata?operation=get_node\|create_node\|delete_node` | same; the JSON answer is encoded twice |
+| Upload | `POST /files/upload`, multipart `dst` + `files[]` | `POST /upload` |
+| Read back | `GET /files/download?fpath=&cb=` (both required) | `GET /download?fpath=` |
+| Refresh the patch menu | `GET /files/resync` | automatic after an upload |
+| Start a patch | OSC `/loadPatch <folder name>` to UDP 4001 | `POST /reload_patch`, form `path=<folder>` |
+
+- Uploading or creating never overwrites: a taken name becomes `main 2.pd`. A file is therefore deleted before it is uploaded.
+- Every operation answers `{"ok":"ok"}` even when it failed, so each file is downloaded and compared after sending.
+- The device plays from `/usbdrive/Patches` when that exists, otherwise `/sdcard/Patches`. It records the running patch as a folder name under `/tmp/curpatchname`, which is how a classic start is confirmed.
+- A folder counts as Gridelle's own, and is replaced without asking, when it contains `ge-voice.pd`.
+
+`src-tauri/tests/organelle_send.rs` holds a fake device that reproduces both servers and these quirks. The OS 5 path has only ever run against that fake.
