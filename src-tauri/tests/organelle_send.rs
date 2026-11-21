@@ -396,6 +396,22 @@ fn sends_a_new_patch_and_starts_it() {
     assert_eq!(state.current_patch().as_deref(), Some("My_Patch"));
 }
 
+/// The app calls the sender from a Tauri command, which runs on the async runtime's worker
+/// threads, where a blocking HTTP client may not be used directly.
+#[test]
+fn can_be_called_from_the_async_runtime_as_the_tauri_command_does() {
+    let device = FakeOrganelle::start(Generation::Classic);
+    let target = device.target.clone();
+    let files = patch("x\n");
+
+    let report = tauri::async_runtime::block_on(tauri::async_runtime::spawn(async move {
+        send_patch_to(&target, "My_Patch", &files, false)
+    }));
+
+    let report = report.expect("the sender does not panic on a runtime worker thread").unwrap();
+    assert_eq!(report, SendReport { path: "/sdcard/Patches/My_Patch".into(), started: true });
+}
+
 #[test]
 fn resending_replaces_the_patch_files_and_leaves_other_files_alone() {
     let device = FakeOrganelle::start(Generation::Classic);

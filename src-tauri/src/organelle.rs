@@ -308,6 +308,23 @@ pub fn send_patch_to(
     files: &HashMap<String, String>,
     replace: bool,
 ) -> Result<SendReport, String> {
+    // The blocking HTTP client panics when it is created or dropped on an async runtime's
+    // worker thread, and that is where Tauri runs commands. A thread of its own is always
+    // safe, and a panic in it comes back as an error instead of a command that never answers.
+    std::thread::scope(|scope| {
+        scope
+            .spawn(|| send_on_this_thread(target, folder, files, replace))
+            .join()
+            .unwrap_or_else(|_| Err("Sending to the Organelle stopped unexpectedly.".into()))
+    })
+}
+
+fn send_on_this_thread(
+    target: &Target,
+    folder: &str,
+    files: &HashMap<String, String>,
+    replace: bool,
+) -> Result<SendReport, String> {
     let device = Device::find(target)?;
 
     // The device plays from a USB drive when one with a Patches folder is plugged in.
