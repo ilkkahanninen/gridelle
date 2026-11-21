@@ -31,7 +31,8 @@ describe("preview sync", () => {
     usePreview.setState({
       engine: { kind: "starting" },
       diagnostics: [],
-      loadsStarted: 0,
+      screen: ["", "", "", "", ""],
+      led: 0,
       revision: 0,
       log: [],
       loadError: null,
@@ -54,13 +55,30 @@ describe("preview sync", () => {
     expect(send).not.toHaveBeenCalled();
   });
 
-  it("announces a load before it starts, so the screen is cleared before the patch writes to it", async () => {
-    const seen: number[] = [];
-    load.mockImplementationOnce(async () => void seen.push(usePreview.getState().loadsStarted, usePreview.getState().revision));
+  it("keeps what the patch sends to the screen and the LED", () => {
+    const emit = vi.mocked(engine.onEvent).mock.calls[0][0];
+    emit({ kind: "message", recv: "screenLine2", atoms: ["Low-pass", "Res", 0.30000001192092896] });
+    emit({ kind: "message", recv: "screenLine5", atoms: ["A", "page", "name", "that", "is", "far", "too", "long"] });
+    emit({ kind: "message", recv: "led", atoms: [4] });
+    expect(usePreview.getState().screen).toEqual(["", "Low-pass Res 0.3", "", "", "A page name that is f"]);
+    expect(usePreview.getState().led).toBe(4);
+  });
+
+  it("blanks the screen before a load starts, so the new patch writes onto an empty screen", async () => {
+    const emit = vi.mocked(engine.onEvent).mock.calls[0][0];
+    emit({ kind: "message", recv: "screenLine1", atoms: ["Old"] });
+    emit({ kind: "message", recv: "led", atoms: [3] });
+    let atLoad: unknown;
+    load.mockImplementationOnce(async () => {
+      const { screen, led, revision } = usePreview.getState();
+      atLoad = { screen, led, revision };
+      // The patch writes to the screen while it loads.
+      emit({ kind: "message", recv: "screenLine1", atoms: ["New"] });
+    });
     useEditor.getState().apply((doc) => ({ ...doc, voices: 2 }));
     await settle();
-    expect(seen).toEqual([2, 1]);
-    expect(usePreview.getState()).toMatchObject({ loadsStarted: 2, revision: 2 });
+    expect(atLoad).toEqual({ screen: ["", "", "", "", ""], led: 0, revision: 1 });
+    expect(usePreview.getState()).toMatchObject({ screen: ["New", "", "", "", ""], revision: 2 });
   });
 
   it("sends a changed parameter to its receiver without reloading", async () => {

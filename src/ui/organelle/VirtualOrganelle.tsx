@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { engine, type Atom, type PdEvent } from "../../bridge/engine";
+import { engine } from "../../bridge/engine";
+import { usePreview } from "../../state/preview";
 import { Knob } from "../controls/Knob";
 import "./VirtualOrganelle.css";
 
@@ -16,16 +17,7 @@ const BLACK = new Set([1, 3, 6, 8, 10]);
 const TYPING_KEYS = "awsedftgyhujkolp;";
 const AUX_TYPING_KEY = "z";
 
-const SCREEN_LINES = 5;
-const SCREEN_COLUMNS = 21;
-
-function atomText(atom: Atom) {
-  return typeof atom === "number" ? String(Number(atom.toPrecision(6))) : atom;
-}
-
 interface Props {
-  /** Bumped when a patch is about to load: the screen and LED start from blank. */
-  loadsStarted: number;
   /** Bumped when a patch has loaded: the knob positions are sent, as the device does. */
   revision: number;
 }
@@ -35,36 +27,18 @@ interface Props {
  * host patch sends (`notes`, `knob1`–`knob4`, `aux`) and shows what the patch sends
  * back (`screenLine1`–`screenLine5`, `led`).
  */
-export function VirtualOrganelle({ loadsStarted, revision }: Props) {
+export function VirtualOrganelle({ revision }: Props) {
   const [knobs, setKnobs] = useState([0.5, 0.5, 0.5, 0.5]);
   const [volume, setVolume] = useState(0.8);
-  const [lines, setLines] = useState<string[]>(() => Array(SCREEN_LINES).fill(""));
-  const [led, setLed] = useState(0);
+  const lines = usePreview((s) => s.screen);
+  const led = usePreview((s) => s.led);
   const [held, setHeld] = useState<ReadonlySet<number>>(new Set());
   const [aux, setAux] = useState(false);
   const knobsRef = useRef(knobs);
   knobsRef.current = knobs;
-
-  useEffect(() => {
-    const handle = (event: PdEvent) => {
-      if (event.kind !== "message") return;
-      const line = /^screenLine([1-5])$/.exec(event.recv);
-      if (line) {
-        const text = event.atoms.map(atomText).join(" ").slice(0, SCREEN_COLUMNS);
-        setLines((prev) => prev.map((old, i) => (i === Number(line[1]) - 1 ? text : old)));
-      } else if (event.recv === "led" && typeof event.atoms[0] === "number") {
-        setLed(((Math.trunc(event.atoms[0]) % 8) + 8) % 8);
-      }
-    };
-    const subscription = engine.onEvent(handle);
-    return () => void subscription.then((unsubscribe) => unsubscribe());
-  }, []);
-
-  // Blank the screen before the new patch starts writing to it.
-  useEffect(() => {
-    setLines(Array(SCREEN_LINES).fill(""));
-    setLed(0);
-  }, [loadsStarted]);
+  // What has been sent to the patch, so that a key or Aux is never pressed or released twice.
+  const heldRef = useRef<ReadonlySet<number>>(new Set());
+  const auxRef = useRef(false);
 
   // The device reports its knob positions right after a patch loads.
   useEffect(() => {
@@ -74,22 +48,23 @@ export function VirtualOrganelle({ loadsStarted, revision }: Props) {
 
   useEffect(() => void engine.setVolume(volume), [volume]);
 
+  // Sending happens here, outside the state updaters: React may run an updater more
+  // than once (it does in StrictMode), and a repeated `aux 1` would step two pages.
   const note = useCallback((index: number, down: boolean) => {
-    setHeld((prev) => {
-      if (prev.has(index) === down) return prev;
-      void engine.send("notes", FIRST_NOTE + index, down ? KEY_VELOCITY : 0);
-      const next = new Set(prev);
-      if (down) next.add(index);
-      else next.delete(index);
-      return next;
-    });
+    if (heldRef.current.has(index) === down) return;
+    const next = new Set(heldRef.current);
+    if (down) next.add(index);
+    else next.delete(index);
+    heldRef.current = next;
+    setHeld(next);
+    void engine.send("notes", FIRST_NOTE + index, down ? KEY_VELOCITY : 0);
   }, []);
 
   const pressAux = useCallback((down: boolean) => {
-    setAux((prev) => {
-      if (prev !== down) void engine.send("aux", down ? 1 : 0);
-      return down;
-    });
+    if (auxRef.current === down) return;
+    auxRef.current = down;
+    setAux(down);
+    void engine.send("aux", down ? 1 : 0);
   }, []);
 
   useEffect(() => {
@@ -143,7 +118,7 @@ export function VirtualOrganelle({ loadsStarted, revision }: Props) {
           ))}
           <Knob value={volume} onChange={setVolume} defaultValue={0.8} label="Volume" />
         </div>
-        <div className="organelle-led" style={{ background: LED_COLORS[led] }} aria-label="LED" />
+        <div className="organelle-led" style={{ background: LED_COLORS[((Math.trunc(led) % 8) + 8) % 8] }} aria-label="LED" />
       </div>
 
       <div className="organelle-keys">

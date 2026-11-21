@@ -6,7 +6,6 @@ import { KnobPages } from "../pages/KnobPages";
 /** Bottom strip: the virtual Organelle to play the patch, its knob pages, and Pd's console. */
 export function Dock() {
   const revision = usePreview((s) => s.revision);
-  const loadsStarted = usePreview((s) => s.loadsStarted);
   const log = usePreview((s) => s.log);
   const consoleRef = useRef<HTMLPreElement>(null);
 
@@ -17,7 +16,7 @@ export function Dock() {
 
   return (
     <footer className="dock">
-      <VirtualOrganelle loadsStarted={loadsStarted} revision={revision} />
+      <VirtualOrganelle revision={revision} />
       <KnobPages />
       <div className="dock-side">
         <p className="hint">

@@ -1,6 +1,7 @@
 import { create } from "zustand";
-import { engine } from "../bridge/engine";
+import { engine, type Atom, type PdEvent } from "../bridge/engine";
 import { compile, type Diagnostic } from "../core/compiler";
+import { SCREEN_COLUMNS } from "../core/compiler/knobPages";
 import { structureKey } from "../core/compiler/structure";
 import type { PatchDocument } from "../core/model/types";
 import { abstractionLibrary } from "../core/pdlib";
@@ -15,8 +16,10 @@ interface PreviewState {
   engine: EngineState;
   /** Problems with the current patch, from the compiler. */
   diagnostics: Diagnostic[];
-  /** Bumped just before a patch is handed to the engine, so displays can be cleared first. */
-  loadsStarted: number;
+  /** What the patch has written to the Organelle's screen (`screenLine1`–`screenLine5`), one entry per line. */
+  screen: string[];
+  /** The colour number the patch last sent to `led`; 0 is off. */
+  led: number;
   /** Bumped every time a patch finishes loading into the engine. */
   revision: number;
   /** Lines printed by Pd, most recent last. */
@@ -25,10 +28,18 @@ interface PreviewState {
   loadError: string | null;
 }
 
+const SCREEN_LINES = 5;
+const blankScreen = (): string[] => Array(SCREEN_LINES).fill("");
+
+function atomText(atom: Atom) {
+  return typeof atom === "number" ? String(Number(atom.toPrecision(6))) : atom;
+}
+
 export const usePreview = create<PreviewState>(() => ({
   engine: { kind: "starting" },
   diagnostics: [],
-  loadsStarted: 0,
+  screen: blankScreen(),
+  led: 0,
   revision: 0,
   log: [],
   loadError: null,
@@ -78,8 +89,8 @@ export function startPreviewSync(): () => void {
       const result = compile(doc, abstractionLibrary);
       usePreview.setState({ diagnostics: result.diagnostics });
       if (result.ok && usePreview.getState().engine.kind === "ready") {
-        // A patch writes to the screen while it loads, so announce the load before it starts.
-        usePreview.setState((s) => ({ loadsStarted: s.loadsStarted + 1 }));
+        // A patch writes to the screen while it loads, so blank it before the load starts.
+        usePreview.setState({ screen: blankScreen(), led: 0 });
         await engine.load(result.files, result.entry);
         if (stopped) return;
         loadedKey = key;
@@ -114,9 +125,22 @@ export function startPreviewSync(): () => void {
     if (state.doc !== previous.doc) onDocument(state.doc);
   });
 
-  const events = engine.onEvent((event) => {
-    if (event.kind === "print") usePreview.setState((s) => ({ log: [...s.log.slice(-199), event.text] }));
-  });
+  // The screen and LED are kept here, not in the component that draws them: the patch only
+  // writes a line when it changes, so a display that forgot its contents would stay blank.
+  const onEvent = (event: PdEvent) => {
+    if (event.kind === "print") {
+      usePreview.setState((s) => ({ log: [...s.log.slice(-199), event.text] }));
+      return;
+    }
+    const line = /^screenLine([1-5])$/.exec(event.recv);
+    if (line) {
+      const text = event.atoms.map(atomText).join(" ").slice(0, SCREEN_COLUMNS);
+      usePreview.setState((s) => ({ screen: s.screen.map((old, i) => (i === Number(line[1]) - 1 ? text : old)) }));
+    } else if (event.recv === "led" && typeof event.atoms[0] === "number") {
+      usePreview.setState({ led: event.atoms[0] });
+    }
+  };
+  const events = engine.onEvent(onEvent);
 
   void engine
     .status()

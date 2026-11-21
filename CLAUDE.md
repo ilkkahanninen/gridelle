@@ -89,9 +89,11 @@ Params are stored and sent in real units (Hz, ms, semitones). `params.ts` maps a
 ### State (`src/state`, zustand)
 
 - `store.ts`: the document, undo/redo history (with coalescing for continuous gestures such as knob drags), selection, file path.
-- `preview.ts`: `startPreviewSync()` subscribes to the store. A structural change (different `structureKey`) recompiles and reloads the patch after a short debounce; a value-only change sends each changed param to its receiver and nudges the matching `ge-slot-<page>-<knob>` so the on-device knob state and screen follow.
+- `preview.ts`: `startPreviewSync()` subscribes to the store. A structural change (different `structureKey`) recompiles and reloads the patch after a short debounce; a value-only change sends each changed param to its receiver and nudges the matching `ge-slot-<page>-<knob>` so the on-device knob state and screen follow. It also keeps what the patch sends back (screen lines, LED, Pd console) in the `usePreview` store; the components only draw it.
 - `actions.ts`: New / Open / Save / Export flows.
 - `ui.ts`: transient canvas state (view, cable drag, palette placement).
+
+Hot reload does not survive an edit to these store modules: the UI switches to a new store instance while the sync started by `App` keeps feeding the old one, so the preview looks dead (blank screen, no reloads) until the window is reloaded or `tauri dev` restarted.
 
 ### UI (`src/ui`)
 
