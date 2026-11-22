@@ -39,6 +39,11 @@ export interface ParamDef {
   /** Snap to multiples of this (e.g. 1 for whole semitones). */
   step?: number;
   /**
+   * Decimals to show the value with, in the editor and on the Organelle's screen, where
+   * the usual rule (fewer for a wider range) would hide the low end: an LFO's 0.02 Hz.
+   */
+  decimals?: number;
+  /**
    * A choice instead of a range: the value is the index of the chosen option, so
    * `min` is 0, `max` the last index and `step` 1. Shown as a list in the inspector,
    * not as a knob.

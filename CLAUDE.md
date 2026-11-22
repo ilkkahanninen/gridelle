@@ -78,7 +78,7 @@ A module is two things that must agree:
 
 `registry.test.ts` enforces the match by parsing the `.pd` text (`src/core/pd/inspect.ts`, flat patches only, no subpatches). It also checks that every object class used is in the allowlist in `src/core/pd/vanilla049.ts`. The preview embeds a newer Pd than the device has, so an object missing from that list could work in the editor and fail on the Organelle; extend the list only after checking it exists in Pd 0.49 vanilla.
 
-Params are stored and sent in real units (Hz, ms, semitones). `params.ts` maps a 0–1 control position to a value (`lin`/`exp`); `knobPages.ts` emits the same mapping as Pd objects, so the two must stay equivalent.
+Params are stored and sent in real units (Hz, ms, semitones). `ParamDef.decimals` fixes how many decimals a value is shown with, in the editor and on the Organelle's screen, where the default (fewer for a wider range) would hide the low end, as with an LFO's 0.02 Hz. `params.ts` maps a 0–1 control position to a value (`lin`/`exp`); `knobPages.ts` emits the same mapping as Pd objects, so the two must stay equivalent.
 
 A param with `options` is a choice (an oscillator's Mod mode). Its value is the option's index, so it is stored, clamped and sent like any other number, and changing it is a live update, not a reload. The inspector draws it as a list; it gets no knob on the tile, and so cannot be put on an Organelle knob, whose screen line would show the bare index.
 
@@ -109,6 +109,11 @@ A bare `;` in a Pd comment ends the box, and Pd then tries to deliver the rest a
 - Choices have no input.
 - The ADSR is the exception to "signal rate": it reads its inputs when a stage starts. `snapshot~` takes A, D and S at gate on and R at gate off, times the knob values, into the one `vline~` it always had (which is what keeps a retrigger from clicking). A change during a stage waits for the next one, and a negative product counts as 0.
 - A filter's Res goes through `exp~` to become Q, so Q and the level trim are signals, and `ge-filter-poles` takes Q at a signal inlet. `ge-drive` has a signal inlet that multiplies Drive.
+
+**LFOs.** `ge-lfo` and `ge-lfo-random` are modulation sources with two outlets: the wave between -1 and 1, and the same wave between 0 and 1 for the inputs that multiply a setting. Level scales both.
+
+- The LFO computes its five shapes from one `phasor~` and multiplies each by a 0/1 gate from the Shape choice (the option order in the registry must match the `[== n]` objects). Sine and Triangle are shifted to start at 0 going up. Reset sets the phase to 0 on a rising edge, and has the gate pre-cord, so by default each note's LFO starts from the beginning; with the pre-cord off it runs free.
+- Random clocks a `samphold~` of `noise~` with a `phasor~`. A second `samphold~` behind a one-sample delay (`biquad~ 0 0 0 1 0`) keeps the previous value, and Smooth is the part of each tick spent gliding between the two. Every `noise~` has its own sequence, so each voice gets its own values.
 
 **Rows layout.** `layout: "rows"` (every module with knobs) lists a module's inputs as rows, two to a grid cell under a half-cell header: the port on the left edge and, where the input has a `param`, that knob beside it. `height` must be `ceil((rows + 1) / 2)`; `registry.test.ts` checks it. `portOffset` in `ui/canvas/geometry.ts` places both the ports and the knobs. A tile one cell wide (Amp, Audio Out) shows the knobs without names. Voice Sum and Noise, with no knobs, keep the plain layout: ports down the edges.
 

@@ -153,8 +153,9 @@
   gap: 10px;
 }
 
+/* Only as wide as its text: an output's label may sit at the other end of the row. */
 .tile-row-knob .knob-label {
-  width: 52px;
+  width: auto;
   text-align: left;
 }
 

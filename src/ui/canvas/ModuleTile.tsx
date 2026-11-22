@@ -115,8 +115,8 @@ function Port({
   onPointerDown: TileProps["onPortPointerDown"];
 }) {
   const precord = side === "in" && !cabled && port.precord && (module.precords?.[port.id] ?? true) ? port.precord : null;
-  // In a row that has a knob, the knob's label names the row.
-  const knobbed = def.layout === "rows" && !!def.inputs[index]?.param;
+  // An input in a row that has a knob: the knob's label names the row.
+  const knobbed = side === "in" && def.layout === "rows" && !!port.param;
   const hint = precord
     ? `${port.label}: follows ${VOICE_SIGNAL_LABEL[precord]} until you patch a cable in`
     : side === "in" && port.param && port.unpatched !== undefined

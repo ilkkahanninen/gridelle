@@ -100,6 +100,8 @@ export const sourcesAndFilters: PatchDocument = settle({
     { id: "ge12", type: "amp", x: 14, y: 0, params: {} },
     { id: "ge13", type: "audio-out", x: 15, y: 0, params: {} },
     { id: "ge14", type: "env-adsr", x: 10, y: 2, params: { attack: 50, decay: 400, sustain: 0.5 } },
+    { id: "ge15", type: "lfo", x: 18, y: 0, params: { rate: 6, shape: 1 } },
+    { id: "ge16", type: "lfo-random", x: 18, y: 2, params: { rate: 20, smooth: 0.5 } },
   ],
   cables: [
     { from: { module: "ge1", port: "out" }, to: { module: "ge6", port: "in1" } },
@@ -120,6 +122,9 @@ export const sourcesAndFilters: PatchDocument = settle({
     { from: { module: "ge11", port: "out" }, to: { module: "ge5", port: "mod" } },
     // A second envelope sets how long the first one's release is: its knob times where the second stands at key up.
     { from: { module: "ge14", port: "out" }, to: { module: "ge11", port: "release" } },
+    // An LFO sweeps the last filter, and random values move the pulse's width.
+    { from: { module: "ge15", port: "out" }, to: { module: "ge10", port: "mod" } },
+    { from: { module: "ge16", port: "out" }, to: { module: "ge3", port: "pwm" } },
   ],
   pages: [
     {

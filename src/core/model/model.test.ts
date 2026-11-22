@@ -171,6 +171,10 @@ describe("parameters", () => {
     expect(formatParam(def("filter-lp", "cutoff"), 440)).toBe("440 Hz");
     expect(formatParam(def("env-adsr", "release"), 2500)).toBe("2.5 s");
     expect(formatParam(def("env-adsr", "attack"), 5)).toBe("5 ms");
+    // An LFO's rate keeps two decimals, so its slow end does not read as zero.
+    expect(formatParam(def("lfo", "rate"), 0.02)).toBe("0.02 Hz");
+    expect(formatParam(def("lfo", "rate"), 12.5)).toBe("12.5 Hz");
+    expect(formatParam(def("lfo", "shape"), 3)).toBe("Ramp");
     expect(formatParam(def("osc-saw", "tune"), -12)).toBe("-12 st");
     expect(formatParam(def("env-adsr", "sustain"), 0.6)).toBe("0.60");
     expect(formatParam(def("osc-saw", "mode"), 0)).toBe("Linear FM");

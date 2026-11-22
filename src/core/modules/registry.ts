@@ -36,6 +36,18 @@ const rowsHeight = (inputs: PortDef[]) => Math.ceil((inputs.length + 1) / 2);
  */
 const settingInput = (param: string, label: string): PortDef => ({ id: param, label, hint: "mod", param, unpatched: 1 });
 
+/**
+ * The two outputs of a modulation source: the wave itself, between -1 and 1, and the same
+ * wave between 0 and 1, for the inputs that multiply a setting.
+ */
+const modOutputs: PortDef[] = [
+  { id: "out", label: "Out", hint: "mod" },
+  { id: "uni", label: "0–1", hint: "mod" },
+];
+
+// Two decimals, or the slow end would read "0 Hz".
+const lfoRate: ParamDef = { id: "rate", label: "Rate", min: 0.02, max: 50, default: 2, curve: "exp", unit: "Hz", decimals: 2 };
+
 /** Tune and Fine, as every pitched oscillator has them. */
 const tuning: ParamDef[] = [
   { id: "tune", label: "Tune", min: -36, max: 36, default: 0, curve: "lin", unit: "st", step: 1 },
@@ -213,6 +225,45 @@ const DEFS: ModuleDef[] = [
       { id: "release", label: "R", min: 1, max: 10000, default: 300, curve: "exp", unit: "ms" },
     ],
     pd: "ge-env-adsr",
+    scope: "voice",
+  },
+  {
+    // A rising edge at Reset starts the wave again. It follows the key gate, so each note's
+    // LFO starts from the beginning; with that pre-cord switched off it runs free.
+    type: "lfo",
+    name: "LFO",
+    category: "lfo",
+    width: 2,
+    height: 2,
+    layout: "rows",
+    inputs: [
+      { id: "reset", label: "Reset", hint: "gate", precord: "gate" },
+      settingInput("rate", "Rate"),
+      settingInput("level", "Level"),
+    ],
+    outputs: modOutputs,
+    params: [
+      lfoRate,
+      level("level", "Level", 1),
+      // In the order `ge-lfo` numbers them. Saw rises, Ramp falls.
+      choice("shape", "Shape", ["Sine", "Triangle", "Saw", "Ramp", "Square"]),
+    ],
+    pd: "ge-lfo",
+    scope: "voice",
+  },
+  {
+    // A new random value at every tick of Rate. Smooth is the part of a tick spent gliding
+    // to it from the one before: 0 gives steps, 1 a line that never rests.
+    type: "lfo-random",
+    name: "Random",
+    category: "lfo",
+    width: 2,
+    height: 2,
+    layout: "rows",
+    inputs: [settingInput("rate", "Rate"), settingInput("smooth", "Smooth"), settingInput("level", "Level")],
+    outputs: modOutputs,
+    params: [lfoRate, { id: "smooth", label: "Smooth", min: 0, max: 1, default: 0, curve: "lin" }, level("level", "Level", 1)],
+    pd: "ge-lfo-random",
     scope: "voice",
   },
   filter("filter-lp", "Low-pass"),

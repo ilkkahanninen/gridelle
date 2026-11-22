@@ -57,6 +57,7 @@ function screenText(text: string): string {
 
 /** How many decimals a value is shown with on the Organelle's screen. */
 function displayDecimals(param: ParamDef): number {
+  if (param.decimals !== undefined) return param.decimals;
   if (param.step && Number.isInteger(param.step)) return 0;
   const span = param.max - param.min;
   return span <= 4 ? 2 : span <= 200 ? 1 : 0;

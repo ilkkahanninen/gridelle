@@ -12,6 +12,8 @@ export const GLYPHS: Record<string, string> = {
   "osc-pulse": "M2 16H5V4H13V16H21V4H26",
   noise: "M2 10L4 6L6 14L8 3L10 12L12 8L14 17L16 5L18 11L20 7L22 15L24 9L26 11",
   "env-adsr": "M2 17L7 3L12 9H19L26 17",
+  lfo: "M2 10H26 M2 10C6 3 10 3 14 10S22 17 26 10",
+  "lfo-random": "M2 12H6V5H10V14H14V8H18V16H22V7H26",
   "filter-lp": "M2 9H12C15 9 16 4 18 4C20 4 21 12 25 17",
   "filter-hp": "M26 9H16C13 9 12 4 10 4C8 4 7 12 3 17",
   "filter-bp": "M2 17Q9 17 11 10Q14 -2 17 10Q19 17 26 17",

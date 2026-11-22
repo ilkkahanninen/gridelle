@@ -38,7 +38,8 @@ export function formatParam(param: ParamDef, value: number): string {
   if (param.unit === "Hz" && value >= 1000) return `${trim(value / 1000, 2)} kHz`;
   if (param.unit === "ms" && value >= 1000) return `${trim(value / 1000, 2)} s`;
   const span = param.max - param.min;
-  const digits = param.step && Number.isInteger(param.step) ? 0 : span <= 4 ? 2 : Math.abs(value) < 10 ? 1 : 0;
+  const digits =
+    param.decimals ?? (param.step && Number.isInteger(param.step) ? 0 : span <= 4 ? 2 : Math.abs(value) < 10 ? 1 : 0);
   const text = trim(value, digits, span <= 4);
   return param.unit ? `${text} ${param.unit}` : text;
 }

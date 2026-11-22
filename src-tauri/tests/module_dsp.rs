@@ -1,6 +1,6 @@
 //! Measures what the module abstractions in `pd-lib/modules` actually do, in real Pd:
 //! oscillator pitch, level, aliasing and modulation, filter frequency responses, the
-//! shapers' curves, mixer sums, the envelope's stages, and that every setting's input
+//! shapers' curves, mixer sums, the envelope's stages, the LFOs, and that every setting's input
 //! multiplies its knob.
 //!
 //! Each check loads a few-box test patch around one abstraction and analyses the audio
@@ -69,6 +69,8 @@ fn inlets_of(name: &str) -> &'static [Inlet] {
         "ge-shaper-hard" | "ge-shaper-rectify" => &[Main, Setting, Mod],
         "ge-shaper-crush" => &[Main, Setting, Setting, Mod],
         "ge-amp" => &[Main, Setting],
+        "ge-lfo" => &[Main, Setting, Setting],
+        "ge-lfo-random" => &[Setting, Setting, Setting],
         "ge-audio-out" => &[Main, Main, Setting],
         other => panic!("no inlet list for {other}"),
     }
@@ -857,6 +859,132 @@ fn envelope(pd: &mut Pd, dir: &Path) {
     });
 }
 
+// --- LFOs ----------------------------------------------------------------------------------
+
+/// Both outlets of a modulation source: the first into the left channel, the second into the right.
+fn both_outlets(module: usize) -> (Vec<&'static str>, Vec<[usize; 4]>) {
+    (vec!["dac~ 1", "dac~ 2"], vec![[module, 0, module + 1, 0], [module, 1, module + 2, 0]])
+}
+
+/// The LFO with a `[sig~]` on Reset that `t-gate` sets, at 5 Hz, full level, sine.
+fn with_lfo<T>(pd: &mut Pd, dir: &Path, measure: impl FnOnce(&mut Pd) -> T) -> T {
+    with_module(pd, dir, "ge-lfo", &["r t-gate", "sig~"], &[[0, 0, 1, 0]], [Some(1), None, None], both_outlets, |pd| {
+        pd.send_float("t1-rate", 5.0);
+        pd.send_float("t1-level", 1.0);
+        pd.send_float("t1-shape", 0.0);
+        measure(pd)
+    })
+}
+
+fn lfo(pd: &mut Pd, dir: &Path) {
+    // The value a quarter, a half and three quarters of the way through a cycle.
+    let shapes: [(&str, [f32; 3]); 5] = [
+        ("sine", [1.0, 0.0, -1.0]),
+        ("triangle", [1.0, 0.0, -1.0]),
+        ("saw", [-0.5, 0.0, 0.5]),
+        ("ramp", [0.5, 0.0, -0.5]),
+        ("square", [1.0, f32::NAN, -1.0]),
+    ];
+    with_lfo(pd, dir, |pd| {
+        for (number, (name, expected)) in shapes.iter().enumerate() {
+            pd.send_float("t1-shape", number as f32);
+            pd.send_float("t-gate", 0.0);
+            render(pd, 0.13);
+            // A rising edge at Reset: the cycle of 200 ms starts again, within a block of 1.5 ms.
+            pd.send_float("t-gate", 1.0);
+            let (wave, positive) = render(pd, 0.4);
+            for (quarter, value) in expected.iter().enumerate() {
+                if value.is_nan() {
+                    continue;
+                }
+                let ms = 50.0 * (quarter as f32 + 1.0);
+                close(level_at(&wave, ms), *value, 0.06, &format!("lfo {name} {ms} ms after a reset"));
+                close(level_at(&wave, ms + 200.0), *value, 0.06, &format!("lfo {name} a cycle later"));
+            }
+            assert!(peak(&wave) <= 1.0001, "lfo {name} stays within -1..1, peak {}", peak(&wave));
+            let apart = wave.iter().zip(&positive).map(|(w, p)| (p - (w + 1.0) / 2.0).abs()).fold(0.0f32, f32::max);
+            assert!(apart < 0.0001, "lfo {name}: the second outlet is the first moved into 0..1 (off by {apart})");
+        }
+
+        // Sine and triangle start from zero, so a restart is not a jump.
+        for shape in [0.0, 1.0] {
+            pd.send_float("t1-shape", shape);
+            pd.send_float("t-gate", 0.0);
+            render(pd, 0.13);
+            pd.send_float("t-gate", 1.0);
+            let start = level_at(&render(pd, 0.05).0, 3.0);
+            assert!((0.0..0.15).contains(&start), "lfo shape {shape} restarts from zero going up, got {start}");
+        }
+
+        // With no new edge it runs on at its rate; Level scales both outlets.
+        pd.send_float("t1-shape", 0.0);
+        close(frequency(&settled(pd, 2.0).0), 5.0, 0.6, "lfo runs at its rate");
+        pd.send_float("t1-rate", 20.0);
+        close(frequency(&settled(pd, 2.0).0), 20.0, 0.6, "lfo follows Rate");
+        pd.send_float("t1-level", 0.5);
+        let (wave, positive) = settled(pd, 0.5);
+        close(peak(&wave), 0.5, 0.01, "lfo Level 0.5 halves the wave");
+        let (low, high) = positive.iter().fold((f32::MAX, f32::MIN), |(lo, hi), v| (lo.min(*v), hi.max(*v)));
+        assert!(low >= 0.0 && (high - 0.5).abs() < 0.01, "lfo 0..1 outlet at Level 0.5 runs from 0 to 0.5, got {low}..{high}");
+        println!("ge-lfo: five shapes restart on a gate edge, run at Rate, second outlet is 0..1");
+    });
+}
+
+fn random(pd: &mut Pd, dir: &Path) {
+    let opened = |pd: &mut Pd, measure: &mut dyn FnMut(&mut Pd)| {
+        with_module(pd, dir, "ge-lfo-random", &[], &[], [None, None, None], both_outlets, |pd| {
+            pd.send_float("t1-rate", 100.0);
+            pd.send_float("t1-smooth", 0.0);
+            pd.send_float("t1-level", 1.0);
+            measure(pd)
+        })
+    };
+    let mut first = Vec::new();
+    opened(pd, &mut |pd| {
+        // Steps: a new value a hundred times a second, anywhere between -1 and 1.
+        let (wave, positive) = settled(pd, 2.0);
+        close(steps_per_second(&wave), 100.0, 2.0, "random takes a new value at every tick of Rate");
+        let (low, high) = wave.iter().fold((f32::MAX, f32::MIN), |(lo, hi), v| (lo.min(*v), hi.max(*v)));
+        assert!(low >= -1.0 && high <= 1.0, "random stays within -1..1, got {low}..{high}");
+        assert!(low < -0.8 && high > 0.8, "random uses the whole range, got {low}..{high}");
+        close(rms(&wave), 0.577, 0.1, "random values are spread evenly (rms of a uniform spread)");
+        close(mean(&wave), 0.0, 0.2, "random is centred");
+        let apart = wave.iter().zip(&positive).map(|(w, p)| (p - (w + 1.0) / 2.0).abs()).fold(0.0f32, f32::max);
+        assert!(apart < 0.0001, "random: the second outlet is the first moved into 0..1 (off by {apart})");
+        first = wave.iter().step_by(441).take(20).cloned().collect();
+
+        // Half smooth: half of every tick is spent on the way, the other half at rest.
+        pd.send_float("t1-smooth", 0.5);
+        let wave = settled(pd, 2.0).0;
+        let resting = wave.windows(2).filter(|w| w[0] == w[1]).count() as f32 / wave.len() as f32;
+        close(resting, 0.5, 0.03, "random at Smooth 0.5 rests for half of each tick");
+
+        // Fully smooth: a line with no jumps. One tick is 441 samples and the range is 2 wide.
+        pd.send_float("t1-smooth", 1.0);
+        let wave = settled(pd, 2.0).0;
+        let jump = wave.windows(2).map(|w| (w[1] - w[0]).abs()).fold(0.0f32, f32::max);
+        assert!(jump < 2.0 / 441.0 * 1.05, "random at Smooth 1 never jumps, largest step {jump}");
+        let (low, high) = wave.iter().fold((f32::MAX, f32::MIN), |(lo, hi), v| (lo.min(*v), hi.max(*v)));
+        assert!(low < -0.8 && high > 0.8, "random at Smooth 1 still uses the range, got {low}..{high}");
+
+        // Level scales it; the Rate input multiplies the rate, and a negative rate stops the clock.
+        pd.send_float("t1-smooth", 0.0);
+        pd.send_float("t1-level", 0.25);
+        assert!(peak(&settled(pd, 1.0).0) <= 0.25, "random Level 0.25 scales the values");
+        pd.send_float("t1-level", 1.0);
+        pd.send_float("t-in0", 0.5);
+        close(steps_per_second(&settled(pd, 2.0).0), 50.0, 2.0, "random Rate input 0.5 halves the rate");
+        pd.send_float("t-in0", -1.0);
+        assert_eq!(steps_per_second(&settled(pd, 1.0).0), 0.0, "random holds its value at a negative rate");
+    });
+    // Another copy, as another voice would be, has values of its own.
+    opened(pd, &mut |pd| {
+        let second: Vec<f32> = settled(pd, 2.0).0.iter().step_by(441).take(20).cloned().collect();
+        assert_ne!(first, second, "two copies of Random give different values");
+    });
+    println!("ge-lfo-random: a new value at every tick, gliding for the Smooth part of it; each copy its own");
+}
+
 // --- setting inputs ------------------------------------------------------------------------
 
 /// One render of a module with a knob at `knob` and that setting's input at `input`.
@@ -871,12 +999,17 @@ fn with_setting(pd: &mut Pd, dir: &Path, name: &str, inlet: usize, receiver: &st
         pd.send_float("t1-amount", 1.0);
         pd.send_float("t1-rate", 6000.0);
         pd.send_float("t1-bits", 6.0);
+        if name == "ge-lfo" {
+            pd.send_float("t1-rate", 8.0);
+        }
         pd.send_float(&format!("t1-{receiver}"), knob);
         pd.send_float(&format!("t-in{inlet}"), input);
         render(pd, 0.3).0
     };
     if name.starts_with("ge-osc-") {
         with_oscillator(pd, dir, name, measure)
+    } else if name == "ge-lfo" {
+        with_lfo(pd, dir, measure)
     } else if name.starts_with("ge-filter-") {
         let kind = [Kind::Low, Kind::High, Kind::Band, Kind::Notch].into_iter().find(|k| k.abstraction() == name).unwrap();
         with_filter(pd, dir, kind, measure)
@@ -919,6 +1052,8 @@ fn setting_inputs(pd: &mut Pd, dir: &Path) {
         ("ge-shaper-cheby", 3, "drive", -12.0, 0.5),
         ("ge-shaper-rectify", 1, "amount", 1.0, 0.25),
         ("ge-shaper-crush", 2, "bits", 8.0, 0.5),
+        ("ge-lfo", 1, "rate", 16.0, 0.5),
+        ("ge-lfo", 2, "level", 0.8, 0.5),
     ];
     let mut worst = 0.0f32;
     for &(name, inlet, receiver, knob, input) in cases {
@@ -1011,6 +1146,8 @@ fn modules_do_what_they_are_designed_to() {
     chebyshev(&mut pd, &dir);
     mixer(&mut pd, &dir);
     envelope(&mut pd, &dir);
+    lfo(&mut pd, &dir);
+    random(&mut pd, &dir);
     setting_inputs(&mut pd, &dir);
     amp_and_output(&mut pd, &dir);
 
