@@ -1,20 +1,21 @@
-import { useState } from "react";
 import * as ops from "../../core/model/ops";
 import { MAX_PAGES } from "../../core/model/types";
 import { getModuleDef } from "../../core/modules/registry";
 import { useEditor } from "../../state/store";
+import { shownKnobPage, useUi } from "../../state/ui";
 import "./KnobPages.css";
 
 /**
  * What the Organelle's four knobs control. Each page maps the knobs to four
- * parameters; on the device, Aux steps through the pages.
+ * parameters; on the device, Aux steps through the pages. A page has a colour, which
+ * the badges on the tiles' knobs share, and the page shown here has its badges ringed.
  */
 export function KnobPages() {
   const pages = useEditor((s) => s.doc.pages);
   const modules = useEditor((s) => s.doc.modules);
   const apply = useEditor((s) => s.apply);
-  const [shown, setShown] = useState(0);
-  const index = Math.min(shown, pages.length - 1);
+  const index = shownKnobPage(useUi((s) => s.knobPage), pages.length);
+  const setShown = (knobPage: number) => useUi.setState({ knobPage });
   const page = pages[index];
 
   const addPage = () => {
@@ -43,9 +44,10 @@ export function KnobPages() {
                 key={i}
                 role="tab"
                 aria-selected={i === index}
-                className={`pages-tab${i === index ? " pages-tab-current" : ""}`}
+                className={`pages-tab page-color-${i}${i === index ? " pages-tab-current" : ""}`}
                 onClick={() => setShown(i)}
               >
+                <span className="pages-tab-dot" />
                 {p.name || `Page ${i + 1}`}
               </button>
             ))}
@@ -65,7 +67,7 @@ export function KnobPages() {
             </button>
           </div>
 
-          <ol className="pages-knobs">
+          <ol className={`pages-knobs page-color-${index}`}>
             {page.knobs.map((knob, k) => {
               const module = knob && modules.find((m) => m.id === knob.module);
               const def = module && getModuleDef(module.type);

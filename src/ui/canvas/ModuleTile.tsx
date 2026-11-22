@@ -1,9 +1,10 @@
 import { memo, useState } from "react";
 import * as ops from "../../core/model/ops";
-import type { ModuleInstance } from "../../core/model/types";
+import { KNOBS_PER_PAGE, type ModuleInstance } from "../../core/model/types";
 import { formatParam, fromNormalized, toNormalized } from "../../core/modules/params";
 import type { ModuleDef, ParamDef, PortDef } from "../../core/modules/types";
 import { useEditor } from "../../state/store";
+import { shownKnobPage, useUi } from "../../state/ui";
 import { Knob } from "../controls/Knob";
 import { PORT_INSET, portOffset, tileRect } from "./geometry";
 
@@ -32,8 +33,17 @@ const VOICE_SIGNAL_LABEL = { pitch: "the played note", gate: "the key gate", vel
 function ParamKnob({ module, param, size = 30 }: { module: ModuleInstance; param: ParamDef; size?: number }) {
   const [active, setActive] = useState(false);
   const value = ops.paramValue(module, param.id);
-  // Which Organelle knob (1–4) plays this parameter, or 0 for none.
-  const hardwareKnob = useEditor((s) => (ops.findAssignment(s.doc, module.id, param.id)?.knob ?? -1) + 1);
+  // The knob page and Organelle knob (0–3) that play this parameter, as one number so that
+  // the selector's result compares equal from edit to edit; -1 for none.
+  const slot = useEditor((s) => {
+    const found = ops.findAssignment(s.doc, module.id, param.id);
+    return found ? found.page * KNOBS_PER_PAGE + found.knob : -1;
+  });
+  const page = Math.floor(slot / KNOBS_PER_PAGE);
+  const hardwareKnob = slot < 0 ? 0 : (slot % KNOBS_PER_PAGE) + 1;
+  const pageName = useEditor((s) => s.doc.pages[page]?.name || `Page ${page + 1}`);
+  const pageCount = useEditor((s) => s.doc.pages.length);
+  const onShownPage = page === shownKnobPage(useUi((s) => s.knobPage), pageCount);
   return (
     <div
       className="tile-knob"
@@ -41,7 +51,7 @@ function ParamKnob({ module, param, size = 30 }: { module: ModuleInstance; param
       onPointerEnter={(e) => e.buttons === 0 && setActive(true)}
       onPointerLeave={(e) => e.buttons === 0 && setActive(false)}
       onPointerUp={(e) => !e.currentTarget.matches(":hover") && setActive(false)}
-      title={`${param.label}: ${formatParam(param, value)}`}
+      title={`${param.label}: ${formatParam(param, value)}${hardwareKnob > 0 ? ` (${pageName}, knob ${hardwareKnob})` : ""}`}
     >
       <Knob
         size={size}
@@ -56,7 +66,7 @@ function ParamKnob({ module, param, size = 30 }: { module: ModuleInstance; param
         }
       />
       {hardwareKnob > 0 && (
-        <span className="tile-knob-badge" title={`On Organelle knob ${hardwareKnob}`}>
+        <span className={`tile-knob-badge page-color-${page}${onShownPage ? " tile-knob-badge-shown" : ""}`}>
           {hardwareKnob}
         </span>
       )}

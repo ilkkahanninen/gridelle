@@ -20,6 +20,11 @@ interface UiState {
   /** Module type being dragged in from the palette. */
   placing: string | null;
   cableDrag: CableDrag | null;
+  /**
+   * The knob page shown in the Knob pages panel; its knobs are ringed on the tiles. It may
+   * point past the last page after one is removed: use `shownKnobPage`.
+   */
+  knobPage: number;
   setView(view: View): void;
 }
 
@@ -28,5 +33,9 @@ export const useUi = create<UiState>((set) => ({
   viewport: { width: 0, height: 0 },
   placing: null,
   cableDrag: null,
+  knobPage: 0,
   setView: (view) => set({ view }),
 }));
+
+/** The index of the knob page on show, given how many pages the patch has (-1 for none). */
+export const shownKnobPage = (knobPage: number, pageCount: number) => Math.min(knobPage, pageCount - 1);

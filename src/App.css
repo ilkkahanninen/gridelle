@@ -46,6 +46,27 @@
 .category-random { --category: #e6d15a; }
 .category-fx { --category: #e58ad0; }
 
+/*
+ * One colour per knob page, by the page's place in the order Aux steps through. These
+ * are the Okabe-Ito colours (the blue a little lighter, to show on the dock), which stay
+ * apart for colour-blind eyes. Yellow and blue come last because at a glance they are
+ * the easiest to take for the first two pages' orange and sky blue.
+ *
+ * Measured under simulated protanopia and deuteranopia (OKLab distance x 100, 8 or more
+ * is safe): any two of the first five differ by 11 or more, and the sixth comes within
+ * 7.6 of the fourth. Colour is therefore never the only cue: the knob number is on the
+ * badge, the page name in its tooltip, and the page shown in the Knob pages panel is
+ * ringed. `--page-ink` is the text colour that reads on the fill.
+ */
+.page-color-0 { --page: #e69f00; --page-ink: #16171a; }
+.page-color-1 { --page: #56b4e9; --page-ink: #16171a; }
+.page-color-2 { --page: #d55e00; --page-ink: #16171a; }
+.page-color-3 { --page: #009e73; --page-ink: #16171a; }
+.page-color-4 { --page: #dddddd; --page-ink: #16171a; }
+.page-color-5 { --page: #cc79a7; --page-ink: #16171a; }
+.page-color-6 { --page: #0079bc; --page-ink: #ffffff; }
+.page-color-7 { --page: #f0e442; --page-ink: #16171a; }
+
 .hint-audio { --hint: var(--hint-audio); }
 .hint-pitch { --hint: var(--hint-pitch); }
 .hint-gate { --hint: var(--hint-gate); }

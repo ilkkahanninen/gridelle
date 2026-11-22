@@ -91,7 +91,7 @@
   gap: 1px;
 }
 
-/* Marks a setting that an Organelle knob plays, with the knob's number. */
+/* Marks a setting that an Organelle knob plays: the knob's number, in the colour of its knob page. */
 .tile-knob-badge {
   position: absolute;
   top: -5px;
@@ -101,12 +101,19 @@
   display: grid;
   place-items: center;
   border-radius: 50%;
-  background: var(--accent);
-  color: #201a0f;
+  background: var(--page);
+  color: var(--page-ink);
   font-size: 10.5px;
   font-weight: 600;
   line-height: 1;
   pointer-events: none;
+}
+
+/* On the page that the Knob pages panel shows. */
+.tile-knob-badge-shown {
+  box-shadow:
+    0 0 0 1.5px var(--tile),
+    0 0 0 3px var(--text);
 }
 
 .tile-knob .knob-label {
