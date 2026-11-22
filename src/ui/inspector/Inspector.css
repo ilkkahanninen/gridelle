@@ -58,6 +58,15 @@
   accent-color: var(--accent);
 }
 
+.inspector-choice select {
+  grid-column: 1 / -1;
+  padding: 3px 4px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: var(--surface);
+  font: inherit;
+}
+
 .inspector-field {
   display: grid;
   grid-template-columns: 56px 1fr;

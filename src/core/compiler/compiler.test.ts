@@ -64,6 +64,8 @@ describe("compile", () => {
       // Helper of the filter.
       "ge-filter-poles.pd",
       "ge-knob.pd",
+      // Helper of every oscillator: its Mod input.
+      "ge-osc-mod.pd",
       "ge-osc-saw.pd",
       "ge-voice.pd",
       "main.pd",

@@ -26,6 +26,12 @@ export interface ParamDef {
   unit?: string;
   /** Snap to multiples of this (e.g. 1 for whole semitones). */
   step?: number;
+  /**
+   * A choice instead of a range: the value is the index of the chosen option, so
+   * `min` is 0, `max` the last index and `step` 1. Shown as a list in the inspector,
+   * not as a knob.
+   */
+  options?: string[];
 }
 
 export type Category =

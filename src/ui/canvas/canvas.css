@@ -120,6 +120,16 @@
   width: 60px;
 }
 
+/* More knobs than the tile is wide for (Pulse has four): smaller dials, closer together. */
+.tile-knobs-dense {
+  gap: 2px;
+}
+
+.tile-knobs-dense .tile-knob .knob-label {
+  width: 35px;
+  font-size: 11px;
+}
+
 /* A module that grows with its inputs: each row is a port with its knob beside it. */
 .tile-row-knob {
   position: absolute;

@@ -135,6 +135,13 @@ describe("parameters", () => {
     expect(setParam(doc, "ge2", "tune", 6.6).modules[1].params.tune).toBe(7);
   });
 
+  it("keeps a choice on one of its options", () => {
+    expect(setParam(doc, "ge2", "mode", 2).modules[1].params.mode).toBe(2);
+    expect(setParam(doc, "ge2", "mode", 1.4).modules[1].params.mode).toBe(1);
+    expect(setParam(doc, "ge2", "mode", 7).modules[1].params.mode).toBe(2);
+    expect(setParam(doc, "ge2", "mode", 0)).toBe(doc); // the default
+  });
+
   it("ignores unknown targets and no-op changes", () => {
     expect(setParam(doc, "ge1", "nope", 1)).toBe(doc);
     expect(setParam(doc, "ge9", "cutoff", 1)).toBe(doc);
@@ -162,6 +169,8 @@ describe("parameters", () => {
     expect(formatParam(def("env-adsr", "attack"), 5)).toBe("5 ms");
     expect(formatParam(def("osc-saw", "tune"), -12)).toBe("-12 st");
     expect(formatParam(def("env-adsr", "sustain"), 0.6)).toBe("0.60");
+    expect(formatParam(def("osc-saw", "mode"), 0)).toBe("Linear FM");
+    expect(formatParam(def("osc-saw", "mode"), 2)).toBe("AM");
   });
 
   it("toggles pre-cords only on ports that have one", () => {

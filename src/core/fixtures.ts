@@ -73,8 +73,9 @@ export const sharedFilter: PatchDocument = {
 };
 
 /**
- * Every oscillator and noise into a mixer, then through each filter in turn. Not a
- * patch anyone would play; it puts all the sources and filters in front of real Pd.
+ * Every oscillator and noise into a mixer, then through each filter in turn, with the
+ * oscillators' Mod inputs patched in each of the three modes. Not a patch anyone would
+ * play; it puts all the sources and filters in front of real Pd.
  */
 export const sourcesAndFilters: PatchDocument = {
   version: DOCUMENT_VERSION,
@@ -82,10 +83,10 @@ export const sourcesAndFilters: PatchDocument = {
   voices: 2,
   modules: [
     { id: "ge1", type: "osc-sine", x: 0, y: 0, params: {} },
-    { id: "ge2", type: "osc-tri", x: 0, y: 2, params: { tune: 12 } },
-    { id: "ge3", type: "osc-pulse", x: 0, y: 4, params: { width: 30 } },
+    { id: "ge2", type: "osc-tri", x: 0, y: 2, params: { tune: 12, mode: 1, depth: 0.1 } },
+    { id: "ge3", type: "osc-pulse", x: 0, y: 4, params: { width: 30, depth: 0.4 } },
     { id: "ge4", type: "noise", x: 0, y: 6, params: {} },
-    { id: "ge5", type: "osc-saw", x: 0, y: 7, params: { fine: 7 } },
+    { id: "ge5", type: "osc-saw", x: 0, y: 7, params: { fine: 7, mode: 2, depth: 1 } },
     { id: "ge6", type: "mixer", x: 3, y: 0, params: { level1: 0.5, level2: 0.5, level3: 0.4, level4: 0.1, level5: 0.4 } },
     { id: "ge7", type: "filter-hp", x: 6, y: 0, params: { cutoff: 60, res: 0 } },
     { id: "ge8", type: "filter-bp", x: 8, y: 0, params: { cutoff: 700, res: 0 } },
@@ -108,6 +109,10 @@ export const sourcesAndFilters: PatchDocument = {
     { from: { module: "ge10", port: "out" }, to: { module: "ge12", port: "in" } },
     { from: { module: "ge11", port: "out" }, to: { module: "ge12", port: "cv" } },
     { from: { module: "ge12", port: "out" }, to: { module: "ge13", port: "left" } },
+    // Sine bends the triangle's pitch, the triangle shifts the pulse's frequency, the envelope lifts the saw's level.
+    { from: { module: "ge1", port: "out" }, to: { module: "ge2", port: "mod" } },
+    { from: { module: "ge2", port: "out" }, to: { module: "ge3", port: "mod" } },
+    { from: { module: "ge11", port: "out" }, to: { module: "ge5", port: "mod" } },
   ],
   pages: [
     {

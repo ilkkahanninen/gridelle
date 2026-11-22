@@ -21,6 +21,10 @@ interface TileProps {
   onPortPointerDown(e: React.PointerEvent, id: string, port: string, side: "in" | "out"): void;
 }
 
+/** Width a knob takes in a tile's row of knobs, and the space between two of them (see canvas.css). */
+const KNOB_WIDTH = 44;
+const KNOB_GAP = 7;
+
 const VOICE_SIGNAL_LABEL = { pitch: "the played note", gate: "the key gate", velocity: "key velocity" } as const;
 
 function ParamKnob({ module, param, size = 30 }: { module: ModuleInstance; param: ParamDef; size?: number }) {
@@ -111,6 +115,9 @@ export const ModuleTile = memo(function ModuleTile({
   if (blocked) classes.push("tile-blocked");
   if (def.width === 1) classes.push("tile-narrow");
   if (def.growsWithInputs) classes.push("tile-rows");
+  // Choices are made in the inspector; everything else gets a knob on the tile.
+  const knobs = def.params.filter((param) => !param.options);
+  const dense = knobs.length * (KNOB_WIDTH + KNOB_GAP) - KNOB_GAP > rect.width;
 
   return (
     <div
@@ -152,7 +159,7 @@ export const ModuleTile = memo(function ModuleTile({
       ))}
       {def.growsWithInputs
         ? // One row per input: its port on the left and its knob beside it.
-          def.params.map((param, i) => (
+          knobs.map((param, i) => (
             <div
               key={param.id}
               className="tile-row-knob"
@@ -162,10 +169,10 @@ export const ModuleTile = memo(function ModuleTile({
               <ParamKnob module={module} param={param} size={24} />
             </div>
           ))
-        : def.params.length > 0 && (
-            <div className="tile-knobs" onPointerDown={(e) => e.stopPropagation()}>
-              {def.params.map((param) => (
-                <ParamKnob key={param.id} module={module} param={param} />
+        : knobs.length > 0 && (
+            <div className={dense ? "tile-knobs tile-knobs-dense" : "tile-knobs"} onPointerDown={(e) => e.stopPropagation()}>
+              {knobs.map((param) => (
+                <ParamKnob key={param.id} module={module} param={param} size={dense ? 24 : 30} />
               ))}
             </div>
           )}

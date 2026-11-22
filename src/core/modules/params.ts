@@ -34,6 +34,7 @@ export function clampParam(param: ParamDef, value: number): number {
 
 /** Short readout for tiles and the inspector, e.g. `1.2 kHz`, `-12 st`, `0.60`. */
 export function formatParam(param: ParamDef, value: number): string {
+  if (param.options) return param.options[clampParam(param, value)] ?? "";
   if (param.unit === "Hz" && value >= 1000) return `${trim(value / 1000, 2)} kHz`;
   if (param.unit === "ms" && value >= 1000) return `${trim(value / 1000, 2)} s`;
   const span = param.max - param.min;

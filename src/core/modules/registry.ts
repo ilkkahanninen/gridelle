@@ -9,13 +9,37 @@ const level = (id = "level", label = "Level", max = 2, def = 1): ParamDef => ({
   curve: "lin",
 });
 
+/** A setting that picks one of `options`; its value is the option's index. */
+const choice = (id: string, label: string, options: string[], def = 0): ParamDef => ({
+  id,
+  label,
+  min: 0,
+  max: options.length - 1,
+  default: def,
+  curve: "lin",
+  step: 1,
+  options,
+});
+
 const pitchInput: PortDef = { id: "pitch", label: "Pitch", hint: "pitch", precord: "pitch" };
 const audioOutput: PortDef = { id: "out", label: "Out", hint: "audio" };
+const modInput: PortDef = { id: "mod", label: "Mod", hint: "mod" };
 
 /** Tune and Fine, as every pitched oscillator has them. */
 const tuning: ParamDef[] = [
   { id: "tune", label: "Tune", min: -36, max: 36, default: 0, curve: "lin", unit: "st", step: 1 },
   { id: "fine", label: "Fine", min: -100, max: 100, default: 0, curve: "lin", unit: "ct" },
+];
+
+/**
+ * What an oscillator does with its Mod input, in the order `ge-osc-mod` numbers them.
+ * At full Depth a mod signal of 1 shifts the frequency by 8 times itself (linear),
+ * bends the pitch by 48 semitones (exponential) or doubles the level (AM). Not zero by
+ * default, so that a cable patched into Mod is heard straight away.
+ */
+const modulation: ParamDef[] = [
+  { id: "depth", label: "Depth", min: 0, max: 1, default: 0.25, curve: "lin" },
+  choice("mode", "Mod mode", ["Linear FM", "Exponential FM", "AM"]),
 ];
 
 const oscillator = (type: string, name: string, extra: Partial<ModuleDef> = {}): ModuleDef => ({
@@ -24,9 +48,9 @@ const oscillator = (type: string, name: string, extra: Partial<ModuleDef> = {}):
   category: "oscillator",
   width: 2,
   height: 2,
-  inputs: [pitchInput],
+  inputs: [pitchInput, modInput],
   outputs: [audioOutput],
-  params: tuning,
+  params: [...tuning, ...modulation],
   pd: `ge-${type}`,
   scope: "voice",
   ...extra,
@@ -93,8 +117,12 @@ const DEFS: ModuleDef[] = [
   oscillator("osc-saw", "Saw"),
   // The output has no DC, so a narrow pulse peaks above 1 (up to 1.9 at the ends of Width).
   oscillator("osc-pulse", "Pulse", {
-    inputs: [pitchInput, { id: "pwm", label: "PWM", hint: "mod" }],
-    params: [...tuning, { id: "width", label: "Width", min: 5, max: 95, default: 50, curve: "lin", unit: "%" }],
+    inputs: [pitchInput, { id: "pwm", label: "PWM", hint: "mod" }, modInput],
+    params: [
+      ...tuning,
+      { id: "width", label: "Width", min: 5, max: 95, default: 50, curve: "lin", unit: "%" },
+      ...modulation,
+    ],
   }),
   {
     type: "noise",

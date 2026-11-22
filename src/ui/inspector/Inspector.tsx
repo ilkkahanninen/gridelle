@@ -36,6 +36,29 @@ function ParamRow({ module, param }: { module: ModuleInstance; param: ParamDef }
   );
 }
 
+/** A setting that is one of a few named options. It stays off the Organelle's knobs. */
+function ChoiceRow({ module, param }: { module: ModuleInstance; param: ParamDef }) {
+  const id = `param-${module.id}-${param.id}`;
+  return (
+    <div className="inspector-param inspector-choice">
+      <label htmlFor={id}>{param.label}</label>
+      <select
+        id={id}
+        value={ops.paramValue(module, param.id)}
+        onChange={(e) =>
+          useEditor.getState().apply((doc) => ops.setParam(doc, module.id, param.id, Number(e.target.value)))
+        }
+      >
+        {param.options!.map((option, i) => (
+          <option key={option} value={i}>
+            {option}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
 const NEXT_FREE = "next";
 
 /** Choose which Organelle knob, if any, controls a parameter. */
@@ -96,9 +119,13 @@ function ModuleInspector({ module, def }: { module: ModuleInstance; def: ModuleD
 
       {def.params.length > 0 ? (
         <section>
-          {def.params.map((param) => (
-            <ParamRow key={param.id} module={module} param={param} />
-          ))}
+          {def.params.map((param) =>
+            param.options ? (
+              <ChoiceRow key={param.id} module={module} param={param} />
+            ) : (
+              <ParamRow key={param.id} module={module} param={param} />
+            ),
+          )}
           <p className="inspector-note">Double-click a control to reset it.</p>
         </section>
       ) : (

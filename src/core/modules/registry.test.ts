@@ -26,6 +26,16 @@ describe("module registry", () => {
     }
   });
 
+  it("numbers the options of a choice from zero", () => {
+    const choices = moduleDefs.flatMap((def) => def.params.filter((p) => p.options).map((p) => [def.type, p] as const));
+    expect(choices.length).toBeGreaterThan(0);
+    for (const [type, p] of choices) {
+      const where = `${type}.${p.id}`;
+      expect(p.options!.length, where).toBeGreaterThan(1);
+      expect([p.min, p.max, p.step, p.curve], where).toEqual([0, p.options!.length - 1, 1, "lin"]);
+    }
+  });
+
   it.each(moduleDefs.map((def) => [def.type, def] as const))(
     "%s matches its Pd abstraction",
     (_type, def) => {

@@ -1,5 +1,5 @@
 //! Measures what the module abstractions in `pd-lib/modules` actually do, in real Pd:
-//! oscillator pitch, level and aliasing, filter frequency responses, mixer sums.
+//! oscillator pitch, level, aliasing and modulation, filter frequency responses, mixer sums.
 //!
 //! Each check loads a few-box test patch around one abstraction and analyses the audio
 //! it renders. libpd is a single global instance, so everything runs from one test.
@@ -101,18 +101,28 @@ fn close(actual: f32, expected: f32, tolerance: f32, what: &str) {
 
 // --- oscillators ---------------------------------------------------------------------------
 
-/// `[sig~ note] → [oscillator] → left`, with a second input fed from `[sig~]` for the pulse's PWM.
+const LINEAR_FM: f32 = 0.0;
+const EXPONENTIAL_FM: f32 = 1.0;
+const AM: f32 = 2.0;
+
+/// `[sig~ note] → [oscillator] → left`. The Mod input is fed from a `[sig~]` set through
+/// `t-mod`, and the pulse's PWM input from one set through `t-pwm`. Settings start at
+/// their defaults.
 fn with_oscillator<T>(pd: &mut Pd, dir: &Path, name: &str, measure: impl FnOnce(&mut Pd) -> T) -> T {
     let oscillator = format!("{name} t1");
-    let boxes = ["r t-pitch", "sig~ 69", "r t-pwm", "sig~ 0", oscillator.as_str(), "dac~ 1"];
-    let mut connections = vec![[0, 0, 1, 0], [2, 0, 3, 0], [1, 0, 4, 0], [4, 0, 5, 0]];
+    let boxes = ["r t-pitch", "sig~ 69", "r t-pwm", "sig~ 0", "r t-mod", "sig~ 0", oscillator.as_str(), "dac~ 1"];
+    let mut connections = vec![[0, 0, 1, 0], [2, 0, 3, 0], [4, 0, 5, 0], [1, 0, 6, 0], [6, 0, 7, 0]];
     if name == "ge-osc-pulse" {
-        connections.push([3, 0, 4, 1]);
+        connections.extend([[3, 0, 6, 1], [5, 0, 6, 2]]);
+    } else {
+        connections.push([5, 0, 6, 1]);
     }
     with_patch(pd, dir, &boxes, &connections, |pd| {
         pd.send_float("t1-tune", 0.0);
         pd.send_float("t1-fine", 0.0);
         pd.send_float("t1-width", 50.0);
+        pd.send_float("t1-depth", 0.25);
+        pd.send_float("t1-mode", LINEAR_FM);
         measure(pd)
     })
 }
@@ -133,6 +143,76 @@ fn oscillators(pd: &mut Pd, dir: &Path) {
             println!("{name}: 440 Hz at note 69, peak {:.3}", peak(&wave));
         });
     }
+}
+
+/// The Mod input in each of its three modes, driven by a constant so the result can be read
+/// off as a pitch or a level.
+fn modulation(pd: &mut Pd, dir: &Path) {
+    for name in ["ge-osc-sine", "ge-osc-tri", "ge-osc-saw", "ge-osc-pulse"] {
+        with_oscillator(pd, dir, name, |pd| {
+            let mut measure = |mode: f32, depth: f32, input: f32| {
+                pd.send_float("t1-mode", mode);
+                pd.send_float("t1-depth", depth);
+                pd.send_float("t-mod", input);
+                let (wave, _) = settled(pd, 1.0);
+                (frequency(&wave), peak(&wave))
+            };
+            let (_, level) = measure(LINEAR_FM, 0.25, 0.0);
+
+            // Depth 0.5 is 48 * 0.25 = 12 semitones per unit of the mod signal.
+            let (up, up_level) = measure(EXPONENTIAL_FM, 0.5, 1.0);
+            close(up, 880.0, 2.0, &format!("{name} exponential FM, +1 is an octave up"));
+            close(up_level, level, 0.08, &format!("{name} exponential FM leaves the level alone"));
+            let (down, _) = measure(EXPONENTIAL_FM, 0.5, -1.0);
+            close(down, 220.0, 1.0, &format!("{name} exponential FM, -1 is an octave down"));
+
+            // Depth 0.5 shifts the frequency by 8 * 0.25 = 2 times itself per unit of the mod signal.
+            let (doubled, doubled_level) = measure(LINEAR_FM, 0.5, 0.5);
+            close(doubled, 880.0, 2.0, &format!("{name} linear FM, 0.5 doubles the frequency"));
+            close(doubled_level, level, 0.08, &format!("{name} linear FM leaves the level alone"));
+            // 440 * (1 - 2) = -440 Hz: the wave runs backwards at the same pitch.
+            let (reversed, reversed_level) = measure(LINEAR_FM, 0.5, -1.0);
+            close(reversed, 440.0, 1.0, &format!("{name} linear FM goes through zero"));
+            close(reversed_level, level, 0.08, &format!("{name} keeps its level running backwards"));
+
+            let (pitch, louder) = measure(AM, 0.5, 1.0);
+            close(pitch, 440.0, 1.0, &format!("{name} AM leaves the pitch alone"));
+            close(louder, level * 1.5, 0.1, &format!("{name} AM at Depth 0.5, +1 is half as loud again"));
+            let (_, silent) = measure(AM, 1.0, -1.0);
+            close(silent, 0.0, 0.001, &format!("{name} AM at Depth 1, -1 is silence"));
+
+            println!(
+                "{name}: exp FM {up:.1} / {down:.1} Hz, linear FM {doubled:.1} / {reversed:.1} Hz (reversed), AM peak {louder:.3} / {silent:.4}"
+            );
+        });
+    }
+}
+
+/// A sine modulating a sine's frequency linearly gives the textbook FM spectrum: side bands
+/// spaced by the modulator's frequency, with Bessel-function amplitudes. At index 2.405 the
+/// carrier itself vanishes. Any detuning or curvature in the modulation would break this.
+fn linear_fm_spectrum(pd: &mut Pd, dir: &Path) {
+    let carrier = format!("sig~ {}", 69.0 + 12.0 * (1000.0f32 / 440.0).log2());
+    let boxes = [carrier.as_str(), "osc~ 100", "ge-osc-sine t1", "dac~ 1"];
+    with_patch(pd, dir, &boxes, &[[0, 0, 2, 0], [1, 0, 2, 1], [2, 0, 3, 0]], |pd| {
+        // Index = deviation / modulator frequency = 1000 * 8 * depth² / 100.
+        let index = 2.405f32;
+        pd.send_float("t1-tune", 0.0);
+        pd.send_float("t1-fine", 0.0);
+        pd.send_float("t1-mode", LINEAR_FM);
+        pd.send_float("t1-depth", (index / 80.0).sqrt());
+        let (wave, _) = settled(pd, 1.0);
+        let at = |hz: f32| amplitude_at(&wave, hz);
+        close(at(1000.0), 0.0, 0.02, "FM at index 2.405 has no carrier left");
+        for (offset, bessel) in [(100.0, 0.519), (200.0, 0.432), (300.0, 0.199)] {
+            close(at(1000.0 + offset), bessel, 0.02, &format!("upper side band at +{offset} Hz"));
+            close(at(1000.0 - offset), bessel, 0.02, &format!("lower side band at -{offset} Hz"));
+        }
+        println!(
+            "ge-osc-sine: linear FM at index 2.405: carrier {:.3}, side bands {:.3} / {:.3} (900 / 1100 Hz), {:.3} / {:.3} (800 / 1200 Hz)",
+            at(1000.0), at(900.0), at(1100.0), at(800.0), at(1200.0)
+        );
+    });
 }
 
 /// Fraction of the time the pulse is high.
@@ -331,6 +411,8 @@ fn modules_do_what_they_are_designed_to() {
     events.try_iter().for_each(drop);
 
     oscillators(&mut pd, &dir);
+    modulation(&mut pd, &dir);
+    linear_fm_spectrum(&mut pd, &dir);
     pulse_width(&mut pd, &dir);
     saw_aliasing(&mut pd, &dir);
     noise(&mut pd, &dir);
