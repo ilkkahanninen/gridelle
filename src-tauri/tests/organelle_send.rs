@@ -5,6 +5,7 @@
 //! The last test talks to a real device and is ignored by default. It creates (or
 //! replaces) the patch `Gridelle_Test` on the device and starts it:
 //!   ORGANELLE_ADDRESS=<address> cargo test --test organelle_send -- --ignored --nocapture
+//! `ORGANELLE_PATCH=<fixture name or folder path>` sends another patch than basic-synth.
 
 use std::collections::{BTreeMap, HashMap};
 use std::io::{BufRead, BufReader, Read, Write};
@@ -520,11 +521,17 @@ fn builds_osc_messages_with_padded_strings() {
 
 #[test]
 #[ignore = "writes to a real Organelle; set ORGANELLE_ADDRESS"]
-fn sends_the_basic_synth_fixture_to_a_real_organelle() {
+fn sends_a_patch_to_a_real_organelle() {
     let address = std::env::var("ORGANELLE_ADDRESS").expect("set ORGANELLE_ADDRESS to the device's address");
-    let golden = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../tests/golden/basic-synth");
-    let files: HashMap<String, String> = std::fs::read_dir(&golden)
-        .expect("tests/golden/basic-synth exists; run `npm test` to generate it")
+    // Which patch: a fixture's name under tests/golden (the default is basic-synth), or the path of any patch folder.
+    let patch = std::env::var("ORGANELLE_PATCH").unwrap_or_else(|_| "basic-synth".to_string());
+    let folder = if patch.contains('/') {
+        PathBuf::from(&patch)
+    } else {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../tests/golden").join(&patch)
+    };
+    let files: HashMap<String, String> = std::fs::read_dir(&folder)
+        .unwrap_or_else(|e| panic!("{} is a patch folder (run `npm test` to generate the fixtures): {e}", folder.display()))
         .flatten()
         .map(|entry| (entry.file_name().to_string_lossy().into_owned(), std::fs::read_to_string(entry.path()).unwrap()))
         .collect();
@@ -532,6 +539,6 @@ fn sends_the_basic_synth_fixture_to_a_real_organelle() {
 
     let report = send_patch(&address, "Gridelle_Test", &files, false).expect("the patch is sent");
 
-    println!("sent {} files to {} at {address}; started: {}", files.len(), report.path, report.started);
+    println!("sent {} files of {patch} to {}; started: {}", files.len(), report.path, report.started);
     assert!(report.path.ends_with("/Patches/Gridelle_Test"));
 }
