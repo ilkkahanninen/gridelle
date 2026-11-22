@@ -1,8 +1,12 @@
+import { settle } from "./model/ops";
 import { DOCUMENT_VERSION, type PatchDocument } from "./model/types";
 
 /**
  * Example patches. They double as compiler test fixtures (their compiled output is
  * kept in `tests/golden` and loaded into real Pd by the Rust tests).
+ *
+ * `basicSynth` is the patch the app opens with, so it is laid out by hand. The others were
+ * placed when tiles were smaller: `settle` moves apart what overlaps now.
  */
 
 /** Saw into a low-pass with its own envelope, into an amp with a second envelope. */
@@ -15,8 +19,8 @@ export const basicSynth: PatchDocument = {
     { id: "ge2", type: "filter-lp", x: 2, y: 0, params: { cutoff: 400, res: 0.5, mod: 48 } },
     { id: "ge3", type: "amp", x: 4, y: 0, params: {} },
     { id: "ge4", type: "audio-out", x: 5, y: 0, params: {} },
-    { id: "ge5", type: "env-adsr", x: 0, y: 2, params: { attack: 2, decay: 300, sustain: 0.2, release: 200 } },
-    { id: "ge6", type: "env-adsr", x: 3, y: 2, params: { attack: 2, decay: 100, sustain: 0.8, release: 150 } },
+    { id: "ge5", type: "env-adsr", x: 0, y: 3, params: { attack: 2, decay: 300, sustain: 0.2, release: 200 } },
+    { id: "ge6", type: "env-adsr", x: 2, y: 3, params: { attack: 2, decay: 100, sustain: 0.8, release: 150 } },
   ],
   cables: [
     { from: { module: "ge1", port: "out" }, to: { module: "ge2", port: "in" } },
@@ -43,7 +47,7 @@ export const basicSynth: PatchDocument = {
 };
 
 /** Two detuned saws per voice, with one filter shared by all voices after the voice sum. */
-export const sharedFilter: PatchDocument = {
+export const sharedFilter: PatchDocument = settle({
   version: DOCUMENT_VERSION,
   name: "Shared Filter",
   voices: 3,
@@ -70,14 +74,14 @@ export const sharedFilter: PatchDocument = {
     { from: { module: "ge7", port: "out" }, to: { module: "ge9", port: "right" } },
   ],
   pages: [],
-};
+});
 
 /**
  * Every oscillator and noise into a mixer, then through each filter in turn, with the
  * oscillators' Mod inputs patched in each of the three modes. Not a patch anyone would
  * play; it puts all the sources and filters in front of real Pd.
  */
-export const sourcesAndFilters: PatchDocument = {
+export const sourcesAndFilters: PatchDocument = settle({
   version: DOCUMENT_VERSION,
   name: "Sources and Filters",
   voices: 2,
@@ -128,13 +132,13 @@ export const sourcesAndFilters: PatchDocument = {
       ],
     },
   ],
-};
+});
 
 /**
  * A saw through every shaper. The Amp comes first, so the shapers are fed silence between
  * notes and have to stay silent themselves; the envelope also moves the fold and the order.
  */
-export const shapers: PatchDocument = {
+export const shapers: PatchDocument = settle({
   version: DOCUMENT_VERSION,
   name: "Shapers",
   voices: 2,
@@ -175,7 +179,7 @@ export const shapers: PatchDocument = {
       ],
     },
   ],
-};
+});
 
 export const fixtures = {
   "basic-synth": basicSynth,

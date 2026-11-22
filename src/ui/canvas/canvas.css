@@ -75,14 +75,6 @@
   pointer-events: none;
 }
 
-.tile-knobs {
-  position: absolute;
-  inset: auto 0 5px 0;
-  display: flex;
-  justify-content: center;
-  gap: 7px;
-}
-
 .tile-knob {
   position: relative;
 }
@@ -148,20 +140,6 @@
   font-size: 11.5px;
 }
 
-.tile-narrow .tile-knob .knob-label {
-  width: 60px;
-}
-
-/* More knobs than the tile is wide for (Pulse has four): smaller dials, closer together. */
-.tile-knobs-dense {
-  gap: 2px;
-}
-
-.tile-knobs-dense .tile-knob .knob-label {
-  width: 35px;
-  font-size: 11px;
-}
-
 /* The rows layout: each row is an input's port with, if it has a setting, that knob beside it. */
 .tile-row-knob {
   position: absolute;
@@ -171,7 +149,8 @@
 
 .tile-row-knob .knob {
   flex-direction: row;
-  gap: 6px;
+  /* Room for the knob's badge between the dial and the name. */
+  gap: 10px;
 }
 
 .tile-row-knob .knob-label {
@@ -186,6 +165,11 @@
 }
 
 .port-knobbed .port-label {
+  display: none;
+}
+
+/* A tile one cell wide has no room for names: its tooltips have them. */
+.tile-narrow .tile-row-knob .knob-label {
   display: none;
 }
 

@@ -25,10 +25,6 @@ interface TileProps {
   onPortPointerDown(e: React.PointerEvent, id: string, port: string, side: "in" | "out"): void;
 }
 
-/** Width a knob takes in a tile's row of knobs, and the space between two of them (see canvas.css). */
-const KNOB_WIDTH = 44;
-const KNOB_GAP = 7;
-
 /**
  * The click that last put a setting on an Organelle knob. A second click on the same tile
  * knob straight after it is the rest of a double-click: it neither assigns again nor
@@ -39,7 +35,7 @@ const DOUBLE_CLICK_MS = 500;
 
 const VOICE_SIGNAL_LABEL = { pitch: "the played note", gate: "the key gate", velocity: "key velocity" } as const;
 
-function ParamKnob({ module, param, size = 30 }: { module: ModuleInstance; param: ParamDef; size?: number }) {
+function ParamKnob({ module, param, size }: { module: ModuleInstance; param: ParamDef; size: number }) {
   const [active, setActive] = useState(false);
   const value = ops.paramValue(module, param.id);
   // The knob page and Organelle knob (0–3) that play this parameter, as one number so that
@@ -161,9 +157,6 @@ export const ModuleTile = memo(function ModuleTile({
   if (def.width === 1) classes.push("tile-narrow");
   const rows = def.layout === "rows";
   if (rows) classes.push("tile-rows");
-  // Choices are made in the inspector; everything else gets a knob on the tile.
-  const knobs = def.params.filter((param) => !param.options);
-  const dense = knobs.length * (KNOB_WIDTH + KNOB_GAP) - KNOB_GAP > rect.width;
 
   return (
     <div
@@ -205,30 +198,24 @@ export const ModuleTile = memo(function ModuleTile({
           onPointerDown={onPortPointerDown}
         />
       ))}
-      {rows
-        ? // One row per input: its port on the left and, if it has a setting, that knob beside it.
-          def.inputs.map((port, i) => {
-            const param = knobs.find((p) => p.id === port.param);
-            return (
-              param && (
-                <div
-                  key={param.id}
-                  className="tile-row-knob"
-                  style={{ top: portOffset(def, i) }}
-                  onPointerDown={(e) => e.stopPropagation()}
-                >
-                  <ParamKnob module={module} param={param} size={24} />
-                </div>
-              )
-            );
-          })
-        : knobs.length > 0 && (
-            <div className={dense ? "tile-knobs tile-knobs-dense" : "tile-knobs"} onPointerDown={(e) => e.stopPropagation()}>
-              {knobs.map((param) => (
-                <ParamKnob key={param.id} module={module} param={param} size={dense ? 24 : 30} />
-              ))}
-            </div>
-          )}
+      {/* One row per input: its port on the left and, if it has a setting, that knob beside it.
+          Choices have no knob: they are made in the inspector. */}
+      {rows &&
+        def.inputs.map((port, i) => {
+          const param = def.params.find((p) => p.id === port.param);
+          return (
+            param && (
+              <div
+                key={param.id}
+                className="tile-row-knob"
+                style={{ top: portOffset(def, i) }}
+                onPointerDown={(e) => e.stopPropagation()}
+              >
+                <ParamKnob module={module} param={param} size={24} />
+              </div>
+            )
+          );
+        })}
     </div>
   );
 });

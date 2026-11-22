@@ -22,8 +22,13 @@ const choice = (id: string, label: string, options: string[], def = 0): ParamDef
 });
 
 const pitchInput: PortDef = { id: "pitch", label: "Pitch", hint: "pitch", precord: "pitch" };
+const audioInput: PortDef = { id: "in", label: "In", hint: "audio" };
 const audioOutput: PortDef = { id: "out", label: "Out", hint: "audio" };
-const modInput: PortDef = { id: "mod", label: "Mod", hint: "mod" };
+/** A Mod input, with the knob that says how far it moves what it modulates. It rests at 0. */
+const modInput = (amount: string): PortDef => ({ id: "mod", label: "Mod", hint: "mod", param: amount });
+
+/** How tall a rows tile is for this many inputs: two rows to a cell, under a half-cell header. */
+const rowsHeight = (inputs: PortDef[]) => Math.ceil((inputs.length + 1) / 2);
 
 /**
  * The input of a setting, Eurorack style: the knob scales what is patched in, and with
@@ -48,19 +53,23 @@ const modulation: ParamDef[] = [
   choice("mode", "Mod mode", ["Linear FM", "Exponential FM", "AM"]),
 ];
 
-const oscillator = (type: string, name: string, extra: Partial<ModuleDef> = {}): ModuleDef => ({
-  type,
-  name,
-  category: "oscillator",
-  width: 2,
-  height: 2,
-  inputs: [pitchInput, modInput],
-  outputs: [audioOutput],
-  params: [...tuning, ...modulation],
-  pd: `ge-${type}`,
-  scope: "voice",
-  ...extra,
-});
+/** Inputs between Fine and Mod, with their settings, are the oscillator's own (the Pulse's width). */
+const oscillator = (type: string, name: string, own: { inputs: PortDef[]; params: ParamDef[] } = { inputs: [], params: [] }): ModuleDef => {
+  const inputs = [pitchInput, settingInput("tune", "Tune"), settingInput("fine", "Fine"), ...own.inputs, modInput("depth")];
+  return {
+    type,
+    name,
+    category: "oscillator",
+    width: 2,
+    height: rowsHeight(inputs),
+    layout: "rows",
+    inputs,
+    outputs: [audioOutput],
+    params: [...tuning, ...own.params, ...modulation],
+    pd: `ge-${type}`,
+    scope: "voice",
+  };
+};
 
 /** The filters differ only in what they let through; they share inputs and settings. */
 const filter = (type: string, name: string): ModuleDef => ({
@@ -68,11 +77,10 @@ const filter = (type: string, name: string): ModuleDef => ({
   name,
   category: "filter",
   width: 2,
-  height: 2,
-  inputs: [
-    { id: "in", label: "In", hint: "audio" },
-    { id: "mod", label: "Mod", hint: "mod" },
-  ],
+  height: 3,
+  layout: "rows",
+  // The Cutoff input multiplies the frequency; Mod adds to it in semitones, by its own knob.
+  inputs: [audioInput, settingInput("cutoff", "Cutoff"), settingInput("res", "Res"), modInput("mod")],
   outputs: [audioOutput],
   params: [
     { id: "cutoff", label: "Cutoff", min: 20, max: 18000, default: 1200, curve: "exp", unit: "Hz" },
@@ -84,10 +92,29 @@ const filter = (type: string, name: string): ModuleDef => ({
   scope: "voice",
 });
 
-const shaperInputs: PortDef[] = [
-  { id: "in", label: "In", hint: "audio" },
-  { id: "mod", label: "Mod", hint: "mod" },
-];
+/**
+ * A shaper: its settings in the order of their rows. Each has an input of its own, except
+ * Mod, whose input is the Mod input, and choices, which have none.
+ */
+const shaper = (type: string, name: string, params: ParamDef[]): ModuleDef => {
+  const inputs = [
+    audioInput,
+    ...params.filter((p) => !p.options).map((p) => (p.id === "mod" ? modInput("mod") : settingInput(p.id, p.label))),
+  ];
+  return {
+    type,
+    name,
+    category: "shaper",
+    width: 2,
+    height: rowsHeight(inputs),
+    layout: "rows",
+    inputs,
+    outputs: [audioOutput],
+    params,
+    pd: `ge-${type}`,
+    scope: "voice",
+  };
+};
 
 /**
  * The shapers that are driven harder for more effect: Drive is the gain before the
@@ -98,22 +125,12 @@ const driven = (
   name: string,
   drive: Pick<ParamDef, "label" | "max" | "default">,
   extra: ParamDef[] = [],
-): ModuleDef => ({
-  type,
-  name,
-  category: "shaper",
-  width: 2,
-  height: 2,
-  inputs: shaperInputs,
-  outputs: [audioOutput],
-  params: [
+): ModuleDef =>
+  shaper(type, name, [
     { id: "drive", min: 0, curve: "lin", unit: "dB", ...drive },
     { id: "mod", label: "Mod", min: -36, max: 36, default: 12, curve: "lin", unit: "dB" },
     ...extra,
-  ],
-  pd: `ge-${type}`,
-  scope: "voice",
-});
+  ]);
 
 /** Inputs of the mixer's abstraction; the editor shows only as many as are in use. */
 export const MIXER_INPUTS = 8;
@@ -126,9 +143,11 @@ const DEFS: ModuleDef[] = [
     category: "io",
     width: 1,
     height: 2,
+    layout: "rows",
     inputs: [
       { id: "left", label: "L", hint: "audio" },
       { id: "right", label: "R", hint: "audio" },
+      settingInput("level", "Level"),
     ],
     outputs: [],
     // Low enough that a four-voice chord of full-level oscillators stays under the host's clip at 1.
@@ -153,13 +172,10 @@ const DEFS: ModuleDef[] = [
   oscillator("osc-tri", "Triangle"),
   oscillator("osc-saw", "Saw"),
   // The output has no DC, so a narrow pulse peaks above 1 (up to 1.9 at the ends of Width).
+  // Width is its knob times its input; PWM then adds to it, half a cycle for a signal of 1.
   oscillator("osc-pulse", "Pulse", {
-    inputs: [pitchInput, { id: "pwm", label: "PWM", hint: "mod" }, modInput],
-    params: [
-      ...tuning,
-      { id: "width", label: "Width", min: 5, max: 95, default: 50, curve: "lin", unit: "%" },
-      ...modulation,
-    ],
+    inputs: [settingInput("width", "Width"), { id: "pwm", label: "PWM", hint: "mod" }],
+    params: [{ id: "width", label: "Width", min: 5, max: 95, default: 50, curve: "lin", unit: "%" }],
   }),
   {
     type: "noise",
@@ -215,70 +231,36 @@ const DEFS: ModuleDef[] = [
     { id: "symmetry", label: "Symmetry", min: -1, max: 1, default: 0, curve: "lin" },
     choice("shape", "Shape", ["Triangle", "Sine"]),
   ]),
-  {
-    // Chebyshev polynomial number Order turns a full-level sine into that harmonic; quieter
-    // or richer input gives a mix. Order fades between neighbours, and Mod moves it.
-    type: "shaper-cheby",
-    name: "Chebyshev",
-    category: "shaper",
-    width: 2,
-    height: 2,
-    inputs: shaperInputs,
-    outputs: [audioOutput],
-    params: [
-      { id: "order", label: "Order", min: 1, max: 8, default: 2, curve: "lin" },
-      { id: "mod", label: "Mod", min: -7, max: 7, default: 2, curve: "lin" },
-      // The input is clipped at ±1 after this gain, as the polynomials run away beyond it.
-      { id: "drive", label: "Drive", min: -24, max: 12, default: 0, curve: "lin", unit: "dB" },
-    ],
-    pd: "ge-shaper-cheby",
-    scope: "voice",
-  },
-  {
-    // Amount turns the negative half down and then up the other way: 0 leaves the signal
-    // alone, 0.5 is half-wave, 1 full-wave (an octave up for a simple wave).
-    type: "shaper-rectify",
-    name: "Rectifier",
-    category: "shaper",
-    width: 2,
-    height: 2,
-    inputs: shaperInputs,
-    outputs: [audioOutput],
-    params: [
-      { id: "amount", label: "Amount", min: 0, max: 1, default: 1, curve: "lin" },
-      { id: "mod", label: "Mod", min: -1, max: 1, default: 0.5, curve: "lin" },
-    ],
-    pd: "ge-shaper-rectify",
-    scope: "voice",
-  },
-  {
-    // Rate is how many samples a second get through, Bits how finely each is measured.
-    type: "shaper-crush",
-    name: "Bitcrusher",
-    category: "shaper",
-    width: 2,
-    height: 2,
-    inputs: shaperInputs,
-    outputs: [audioOutput],
-    params: [
-      { id: "rate", label: "Rate", min: 100, max: 18000, default: 6000, curve: "exp", unit: "Hz" },
-      { id: "bits", label: "Bits", min: 1, max: 16, default: 8, curve: "lin" },
-      // Semitones of Rate per unit of the mod input.
-      { id: "mod", label: "Mod", min: -96, max: 96, default: 24, curve: "lin", unit: "st" },
-    ],
-    pd: "ge-shaper-crush",
-    scope: "voice",
-  },
+  // Chebyshev polynomial number Order turns a full-level sine into that harmonic; quieter
+  // or richer input gives a mix. Order fades between neighbours, and Mod moves it.
+  shaper("shaper-cheby", "Chebyshev", [
+    { id: "order", label: "Order", min: 1, max: 8, default: 2, curve: "lin" },
+    { id: "mod", label: "Mod", min: -7, max: 7, default: 2, curve: "lin" },
+    // The input is clipped at ±1 after this gain, as the polynomials run away beyond it.
+    { id: "drive", label: "Drive", min: -24, max: 12, default: 0, curve: "lin", unit: "dB" },
+  ]),
+  // Amount turns the negative half down and then up the other way: 0 leaves the signal
+  // alone, 0.5 is half-wave, 1 full-wave (an octave up for a simple wave).
+  shaper("shaper-rectify", "Rectifier", [
+    { id: "amount", label: "Amount", min: 0, max: 1, default: 1, curve: "lin" },
+    { id: "mod", label: "Mod", min: -1, max: 1, default: 0.5, curve: "lin" },
+  ]),
+  // Rate is how many samples a second get through, Bits how finely each is measured.
+  shaper("shaper-crush", "Bitcrusher", [
+    { id: "rate", label: "Rate", min: 100, max: 18000, default: 6000, curve: "exp", unit: "Hz" },
+    { id: "bits", label: "Bits", min: 1, max: 16, default: 8, curve: "lin" },
+    // Semitones of Rate per unit of the mod input.
+    { id: "mod", label: "Mod", min: -96, max: 96, default: 24, curve: "lin", unit: "st" },
+  ]),
   {
     type: "amp",
     name: "Amp",
     category: "level",
     width: 1,
     height: 2,
-    inputs: [
-      { id: "in", label: "In", hint: "audio" },
-      { id: "cv", label: "CV", hint: "mod" },
-    ],
+    layout: "rows",
+    // CV is the input of Level: with nothing patched it rests at 1 and the Amp is a volume control.
+    inputs: [audioInput, { id: "cv", label: "CV", hint: "mod", param: "level", unpatched: 1 }],
     outputs: [{ id: "out", label: "Out", hint: "audio" }],
     params: [level()],
     pd: "ge-amp",

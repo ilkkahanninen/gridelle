@@ -1,6 +1,7 @@
 //! Measures what the module abstractions in `pd-lib/modules` actually do, in real Pd:
 //! oscillator pitch, level, aliasing and modulation, filter frequency responses, the
-//! shapers' curves, mixer sums, the envelope's stages.
+//! shapers' curves, mixer sums, the envelope's stages, and that every setting's input
+//! multiplies its knob.
 //!
 //! Each check loads a few-box test patch around one abstraction and analyses the audio
 //! it renders. libpd is a single global instance, so everything runs from one test.
@@ -43,6 +44,82 @@ fn with_patch<T>(pd: &mut Pd, dir: &Path, boxes: &[&str], connections: &[[usize;
     let result = measure(pd);
     pd.close(patch);
     result
+}
+
+/// What a test patch feeds an inlet of the module it is measuring.
+#[derive(Clone, Copy)]
+enum Inlet {
+    /// The signal under test: a pitch for an oscillator, audio for a filter or shaper.
+    Main,
+    Mod,
+    Pwm,
+    /// The input of a setting. It gets a `[sig~ 1]` of its own, as the compiler gives one
+    /// that has no cable, which the message `t-in<inlet number>` sets.
+    Setting,
+}
+
+/// The inlets of a module's abstraction, left to right.
+fn inlets_of(name: &str) -> &'static [Inlet] {
+    use Inlet::*;
+    match name {
+        "ge-osc-sine" | "ge-osc-tri" | "ge-osc-saw" => &[Main, Setting, Setting, Mod],
+        "ge-osc-pulse" => &[Main, Setting, Setting, Setting, Pwm, Mod],
+        "ge-filter-lp" | "ge-filter-hp" | "ge-filter-bp" | "ge-filter-notch" => &[Main, Setting, Setting, Mod],
+        "ge-shaper-soft" | "ge-shaper-fold" | "ge-shaper-cheby" => &[Main, Setting, Mod, Setting],
+        "ge-shaper-hard" | "ge-shaper-rectify" => &[Main, Setting, Mod],
+        "ge-shaper-crush" => &[Main, Setting, Setting, Mod],
+        "ge-amp" => &[Main, Setting],
+        "ge-audio-out" => &[Main, Main, Setting],
+        other => panic!("no inlet list for {other}"),
+    }
+}
+
+/// Open a test patch around the module `name`, created as box number `boxes.len()` with the
+/// argument `t1`. `main`, `modulator` and `pwm` are the boxes that feed those inlets (an
+/// inlet whose box is `None` stays unconnected); `after` adds the boxes and connections
+/// that take the module's output, given the module's box number.
+#[allow(clippy::too_many_arguments)]
+fn with_module<T>(
+    pd: &mut Pd,
+    dir: &Path,
+    name: &str,
+    boxes: &[&str],
+    connections: &[[usize; 4]],
+    feeds: [Option<usize>; 3],
+    after: impl FnOnce(usize) -> (Vec<&'static str>, Vec<[usize; 4]>),
+    measure: impl FnOnce(&mut Pd) -> T,
+) -> T {
+    let mut boxes: Vec<String> = boxes.iter().map(|b| b.to_string()).collect();
+    let mut connections = connections.to_vec();
+    let module = boxes.len();
+    boxes.push(format!("{name} t1"));
+    let (more, wires) = after(module);
+    boxes.extend(more.iter().map(|b| b.to_string()));
+    connections.extend(wires);
+    let [main, modulator, pwm] = feeds;
+    for (inlet, kind) in inlets_of(name).iter().enumerate() {
+        let source = match kind {
+            Inlet::Main => main,
+            Inlet::Mod => modulator,
+            Inlet::Pwm => pwm,
+            Inlet::Setting => {
+                boxes.push(format!("r t-in{inlet}"));
+                boxes.push("sig~ 1".to_string());
+                connections.push([boxes.len() - 2, 0, boxes.len() - 1, 0]);
+                Some(boxes.len() - 1)
+            }
+        };
+        if let Some(source) = source {
+            connections.push([source, 0, module, inlet]);
+        }
+    }
+    let boxes: Vec<&str> = boxes.iter().map(String::as_str).collect();
+    with_patch(pd, dir, &boxes, &connections, measure)
+}
+
+/// The module's first outlet into the left channel.
+fn to_left(module: usize) -> (Vec<&'static str>, Vec<[usize; 4]>) {
+    (vec!["dac~ 1"], vec![[module, 0, module + 1, 0]])
 }
 
 /// Render `seconds` of audio and return the left and right channels.
@@ -110,15 +187,9 @@ const AM: f32 = 2.0;
 /// `t-mod`, and the pulse's PWM input from one set through `t-pwm`. Settings start at
 /// their defaults.
 fn with_oscillator<T>(pd: &mut Pd, dir: &Path, name: &str, measure: impl FnOnce(&mut Pd) -> T) -> T {
-    let oscillator = format!("{name} t1");
-    let boxes = ["r t-pitch", "sig~ 69", "r t-pwm", "sig~ 0", "r t-mod", "sig~ 0", oscillator.as_str(), "dac~ 1"];
-    let mut connections = vec![[0, 0, 1, 0], [2, 0, 3, 0], [4, 0, 5, 0], [1, 0, 6, 0], [6, 0, 7, 0]];
-    if name == "ge-osc-pulse" {
-        connections.extend([[3, 0, 6, 1], [5, 0, 6, 2]]);
-    } else {
-        connections.push([5, 0, 6, 1]);
-    }
-    with_patch(pd, dir, &boxes, &connections, |pd| {
+    let boxes = ["r t-pitch", "sig~ 69", "r t-pwm", "sig~ 0", "r t-mod", "sig~ 0"];
+    let connections = [[0, 0, 1, 0], [2, 0, 3, 0], [4, 0, 5, 0]];
+    with_module(pd, dir, name, &boxes, &connections, [Some(1), Some(5), Some(3)], to_left, |pd| {
         pd.send_float("t1-tune", 0.0);
         pd.send_float("t1-fine", 0.0);
         pd.send_float("t1-width", 50.0);
@@ -194,8 +265,8 @@ fn modulation(pd: &mut Pd, dir: &Path) {
 /// carrier itself vanishes. Any detuning or curvature in the modulation would break this.
 fn linear_fm_spectrum(pd: &mut Pd, dir: &Path) {
     let carrier = format!("sig~ {}", 69.0 + 12.0 * (1000.0f32 / 440.0).log2());
-    let boxes = [carrier.as_str(), "osc~ 100", "ge-osc-sine t1", "dac~ 1"];
-    with_patch(pd, dir, &boxes, &[[0, 0, 2, 0], [1, 0, 2, 1], [2, 0, 3, 0]], |pd| {
+    let boxes = [carrier.as_str(), "osc~ 100"];
+    with_module(pd, dir, "ge-osc-sine", &boxes, &[], [Some(0), Some(1), None], to_left, |pd| {
         // Index = deviation / modulator frequency = 1000 * 8 * depth² / 100.
         let index = 2.405f32;
         pd.send_float("t1-tune", 0.0);
@@ -238,9 +309,10 @@ fn pulse_width(pd: &mut Pd, dir: &Path) {
 /// On a high note the harmonics of a plain saw above half the sample rate fold back as
 /// tones that do not belong to the note. Compare against a plain saw on the right channel.
 fn saw_aliasing(pd: &mut Pd, dir: &Path) {
-    let boxes = ["sig~ 100", "ge-osc-saw t1", "dac~ 1", "mtof~", "phasor~", "*~ 2", "-~ 1", "dac~ 2"];
-    let connections = [[0, 0, 1, 0], [1, 0, 2, 0], [0, 0, 3, 0], [3, 0, 4, 0], [4, 0, 5, 0], [5, 0, 6, 0], [6, 0, 7, 0]];
-    with_patch(pd, dir, &boxes, &connections, |pd| {
+    // Box 0 is the note, 1 to 5 a plain saw into the right channel, then ours into the left.
+    let boxes = ["sig~ 100", "mtof~", "phasor~", "*~ 2", "-~ 1", "dac~ 2"];
+    let connections = [[0, 0, 1, 0], [1, 0, 2, 0], [2, 0, 3, 0], [3, 0, 4, 0], [4, 0, 5, 0]];
+    with_module(pd, dir, "ge-osc-saw", &boxes, &connections, [Some(0), None, None], to_left, |pd| {
         pd.send_float("t1-tune", 0.0);
         pd.send_float("t1-fine", 0.0);
         let (ours, plain) = settled(pd, 1.0);
@@ -280,6 +352,17 @@ enum Kind {
     Notch,
 }
 
+impl Kind {
+    fn abstraction(&self) -> &'static str {
+        match self {
+            Kind::Low => "ge-filter-lp",
+            Kind::High => "ge-filter-hp",
+            Kind::Band => "ge-filter-bp",
+            Kind::Notch => "ge-filter-notch",
+        }
+    }
+}
+
 /// Q for a Res setting, as the filter abstractions compute it.
 fn q_for(res: f32) -> f32 {
     0.7 * (res * (15.0f32 / 0.7).ln()).exp()
@@ -310,15 +393,9 @@ fn designed_gain(kind: Kind, cutoff: f32, res: f32, hz: f32) -> f32 {
 
 /// `[osc~] → [filter] → left`, with `[sig~]` on the Mod input.
 fn with_filter<T>(pd: &mut Pd, dir: &Path, kind: Kind, measure: impl FnOnce(&mut Pd) -> T) -> T {
-    let name = match kind {
-        Kind::Low => "ge-filter-lp t1",
-        Kind::High => "ge-filter-hp t1",
-        Kind::Band => "ge-filter-bp t1",
-        Kind::Notch => "ge-filter-notch t1",
-    };
-    let boxes = ["r t-freq", "osc~ 440", "r t-mod", "sig~ 0", name, "dac~ 1"];
-    let connections = [[0, 0, 1, 0], [2, 0, 3, 0], [1, 0, 4, 0], [3, 0, 4, 1], [4, 0, 5, 0]];
-    with_patch(pd, dir, &boxes, &connections, measure)
+    let boxes = ["r t-freq", "osc~ 440", "r t-mod", "sig~ 0"];
+    let connections = [[0, 0, 1, 0], [2, 0, 3, 0]];
+    with_module(pd, dir, kind.abstraction(), &boxes, &connections, [Some(1), Some(3), None], to_left, measure)
 }
 
 /// Gain in dB for a sine at `hz` with the filter set as given.
@@ -398,10 +475,10 @@ fn gain_of(decibels: f32) -> f32 {
 /// left and its input right, so the two can be compared sample by sample. The Mod input is
 /// a `[sig~]` set through `t-mod`.
 fn with_shaper<T>(pd: &mut Pd, dir: &Path, name: &str, measure: impl FnOnce(&mut Pd) -> T) -> T {
-    let shaper = format!("{name} t1");
-    let boxes = ["osc~ 220", "r t-amp", "*~ 1", "r t-mod", "sig~ 0", shaper.as_str(), "dac~ 1", "dac~ 2"];
-    let connections = [[0, 0, 2, 0], [1, 0, 2, 1], [3, 0, 4, 0], [2, 0, 5, 0], [4, 0, 5, 1], [5, 0, 6, 0], [2, 0, 7, 0]];
-    with_patch(pd, dir, &boxes, &connections, |pd| {
+    let boxes = ["osc~ 220", "r t-amp", "*~ 1", "r t-mod", "sig~ 0"];
+    let connections = [[0, 0, 2, 0], [1, 0, 2, 1], [3, 0, 4, 0]];
+    let both = |module: usize| (vec!["dac~ 1", "dac~ 2"], vec![[module, 0, module + 1, 0], [2, 0, module + 2, 0]]);
+    with_module(pd, dir, name, &boxes, &connections, [Some(2), Some(4), None], both, |pd| {
         for setting in ["t1-mod", "t1-symmetry", "t1-bias", "t1-shape"] {
             pd.send_float(setting, 0.0);
         }
@@ -780,6 +857,138 @@ fn envelope(pd: &mut Pd, dir: &Path) {
     });
 }
 
+// --- setting inputs ------------------------------------------------------------------------
+
+/// One render of a module with a knob at `knob` and that setting's input at `input`.
+fn with_setting(pd: &mut Pd, dir: &Path, name: &str, inlet: usize, receiver: &str, knob: f32, input: f32) -> Vec<f32> {
+    let measure = |pd: &mut Pd| {
+        pd.send_float("t-amp", 0.8);
+        pd.send_float("t-freq", 330.0);
+        pd.send_float("t1-cutoff", 1500.0);
+        pd.send_float("t1-res", 0.3);
+        pd.send_float("t1-drive", 12.0);
+        pd.send_float("t1-order", 3.0);
+        pd.send_float("t1-amount", 1.0);
+        pd.send_float("t1-rate", 6000.0);
+        pd.send_float("t1-bits", 6.0);
+        pd.send_float(&format!("t1-{receiver}"), knob);
+        pd.send_float(&format!("t-in{inlet}"), input);
+        render(pd, 0.3).0
+    };
+    if name.starts_with("ge-osc-") {
+        with_oscillator(pd, dir, name, measure)
+    } else if name.starts_with("ge-filter-") {
+        let kind = [Kind::Low, Kind::High, Kind::Band, Kind::Notch].into_iter().find(|k| k.abstraction() == name).unwrap();
+        with_filter(pd, dir, kind, measure)
+    } else {
+        with_shaper(pd, dir, name, measure)
+    }
+}
+
+/// Every setting has an input that its knob multiplies: the knob at `v` with the input at
+/// `k` must give what the knob at `v * k` gives with the input at 1, sample for sample.
+/// Each render opens the patch afresh, so oscillators start from the same phase. The first
+/// 150 ms are left out: a cutoff is smoothed as a pitch, so on its way to 4000 Hz times
+/// 0.25 it does not pass through the same frequencies as on its way to 1000 Hz.
+fn setting_inputs(pd: &mut Pd, dir: &Path) {
+    // Module, inlet of the setting's input, the knob's receiver, knob value, input value.
+    let cases: &[(&str, usize, &str, f32, f32)] = &[
+        ("ge-osc-sine", 1, "tune", 12.0, 0.5),
+        ("ge-osc-sine", 2, "fine", 80.0, -0.5),
+        ("ge-osc-tri", 1, "tune", -7.0, 2.0),
+        ("ge-osc-tri", 2, "fine", 50.0, 0.25),
+        ("ge-osc-saw", 1, "tune", 24.0, 0.25),
+        ("ge-osc-saw", 2, "fine", -60.0, 0.5),
+        ("ge-osc-pulse", 1, "tune", 12.0, -0.5),
+        ("ge-osc-pulse", 2, "fine", 80.0, 0.5),
+        ("ge-osc-pulse", 3, "width", 80.0, 0.25),
+        ("ge-filter-lp", 1, "cutoff", 4000.0, 0.25),
+        ("ge-filter-lp", 2, "res", 0.8, 0.5),
+        ("ge-filter-hp", 1, "cutoff", 250.0, 4.0),
+        ("ge-filter-hp", 2, "res", 0.4, 2.0),
+        ("ge-filter-bp", 1, "cutoff", 2400.0, 0.125),
+        ("ge-filter-bp", 2, "res", 1.0, 0.25),
+        ("ge-filter-notch", 1, "cutoff", 660.0, 0.5),
+        ("ge-filter-notch", 2, "res", 0.6, 0.5),
+        ("ge-shaper-soft", 1, "drive", 24.0, 0.5),
+        ("ge-shaper-soft", 3, "bias", 0.8, 0.5),
+        ("ge-shaper-hard", 1, "drive", 24.0, 0.25),
+        ("ge-shaper-fold", 1, "drive", 20.0, 0.5),
+        ("ge-shaper-fold", 3, "symmetry", 0.8, -0.5),
+        ("ge-shaper-cheby", 1, "order", 6.0, 0.5),
+        ("ge-shaper-cheby", 3, "drive", -12.0, 0.5),
+        ("ge-shaper-rectify", 1, "amount", 1.0, 0.25),
+        ("ge-shaper-crush", 2, "bits", 8.0, 0.5),
+    ];
+    let mut worst = 0.0f32;
+    for &(name, inlet, receiver, knob, input) in cases {
+        let what = format!("{name} {receiver} {knob} x {input}");
+        let scaled = with_setting(pd, dir, name, inlet, receiver, knob, input);
+        let direct = with_setting(pd, dir, name, inlet, receiver, knob * input, 1.0);
+        let untouched = with_setting(pd, dir, name, inlet, receiver, knob, 1.0);
+        let apart = |a: &[f32], b: &[f32]| a[6615..].iter().zip(&b[6615..]).map(|(x, y)| (x - y).abs()).fold(0.0f32, f32::max);
+        assert!(rms(&scaled) > 0.01, "{what}: the module is making sound (rms {})", rms(&scaled));
+        assert!(apart(&scaled, &untouched) > 0.01, "{what}: the input changes the output");
+        let error = apart(&scaled, &direct);
+        assert!(error < 0.001, "{what}: differs by {error} from the knob at {}", knob * input);
+        worst = worst.max(error);
+    }
+    println!("setting inputs: knob x input matches the knob alone in {} cases, within {worst:.6}", cases.len());
+
+    // The crusher's Rate moves a clock, where a rounding difference shifts a step by a sample:
+    // count the steps instead.
+    let steps = |pd: &mut Pd, knob: f32, input: f32| {
+        steps_per_second(&with_setting(pd, dir, "ge-shaper-crush", 1, "rate", knob, input)[4410..])
+    };
+    let (scaled, direct) = (steps(pd, 8000.0, 0.25), steps(pd, 2000.0, 1.0));
+    close(scaled, direct, 20.0, "crusher Rate 8000 x 0.25 steps as often as Rate 2000");
+    println!("ge-shaper-crush: {scaled:.0} steps a second at Rate 8000 x 0.25, {direct:.0} at Rate 2000");
+
+    // The multiplication is per sample: a 100 Hz wobble on a low-pass's Cutoff input puts side
+    // bands 100 Hz either side of a tone sitting on the filter's slope.
+    let boxes = ["osc~ 1000", "osc~ 100", "*~ 0.5", "+~ 1"];
+    let connections = [[1, 0, 2, 0], [2, 0, 3, 0]];
+    let wobbling = |module: usize| (vec!["dac~ 1"], vec![[module, 0, module + 1, 0], [3, 0, module, 1]]);
+    let side_band = with_module(pd, dir, "ge-filter-lp", &boxes, &connections, [Some(0), None, None], wobbling, |pd| {
+        pd.send_float("t1-cutoff", 1000.0);
+        pd.send_float("t1-res", 0.2);
+        // Take the input's own [sig~ 1] out of the sum: the wobble already swings around 1.
+        pd.send_float("t-in1", 0.0);
+        let wave = settled(pd, 1.0).0;
+        (amplitude_at(&wave, 900.0), amplitude_at(&wave, 1100.0), amplitude_at(&wave, 1000.0))
+    });
+    assert!(side_band.0 > 0.05 && side_band.1 > 0.05, "cutoff input at audio rate makes side bands, got {side_band:?}");
+    println!(
+        "ge-filter-lp: cutoff input wobbling at 100 Hz: side bands {:.3} / {:.3} around a tone of {:.3}",
+        side_band.0, side_band.1, side_band.2
+    );
+}
+
+/// The Amp is its input times Level times CV, and CV rests at 1.
+fn amp_and_output(pd: &mut Pd, dir: &Path) {
+    with_module(pd, dir, "ge-amp", &["sig~ 0.5"], &[], [Some(0), None, None], to_left, |pd| {
+        pd.send_float("t1-level", 0.8);
+        close(mean(&settled(pd, 0.1).0), 0.4, 0.001, "amp with nothing in CV passes its input at Level");
+        pd.send_float("t-in1", 0.5);
+        close(mean(&settled(pd, 0.1).0), 0.2, 0.001, "amp CV 0.5 halves it");
+        pd.send_float("t-in1", 0.0);
+        assert_eq!(peak(&settled(pd, 0.1).0), 0.0, "amp CV 0 closes it");
+        println!("ge-amp: in x Level x CV, open with nothing in CV");
+    });
+
+    // Audio Out throws to the host's buses: catch them as the host does.
+    let caught = |_module: usize| (vec!["catch~ outL", "dac~ 1", "catch~ outR", "dac~ 2"], vec![[2, 0, 3, 0], [4, 0, 5, 0]]);
+    with_module(pd, dir, "ge-audio-out", &["sig~ 0.5"], &[], [Some(0), None, None], caught, |pd| {
+        pd.send_float("t1-level", 0.5);
+        let (left, right) = settled(pd, 0.1);
+        close(mean(&left), 0.25, 0.001, "audio out left is its input times Level");
+        close(mean(&right), 0.25, 0.001, "audio out right likewise");
+        pd.send_float("t-in2", 0.5);
+        close(mean(&settled(pd, 0.1).0), 0.125, 0.001, "audio out Level input 0.5 halves it");
+        println!("ge-audio-out: both channels x Level x its input");
+    });
+}
+
 #[test]
 fn modules_do_what_they_are_designed_to() {
     let events = Pd::init().expect("first init returns the event stream");
@@ -802,6 +1011,8 @@ fn modules_do_what_they_are_designed_to() {
     chebyshev(&mut pd, &dir);
     mixer(&mut pd, &dir);
     envelope(&mut pd, &dir);
+    setting_inputs(&mut pd, &dir);
+    amp_and_output(&mut pd, &dir);
 
     drop(pd);
     let _ = fs::remove_dir_all(&dir);

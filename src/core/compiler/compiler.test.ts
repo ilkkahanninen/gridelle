@@ -135,14 +135,14 @@ describe("compile", () => {
   });
 
   it("adds no constant to a patch whose inputs all rest at zero, and feeds a global module in main", () => {
-    const plain = doc({ modules: [{ id: "ge1", type: "osc-saw", x: 0, y: 0, params: {} }] });
+    const plain = doc({ modules: [{ id: "ge1", type: "noise", x: 0, y: 0, params: {} }] });
     const names = (text: string) => objectBoxes(text).map((b) => b.name);
     expect(names(compile(plain, abstractionLibrary).files["voice.pd"])).not.toContain("sig~");
 
     // An envelope after the voice sum runs once, in main.pd.
     const summed = doc({
       modules: [
-        { id: "ge1", type: "osc-saw", x: 0, y: 0, params: {} },
+        { id: "ge1", type: "noise", x: 0, y: 0, params: {} },
         { id: "ge2", type: "voice-sum", x: 2, y: 0, params: {} },
         { id: "ge3", type: "env-adsr", x: 3, y: 0, params: {} },
       ],

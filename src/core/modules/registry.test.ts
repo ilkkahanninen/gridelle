@@ -75,6 +75,24 @@ describe("module registry", () => {
     }
   });
 
+  it("gives every knob a row, and every module with knobs the rows layout", () => {
+    for (const def of moduleDefs) {
+      const knobs = def.params.filter((p) => !p.options).map((p) => p.id);
+      if (knobs.length === 0) continue;
+      expect(def.layout, def.type).toBe("rows");
+      expect(def.inputs.flatMap((port) => (port.param ? [port.param] : [])).sort(), def.type).toEqual(knobs.sort());
+    }
+  });
+
+  it("holds the input of a setting at 1 while nothing is patched, and a Mod input at 0", () => {
+    for (const def of moduleDefs) {
+      for (const port of def.inputs) {
+        if (!port.param || def.growsWithInputs) continue;
+        expect(port.unpatched, `${def.type}.${port.id}`).toBe(port.id === "mod" ? undefined : 1);
+      }
+    }
+  });
+
   it("makes a rows tile as tall as its rows need", () => {
     const rows = moduleDefs.filter((def) => def.layout === "rows");
     expect(rows.map((def) => def.type)).toEqual(expect.arrayContaining(["env-adsr", "mixer"]));

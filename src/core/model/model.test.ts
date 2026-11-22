@@ -269,8 +269,8 @@ describe("a mixer grows with its inputs", () => {
   // Three saws on the left; a mixer (two cells wide) at 3,0 with two amps stacked right below it.
   const start = build(
     ["osc-saw", 0, 0],
-    ["osc-saw", 0, 2],
-    ["osc-saw", 0, 4],
+    ["osc-saw", 0, 3],
+    ["osc-saw", 0, 6],
     ["mixer", 3, 0],
     ["amp", 3, 1],
     ["amp", 3, 3],
@@ -403,11 +403,11 @@ describe("dropping a new module on a port", () => {
   });
 
   it("takes its place in a row without gaps, and the rest of the row moves right", () => {
-    // The default patch: Saw, Low-pass, Amp and Audio Out side by side, two envelopes below.
+    // The default patch: Saw, Low-pass, Amp and Audio Out side by side, two envelopes in the row below.
     const { doc, id } = addModuleAtPort(basicSynth, "shaper-soft", target("ge2", "in", "in"));
     expect(id).toBe("ge7");
     expect(["ge1", "ge7", "ge2", "ge3", "ge4"].map((m) => at(doc, m))).toEqual([[0, 0], [2, 0], [4, 0], [6, 0], [7, 0]]);
-    expect([at(doc, "ge5"), at(doc, "ge6")]).toEqual([[0, 2], [3, 2]]);
+    expect([at(doc, "ge5"), at(doc, "ge6")]).toEqual([[0, 3], [2, 3]]);
     expect(cables(doc)).toEqual([
       "ge1.out>ge7.in",
       "ge2.out>ge3.in",
@@ -554,7 +554,7 @@ describe("removing a module from a chain", () => {
   });
 
   it("keeps a mixer's other inputs when one of its sources is taken out of a chain", () => {
-    let doc = build(["osc-saw", 0, 0], ["shaper-hard", 2, 0], ["osc-sine", 0, 2], ["mixer", 5, 0]);
+    let doc = build(["osc-saw", 0, 0], ["shaper-hard", 2, 0], ["osc-sine", 0, 3], ["mixer", 5, 0]);
     doc = connect(doc, port("ge1", "out"), port("ge2", "in"));
     doc = connect(doc, port("ge2", "out"), port("ge4", "in1"));
     doc = connect(doc, port("ge3", "out"), port("ge4", "in2"));
