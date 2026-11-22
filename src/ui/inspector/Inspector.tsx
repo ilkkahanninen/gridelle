@@ -1,6 +1,6 @@
 import * as ops from "../../core/model/ops";
 import { MAX_VOICES, MIN_VOICES, type ModuleInstance } from "../../core/model/types";
-import { formatParam, fromNormalized, toNormalized } from "../../core/modules/params";
+import { MODULE_DOCS } from "../../core/modules/docs";
 import { visibleDef } from "../../core/modules/shape";
 import type { ModuleDef, ParamDef } from "../../core/modules/types";
 import { usePreview } from "../../state/preview";
@@ -8,31 +8,6 @@ import { useEditor } from "../../state/store";
 import "./Inspector.css";
 
 const VOICE_SIGNAL = { pitch: "the played note", gate: "the key gate", velocity: "key velocity" } as const;
-
-function ParamRow({ module, param }: { module: ModuleInstance; param: ParamDef }) {
-  const value = ops.paramValue(module, param.id);
-  const set = (next: number, coalesce: boolean) =>
-    useEditor
-      .getState()
-      .apply((doc) => ops.setParam(doc, module.id, param.id, next), coalesce ? `param:${module.id}:${param.id}` : undefined);
-  const id = `param-${module.id}-${param.id}`;
-  return (
-    <div className="inspector-param">
-      <label htmlFor={id}>{param.label}</label>
-      <output>{formatParam(param, value)}</output>
-      <input
-        id={id}
-        type="range"
-        min={0}
-        max={1}
-        step={0.001}
-        value={toNormalized(param, value)}
-        onChange={(e) => set(fromNormalized(param, Number(e.target.value)), true)}
-        onDoubleClick={() => set(param.default, false)}
-      />
-    </div>
-  );
-}
 
 /** A setting that is one of a few named options. */
 function ChoiceRow({ module, param }: { module: ModuleInstance; param: ParamDef }) {
@@ -57,9 +32,14 @@ function ChoiceRow({ module, param }: { module: ModuleInstance; param: ParamDef 
   );
 }
 
+/**
+ * What the module does, and what it has besides the knobs on its tile: its choices, and
+ * whether its inputs follow the played note while nothing is patched into them.
+ */
 function ModuleInspector({ module, def }: { module: ModuleInstance; def: ModuleDef }) {
   const cables = useEditor((s) => s.doc.cables);
   const precordPorts = def.inputs.filter((p) => p.precord);
+  const choices = def.params.filter((param) => param.options);
   return (
     <>
       <header className={`inspector-title category-${def.category}`}>
@@ -67,24 +47,22 @@ function ModuleInspector({ module, def }: { module: ModuleInstance; def: ModuleD
         <h2>{def.name}</h2>
       </header>
 
-      {def.params.length > 0 ? (
-        <section>
-          {def.params.map((param) =>
-            param.options ? (
-              <ChoiceRow key={param.id} module={module} param={param} />
-            ) : (
-              <ParamRow key={param.id} module={module} param={param} />
-            ),
-          )}
-          <p className="inspector-note">Double-click a control to reset it.</p>
+      {MODULE_DOCS[def.type] && (
+        <section className="inspector-doc">
+          <p>{MODULE_DOCS[def.type]}</p>
         </section>
-      ) : (
-        <p className="inspector-note">This module has no settings.</p>
+      )}
+
+      {choices.length > 0 && (
+        <section>
+          {choices.map((param) => (
+            <ChoiceRow key={param.id} module={module} param={param} />
+          ))}
+        </section>
       )}
 
       {precordPorts.length > 0 && (
         <section>
-          <h3>Automatic connections</h3>
           {precordPorts.map((port) => {
             const cabled = cables.some((c) => c.to.module === module.id && c.to.port === port.id);
             return (
@@ -175,7 +153,7 @@ export function Inspector() {
   const def = single ? visibleDef({ cables }, single) : undefined;
 
   return (
-    <aside className="inspector" aria-label="Inspector">
+    <aside className="inspector" aria-label="Settings">
       {single && def ? (
         <ModuleInspector module={single} def={def} />
       ) : selected.length > 1 ? (

@@ -28,6 +28,7 @@ import {
   removeModules,
   setParam,
   setPrecord,
+  togglePrecord,
 } from "./ops";
 import { exportFolderName, parseDocument, serializeDocument } from "./serialize";
 import { emptyDocument, type PatchDocument } from "./types";
@@ -186,6 +187,20 @@ describe("parameters", () => {
     expect(off.modules[1].precords).toEqual({ pitch: false });
     expect(setPrecord(off, "ge2", "pitch", false)).toBe(off);
     expect(setPrecord(doc, "ge1", "in", false)).toBe(doc);
+  });
+
+  it("switches a pre-cord over, unless a cable has replaced it", () => {
+    const off = togglePrecord(doc, "ge2", "pitch");
+    expect(off.modules[1].precords).toEqual({ pitch: false });
+    expect(togglePrecord(off, "ge2", "pitch").modules[1].precords).toEqual({ pitch: true });
+    // A port without a pre-cord, a port that is not there, a module that is not there.
+    expect(togglePrecord(doc, "ge1", "in")).toBe(doc);
+    expect(togglePrecord(doc, "ge2", "nothing")).toBe(doc);
+    expect(togglePrecord(doc, "ge99", "pitch")).toBe(doc);
+    // With a cable in the port there is nothing to switch.
+    const patched = connect(doc, port("ge1", "out"), port("ge2", "pitch"));
+    expect(patched).not.toBe(doc);
+    expect(togglePrecord(patched, "ge2", "pitch")).toBe(patched);
   });
 });
 

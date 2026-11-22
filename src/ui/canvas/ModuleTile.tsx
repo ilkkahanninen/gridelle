@@ -116,13 +116,17 @@ function Port({
   onPointerDown: TileProps["onPortPointerDown"];
 }) {
   const precord = side === "in" && !cabled && port.precord && (module.precords?.[port.id] ?? true) ? port.precord : null;
+  // The same input with its pre-cord switched off: a click switches it on again.
+  const idle = side === "in" && !cabled && port.precord && !precord ? port.precord : null;
   // An input in a row that has a knob: the knob's label names the row.
   const knobbed = side === "in" && def.layout === "rows" && !!port.param;
   const hint = precord
-    ? `${port.label}: follows ${VOICE_SIGNAL_LABEL[precord]} until you patch a cable in`
-    : side === "in" && port.param && port.unpatched !== undefined
-      ? `${port.label} input: multiplies the ${port.label} knob. ${port.unpatched} with nothing patched.`
-      : `${port.label} ${side === "in" ? "input" : "output"}`;
+    ? `${port.label}: follows ${VOICE_SIGNAL_LABEL[precord]} until you patch a cable in. Click to turn that off.`
+    : idle
+      ? `${port.label} input: click to make it follow ${VOICE_SIGNAL_LABEL[idle]}`
+      : side === "in" && port.param && port.unpatched !== undefined
+        ? `${port.label} input: multiplies the ${port.label} knob. ${port.unpatched} with nothing patched.`
+        : `${port.label} ${side === "in" ? "input" : "output"}`;
   return (
     <div
       className={`port port-${side} hint-${port.hint}${cabled ? " port-cabled" : ""}${precord ? " port-precord" : ""}${target ? " port-target" : ""}${knobbed ? " port-knobbed" : ""}`}

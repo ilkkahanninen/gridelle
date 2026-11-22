@@ -21,7 +21,7 @@
   --hint-phase: #b98cff;
   --hint-mod: #58d8b0;
 
-  /* The inspector, and the category list above it, so that their right edges line up. */
+  /* The category list of the module browser. */
   --side-width: 248px;
 
   --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
@@ -113,7 +113,6 @@ input {
 
 .workspace {
   display: grid;
-  grid-template-columns: var(--side-width) minmax(0, 1fr);
   min-height: 0;
   border-block: 1px solid var(--line);
 }
@@ -232,48 +231,19 @@ input {
   min-height: 0;
 }
 
+/* A line between its sections, the full height of the strip. */
+.dock > * + * {
+  box-sizing: content-box;
+  margin-block: -12px;
+  padding-block: 12px;
+  padding-left: 20px;
+  border-left: 1px solid var(--line);
+}
+
+/* What is left of the strip. It takes the height the Organelle gives the strip, and scrolls. */
 .dock-side {
   flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-}
-
-.hint {
-  margin: 0;
-  color: var(--text-dim);
-}
-
-kbd {
-  font-family: var(--mono);
-  font-size: 11px;
-  padding: 1px 5px;
-  border: 1px solid var(--line-strong);
-  border-radius: 4px;
-  color: var(--text);
-}
-
-.console {
-  flex: 1;
-  min-height: 0;
-  height: 0;
-  margin: 0;
-  padding: 8px 10px;
-  overflow: auto;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  font-family: var(--mono);
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--text-dim);
-  white-space: pre-wrap;
-  -webkit-user-select: text;
-  user-select: text;
-}
-
-.console-empty {
-  font-family: "Barlow Semi Condensed", sans-serif;
-  font-size: 14px;
 }

@@ -1,15 +1,21 @@
+/*
+ * In the dock, right of the knob pages: a title, then its sections side by side for as
+ * long as there is room. Its height is the dock's, not its own (hence the 0), and it scrolls.
+ */
 .inspector {
+  flex: 1;
+  height: 0;
+  min-height: 0;
   display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 14px;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 12px 28px;
   overflow-y: auto;
-  padding: 12px 14px 16px;
-  background: var(--chrome);
-  border-right: 1px solid var(--line);
+  padding: 2px 4px;
 }
 
 .inspector-title {
+  flex: 0 0 100%;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -29,9 +35,23 @@
 }
 
 .inspector section {
+  flex: 0 1 260px;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+/* What the module does: the width of the pane, with the controls below it. */
+.inspector .inspector-doc {
+  flex: 0 0 100%;
+}
+
+.inspector-doc p {
+  margin: 0;
+  line-height: 1.4;
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 .inspector-swatch {
@@ -43,23 +63,17 @@
 
 .inspector-param {
   display: grid;
-  grid-template-columns: 1fr auto;
-  row-gap: 2px;
+  grid-template-columns: 56px 1fr;
+  align-items: center;
+  gap: 8px;
 }
 
-.inspector-param output {
+.inspector-param label {
   color: var(--text-dim);
 }
 
-.inspector-param input {
-  grid-column: 1 / -1;
-  width: 100%;
-  margin: 0;
-  accent-color: var(--accent);
-}
-
 .inspector-choice select {
-  grid-column: 1 / -1;
+  min-width: 0;
   padding: 3px 4px;
   border: 1px solid var(--line-strong);
   border-radius: 4px;
@@ -122,8 +136,4 @@
 
 .problem-warning {
   color: var(--hint-gate);
-}
-
-.inspector section:has(.inspector-param) {
-  gap: 12px;
 }

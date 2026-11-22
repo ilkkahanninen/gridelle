@@ -5,7 +5,6 @@ import { startPreviewSync } from "./state/preview";
 import { useEditor } from "./state/store";
 import { useUi } from "./state/ui";
 import { GridCanvas } from "./ui/canvas/GridCanvas";
-import { Inspector } from "./ui/inspector/Inspector";
 import { Palette } from "./ui/palette/Palette";
 import { Dock } from "./ui/shell/Dock";
 import { TopBar } from "./ui/shell/TopBar";
@@ -88,7 +87,6 @@ function App() {
       <TopBar />
       <Palette />
       <div className="workspace">
-        <Inspector />
         <GridCanvas />
       </div>
       <Dock />

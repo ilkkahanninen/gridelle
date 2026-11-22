@@ -199,7 +199,12 @@ export function GridCanvas() {
         },
         (up, cancelled) => {
           useUi.setState({ cableDrag: null });
-          if (cancelled || !moved) return;
+          if (cancelled) return;
+          if (!moved) {
+            // A click, not a drag: an input that can follow the played note is switched over.
+            if (side === "in") apply((d) => ops.togglePrecord(d, module, port));
+            return;
+          }
           const target = portUnder(up.clientX, up.clientY);
           const valid = target && target.side !== anchorSide;
           apply((d) => {

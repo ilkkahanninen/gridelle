@@ -342,6 +342,16 @@ export function setPrecord(doc: PatchDocument, id: ModuleId, port: string, enabl
   };
 }
 
+/**
+ * Switch an input's pre-cord over: off when it follows the played note, on when it does
+ * not. Nothing happens on a port without one, or with a cable in it, which has replaced it.
+ */
+export function togglePrecord(doc: PatchDocument, id: ModuleId, port: string): PatchDocument {
+  if (doc.cables.some((c) => c.to.module === id && c.to.port === port)) return doc;
+  const module = doc.modules.find((m) => m.id === id);
+  return module ? setPrecord(doc, id, port, !(module.precords?.[port] ?? true)) : doc;
+}
+
 /** Current value of a parameter, falling back to its default. */
 export function paramValue(module: ModuleInstance, param: string): number {
   const def = getModuleDef(module.type)?.params.find((p) => p.id === param);

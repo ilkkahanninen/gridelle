@@ -22,7 +22,7 @@ interface PreviewState {
   led: number;
   /** Bumped every time a patch finishes loading into the engine. */
   revision: number;
-  /** Lines printed by Pd, most recent last. */
+  /** Lines printed by Pd, most recent last. Kept for looking at; nothing draws them. */
   log: string[];
   /** Set when the engine refused the last patch. */
   loadError: string | null;
