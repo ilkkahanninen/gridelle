@@ -73,7 +73,10 @@ fn golden_patches_play_in_pd() {
         }
         let released = render(&mut pd, 2.0);
         let tail = &released[released.len() - 4096..];
-        assert!(peak(tail) < 1e-3, "{name}: releases to silence, tail peak {}", peak(tail));
+        // A looper is the one patch that is meant to go on: it has its own check below.
+        if name != "looper" {
+            assert!(peak(tail) < 1e-3, "{name}: releases to silence, tail peak {}", peak(tail));
+        }
         if name == "audio-input" {
             // The audio input runs once and is heard with no key held. Its left side goes
             // through a wide-open low-pass at full level, its right side in at half; Audio Out
@@ -114,6 +117,30 @@ fn golden_patches_play_in_pd() {
             let part = |from_ms: usize, to_ms: usize| peak(&after[2 * 44 * from_ms..2 * 44 * to_ms]);
             assert!(part(100, 200) > 0.02, "{name}: the sound plays on after the key, peak {}", part(100, 200));
             assert!(part(300, 500) < 1e-4, "{name}: and ends when the sample does, peak {}", part(300, 500));
+        }
+        if name == "looper" {
+            // The chord was recorded while the keys were down, and the tape goes round with
+            // no key held: half a second of it (22 080 samples), the same every lap.
+            assert!(peak(tail) > 0.02, "{name}: the tape plays on with no key held, peak {}", peak(tail));
+            let lap = 2 * 22_080;
+            let again = released[released.len() - 2 * lap..].split_at(lap);
+            let worst = again.0.iter().zip(again.1).map(|(a, b)| (a - b).abs()).fold(0.0f32, f32::max);
+            assert!(worst < 1e-6, "{name}: each lap of the tape is the same as the one before, worst difference {worst}");
+            // What is on it is what was played: as loud as the chord was, at the tape's half share of the mix.
+            let on_tape = pd.read_array("ge-sample-0").expect("the looper's tape");
+            let heard = peak(again.1);
+            assert!((peak(&on_tape) * 0.5 * 0.25 - heard).abs() < 0.001, "{name}: the tape at half of the mix and Audio Out's quarter: {} against {heard}", peak(&on_tape));
+            println!("{name}: the tape holds the chord at {:.3} and plays it back at {heard:.3}", peak(&on_tape));
+        }
+        if name == "tape-echo" {
+            // The amp's release is 60 ms. What is heard after that is the tape, 120 ms behind
+            // and fed back at 0.4 through a filter: each echo quieter than the one before.
+            // (Interleaved stereo: 88 values a millisecond.)
+            let part = |from_ms: usize, to_ms: usize| peak(&released[88 * from_ms..88 * to_ms]);
+            let echoes = [part(130, 250), part(250, 370), part(370, 490), part(490, 610)];
+            assert!(echoes[0] > 0.01, "{name}: echoes are heard after the keys are let go: {echoes:?}");
+            assert!(echoes.windows(2).all(|pair| pair[1] < pair[0] * 0.6), "{name}: each echo is quieter than the one before: {echoes:?}");
+            println!("{name}: echoes after the release at {echoes:.3?}");
         }
         if name == "voice-effects" {
             // The delay and reverb inside the voices ring on after the keys are up: the voice

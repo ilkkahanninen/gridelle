@@ -250,6 +250,216 @@ fn play_head(pd: &mut Pd, dir: &Path) {
     });
 }
 
+/// A test patch with a tape in slot 0 of `seconds`, a Recorder on it fed with noise, and
+/// more boxes after those. Box 1 is the Recorder and box 2 the noise; the left channel is
+/// outlet `left` of the Recorder unless `more` connects something else to box 3, the
+/// `dac~`, and the right channel is the noise, so that a test knows what went in.
+fn with_recorder<T>(pd: &mut Pd, dir: &Path, seconds: f32, left: Option<usize>, more: &[&str], wires: &[[usize; 4]], measure: impl FnOnce(&mut Pd) -> T) -> T {
+    let mut boxes: Vec<String> = vec![
+        format!("ge-sample-tape 0 {seconds}"),
+        "ge-sample-recorder t1 0".into(),
+        "noise~".into(),
+        "dac~ 1 2".into(),
+        // The inputs of Record and Overdub, as the compiler holds them with nothing patched in.
+        "r t-in1".into(),
+        "sig~ 1".into(),
+        "r t-in2".into(),
+        "sig~ 1".into(),
+    ];
+    let mut connections = vec![[2, 0, 3, 1], [4, 0, 5, 0], [5, 0, 1, 1], [6, 0, 7, 0], [7, 0, 1, 2]];
+    if let Some(outlet) = left {
+        connections.push([1, outlet, 3, 0]);
+    }
+    boxes.extend(more.iter().map(|b| b.to_string()));
+    connections.extend(wires);
+    with_patch(pd, dir, &boxes, &connections, |pd| {
+        set(pd, &[("t1-record", 1.0), ("t1-overdub", 0.0), ("t1-mode", 0.0)]);
+        measure(pd)
+    })
+}
+
+/// The noise straight into the Recorder.
+const NOISE_IN: [usize; 4] = [2, 0, 1, 0];
+const BLOCK: usize = 64;
+/// A tape of a tenth of a second: 69 blocks.
+const TAPE: usize = 69 * BLOCK;
+
+fn tape(pd: &mut Pd) -> Vec<f32> {
+    pd.read_array("ge-sample-0").expect("the tape has a table")
+}
+
+fn recorder(pd: &mut Pd, dir: &Path) {
+    // The tape starts at the second block the patch runs, and from then on what goes in
+    // is on the tape at the place it went in, lap after lap.
+    with_recorder(pd, dir, 0.1, Some(0), &[], &[NOISE_IN], |pd| {
+        assert_eq!(tape(pd).len(), TAPE);
+        let (out, input) = render(pd, BLOCK + 3 * TAPE);
+        let lap = |n: usize| &input[BLOCK + n * TAPE..BLOCK + (n + 1) * TAPE];
+        let on_tape = tape(pd);
+        for i in [0, 1, 63, 64, 1000, TAPE - 1] {
+            // (The switch is a smoothed 1 that settles a few millionths short of it.)
+            close(on_tape[i], lap(2)[i], 1e-5, &format!("sample {i} of the third lap is at place {i} of the tape"));
+        }
+        // Out is the tape as it passes: what was written a lap ago.
+        let third = &out[BLOCK + 2 * TAPE..];
+        for i in [0, 500, 2000, TAPE - 1] {
+            close(third[i], lap(1)[i], 1e-5, &format!("Out in the third lap is the second lap, at {i}"));
+        }
+    });
+
+    // Position runs from 0 to 1 over a lap, exactly.
+    with_recorder(pd, dir, 0.1, Some(1), &[], &[NOISE_IN], |pd| {
+        let (position, _) = render(pd, BLOCK + 2 * TAPE);
+        for (at, place) in [(BLOCK, 0), (BLOCK + 1, 1), (BLOCK + 1000, 1000), (BLOCK + TAPE - 1, TAPE - 1), (BLOCK + TAPE, 0), (BLOCK + TAPE + 77, 77)] {
+            close(position[at] * TAPE as f32, place as f32, 1e-3, &format!("the position at sample {at}"));
+        }
+    });
+
+    // With Record off the tape goes round untouched, bit for bit, however long.
+    with_recorder(pd, dir, 0.1, Some(0), &[], &[NOISE_IN], |pd| {
+        render(pd, BLOCK + 2 * TAPE);
+        pd.send_float("t1-record", 0.0);
+        // The switch is a fade of a few milliseconds, during which a little more is written.
+        render(pd, 2 * TAPE);
+        let before = tape(pd);
+        assert!(before.iter().any(|v| v.abs() > 0.1), "there is a recording on the tape");
+        let (out, _) = render(pd, 50 * TAPE);
+        assert_eq!(tape(pd), before, "fifty laps later the tape is the same, bit for bit");
+        assert_eq!(&out[out.len() - TAPE..], &before[..], "and Out plays it");
+        // A gate patched into Record does the same as the knob: 1 x 0 is off, 1 x 1 is on.
+        set(pd, &[("t1-record", 1.0), ("t-in1", 0.0)]);
+        render(pd, 4 * TAPE);
+        assert_eq!(tape(pd), before, "the knob on and the input at 0 does not record");
+        pd.send_float("t-in1", 1.0);
+        render(pd, 2 * TAPE);
+        assert_ne!(tape(pd), before, "the input at 1 does");
+    });
+
+    // Overdub keeps the old sound under the new: all of it at 1, half at 0.5.
+    for overdub in [1.0, 0.5] {
+        with_recorder(pd, dir, 0.1, Some(0), &[], &[NOISE_IN], |pd| {
+            pd.send_float("t1-overdub", overdub);
+            let (_, input) = render(pd, BLOCK + 3 * TAPE);
+            let lap = |n: usize| &input[BLOCK + n * TAPE..BLOCK + (n + 1) * TAPE];
+            let on_tape = tape(pd);
+            for i in [1000, 3000, TAPE - 1] {
+                // (From place 1000 on, the first lap too was recorded with the switch fully on.)
+                let expected = lap(2)[i] + overdub * (lap(1)[i] + overdub * lap(0)[i]);
+                close(on_tape[i], expected, 1e-4, &format!("with Overdub at {overdub}, place {i} holds the laps added up"));
+            }
+        });
+    }
+
+    // The laps stay in step with the count of blocks: after thousands of them, a tape of
+    // one block and one of three still hold exactly the last of what went in.
+    for (seconds, blocks) in [(0.0, 1), (0.004, 3)] {
+        with_recorder(pd, dir, seconds, Some(0), &[], &[NOISE_IN], |pd| {
+            let size = blocks * BLOCK;
+            assert_eq!(tape(pd).len(), size);
+            let (_, input) = render(pd, BLOCK + 3000 * size);
+            let worst = tape(pd).iter().zip(&input[input.len() - size..]).map(|(a, b)| (a - b).abs()).fold(0.0f32, f32::max);
+            assert!(worst < 1e-5, "a tape of {blocks} blocks after 3000 laps holds the last lap, worst difference {worst}");
+        });
+    }
+
+    // Once: a rise of Record goes back to the start and records one lap, then no more.
+    with_recorder(pd, dir, 0.1, Some(1), &[], &[NOISE_IN], |pd| {
+        set(pd, &[("t1-mode", 1.0), ("t1-record", 0.0)]);
+        render(pd, BLOCK + TAPE + 640);
+        let before = tape(pd);
+        pd.send_float("t1-record", 1.0);
+        // The knob reaches a half 10 ms after it is turned; the lap starts at a block after that.
+        let (position, input) = render(pd, 3 * TAPE);
+        let start = (1..position.len()).find(|&n| position[n] < position[n - 1]).expect("the tape goes back to its start");
+        assert!(start < 1024 && start % BLOCK == 0, "at the start of a block soon after the rise, at sample {start}");
+        let on_tape = tape(pd);
+        assert_ne!(on_tape, before, "it has recorded");
+        for i in [1000, 3000, TAPE - 1] {
+            close(on_tape[i], input[start + i], 1e-4, &format!("the lap from the rise is on the tape, at {i}"));
+        }
+        render(pd, 10 * TAPE);
+        assert_eq!(tape(pd), on_tape, "and nothing after that lap, with Record still on");
+    });
+}
+
+/// How long a signal takes through the test patch, found by matching what comes out with
+/// what went in: the lag of `out` behind `input`, in samples, up to `most`.
+fn lag(out: &[f32], input: &[f32], most: usize) -> usize {
+    let from = most + 2000;
+    (0..=most)
+        .min_by(|a, b| {
+            let error = |lag: usize| (from..from + 500).map(|n| (out[n] - input[n - lag]).abs()).sum::<f32>();
+            error(*a).partial_cmp(&error(*b)).unwrap()
+        })
+        .unwrap()
+}
+
+fn tape_head(pd: &mut Pd, dir: &Path) {
+    // Box 8 is the head, on the left channel; boxes 9 and 10 hold the input of Delay at 1.
+    let head = ["ge-tape-head t2 0", "r t-in0", "sig~ 1"];
+    let wires = [[8, 0, 3, 0], [9, 0, 10, 0], [10, 0, 8, 0]];
+    with_recorder(pd, dir, 0.1, None, &head, &[NOISE_IN, wires[0], wires[1], wires[2]], |pd| {
+        // What went in comes out Delay later, give or take the blocks the place of the
+        // recording takes to reach the head: none, one or two, always the same in a patch.
+        pd.send_float("t2-delay", 20.0);
+        render(pd, 8820);
+        let (out, input) = render(pd, 5 * TAPE);
+        let delay = lag(&out, &input, 2000);
+        let extra = delay as i64 - 882;
+        assert!([0, 64, 128].contains(&extra), "20 ms is 882 samples, plus 0, 64 or 128: got {delay}");
+        // Sample for sample, through every wrap of the tape in five laps.
+        let worst = (2000..out.len()).map(|n| (out[n] - input[n - delay]).abs()).fold(0.0f32, f32::max);
+        assert!(worst < 1e-5, "the head plays what went in {delay} samples before, worst difference {worst}");
+
+        // A delay between two samples is the two blended: 20.01 ms is 882.441 samples.
+        pd.send_float("t2-delay", 20.01);
+        render(pd, 8820);
+        let (out, input) = render(pd, 3 * TAPE);
+        let (whole, part) = (delay, 0.441);
+        let worst = (2000..out.len())
+            .map(|n| (out[n] - (input[n - whole] * (1.0 - part) + input[n - whole - 1] * part)).abs())
+            .fold(0.0f32, f32::max);
+        assert!(worst < 2e-3, "a delay of 882.441 samples blends its two neighbours, worst difference {worst}");
+
+        // Delay is the knob times its input, and stays on the tape: at least a block, at most
+        // the tape less four blocks.
+        set(pd, &[("t2-delay", 40.0), ("t-in0", 0.5)]);
+        render(pd, 8820);
+        let (out, input) = render(pd, 3 * TAPE);
+        assert_eq!(lag(&out, &input, 2000), delay, "40 ms at half is 20 ms");
+        set(pd, &[("t2-delay", 2.0), ("t-in0", 0.1)]);
+        render(pd, 8820);
+        let (out, input) = render(pd, 3 * TAPE);
+        assert_eq!(lag(&out, &input, 2000) as i64 - extra, 64, "the shortest delay is a block");
+        set(pd, &[("t2-delay", 5000.0), ("t-in0", 1.0)]);
+        render(pd, 8820);
+        let (out, input) = render(pd, 3 * TAPE);
+        assert_eq!(lag(&out, &input, TAPE) as i64 - extra, (TAPE - 256) as i64, "the longest is the tape less four blocks");
+    });
+
+    // An echo: the head patched back into the Recorder at half level. A click goes in once
+    // and comes back every Delay, each time at half the level.
+    let echo = ["ge-tape-head t2 0", "r t-in0", "sig~ 1", "*~ 0.5", "+~", "r t-click", "vline~"];
+    let wires = [[8, 0, 3, 0], [9, 0, 10, 0], [10, 0, 8, 0], [8, 0, 11, 0], [11, 0, 12, 1], [13, 0, 14, 0], [14, 0, 12, 0], [12, 0, 1, 0]];
+    with_recorder(pd, dir, 0.5, None, &echo, &wires, |pd| {
+        pd.send_float("t2-delay", 50.0);
+        render(pd, 22050);
+        // One sample at 1.
+        pd.send_message("t-click", "list", &[Atom::Float(1.0), Atom::Float(0.0), Atom::Float(0.0)]);
+        pd.send_message("t-click", "list", &[Atom::Float(0.0), Atom::Float(0.0), Atom::Float(1000.0 / SAMPLE_RATE)]);
+        let (out, _) = render(pd, 22050);
+        let clicks: Vec<(usize, f32)> = out.iter().enumerate().filter(|(_, v)| v.abs() > 0.01).map(|(n, v)| (n, *v)).collect();
+        assert!(clicks.len() >= 5, "the click comes back again and again: {clicks:?}");
+        let period = clicks[1].0 - clicks[0].0;
+        assert!([2205, 2269, 2333].contains(&period), "every 50 ms, give or take the blocks of the patch: {period}");
+        for (n, pair) in clicks.windows(2).enumerate().take(4) {
+            assert_eq!(pair[1].0 - pair[0].0, period, "echo {n} is as far from the next as the first");
+            close(pair[1].1 / pair[0].1, 0.5, 1e-4, &format!("echo {} is half the level of the one before", n + 1));
+        }
+        close(clicks[0].1, 1.0, 1e-4, "the first echo is the click itself");
+    });
+}
+
 /// A 16-bit mono WAV of a ramp, as the editor writes them.
 fn wav(rate: u32, samples: &[i16]) -> Vec<u8> {
     let data = samples.len() as u32 * 2;
@@ -331,6 +541,8 @@ fn sample_modules_do_what_they_are_designed_to() {
     slots(&mut pd, &dir, &events);
     sample_player(&mut pd, &dir);
     play_head(&mut pd, &dir);
+    recorder(&mut pd, &dir);
+    tape_head(&mut pd, &dir);
 
     drop(pd);
     let _ = fs::remove_dir_all(&dir);

@@ -391,6 +391,36 @@ describe("compile", () => {
       expect(structureKey(ops.setParam(fixtures.sampler, "ge1", "tune", 7))).toBe(key);
     });
 
+    it("lets one module record onto a sample, and wants one for a module that plays behind the recording", () => {
+      const echo = fixtures["tape-echo"];
+      expect(compile(echo, abstractionLibrary).diagnostics).toEqual([]);
+      // A second Recorder on the same tape.
+      const second = ops.setParam(ops.addModule(echo, "sample-recorder", { x: 0, y: 8 }).doc, "ge11", "sample", 1);
+      const refused = compile(second, abstractionLibrary);
+      expect(refused.ok).toBe(false);
+      expect(refused.diagnostics).toEqual([
+        { severity: "error", code: "two-recorders", message: "Two modules record onto sample B. A sample can have one.", module: "ge11" },
+      ]);
+      // On another tape it is fine, apart from that tape being empty.
+      expect(compile(ops.setParam(second, "ge11", "sample", 2), abstractionLibrary).diagnostics.map((d) => d.code)).toEqual(["empty-sample"]);
+      // The Tape Head without its Recorder.
+      const alone = compile(ops.removeModules(echo, new Set(["ge6"])), abstractionLibrary);
+      expect(alone.ok).toBe(true);
+      expect(alone.diagnostics).toEqual([
+        { severity: "warning", code: "no-recorder", message: "Tape Head plays behind the recording of sample B, which nothing records.", module: "ge7" },
+      ]);
+    });
+
+    it("runs the Recorder and the Tape Head once for all voices, with the echo's path back through the tape", () => {
+      const echo = compile(fixtures["tape-echo"], abstractionLibrary);
+      // Both are in main.pd, with everything patched after them; the voices hold the synth.
+      for (const box of ["ge-sample-recorder ge6 1;", "ge-tape-head ge7 1;", "ge-filter-lp ge8;", "ge-shaper-soft ge9;", "ge-mixer ge5;", "ge-sample-tape 1 1;"]) {
+        expect(echo.files["main.pd"]).toContain(box);
+      }
+      expect(echo.files["voice.pd"]).not.toContain("ge-tape-head");
+      expect(echo.files["voice.pd"]).toContain("ge-osc-saw ge1;");
+    });
+
     it("keeps a voice alive while a Sample Player plays on, by its Playing output", () => {
       // The Player's third outlet joins the key gate in what keeps the voice playing.
       const voice = result.files["voice.pd"].split("\n");

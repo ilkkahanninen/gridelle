@@ -474,6 +474,76 @@ export const sampler: PatchDocument = settle({
   ],
 });
 
+/**
+ * A looper: a synth voice is recorded onto half a second of tape while a key is held (the
+ * key gates of all voices, added up, are the Recorder's Record input), on top of what is
+ * there. The tape is heard with the synth, and goes on playing with no key held.
+ */
+export const looper: PatchDocument = settle({
+  version: DOCUMENT_VERSION,
+  name: "Looper",
+  voices: 3,
+  modules: [
+    { id: "ge1", type: "osc-saw", x: 0, y: 0, params: {} },
+    { id: "ge2", type: "amp", x: 2, y: 0, params: {} },
+    { id: "ge3", type: "env-adsr", x: 0, y: 3, params: { release: 60 } },
+    { id: "ge4", type: "keys", x: 2, y: 3, params: {} },
+    { id: "ge5", type: "voice-sum", x: 3, y: 0, params: {} },
+    { id: "ge6", type: "sample-recorder", x: 4, y: 0, params: { sample: 0, overdub: 1 } },
+    { id: "ge7", type: "mixer", x: 7, y: 0, params: { level1: 0.5, level2: 0.5 } },
+    { id: "ge8", type: "audio-out", x: 9, y: 0, params: {} },
+  ],
+  cables: [
+    { from: { module: "ge1", port: "out" }, to: { module: "ge2", port: "in" } },
+    { from: { module: "ge3", port: "out" }, to: { module: "ge2", port: "cv" } },
+    { from: { module: "ge2", port: "out" }, to: { module: "ge5", port: "in" } },
+    { from: { module: "ge5", port: "out" }, to: { module: "ge6", port: "in" } },
+    { from: { module: "ge4", port: "gate" }, to: { module: "ge6", port: "record" } },
+    { from: { module: "ge5", port: "out" }, to: { module: "ge7", port: "in1" } },
+    { from: { module: "ge6", port: "out" }, to: { module: "ge7", port: "in2" } },
+    { from: { module: "ge7", port: "out" }, to: { module: "ge8", port: "left" } },
+  ],
+  pages: [],
+  samples: [{ kind: "tape", seconds: 0.5 }],
+});
+
+/**
+ * A tape echo built from parts: the synth and the echoes are mixed and recorded onto a
+ * second of tape, and a Tape Head plays the tape 120 ms behind, through a low-pass and a
+ * soft clip, back into that mix. No cable runs from the Recorder to the Tape Head: the
+ * tape is what closes the loop.
+ */
+export const tapeEcho: PatchDocument = settle({
+  version: DOCUMENT_VERSION,
+  name: "Tape Echo",
+  voices: 3,
+  modules: [
+    { id: "ge1", type: "osc-saw", x: 0, y: 0, params: {} },
+    { id: "ge2", type: "amp", x: 2, y: 0, params: {} },
+    { id: "ge3", type: "env-adsr", x: 0, y: 3, params: { release: 60 } },
+    { id: "ge4", type: "voice-sum", x: 3, y: 0, params: {} },
+    { id: "ge5", type: "mixer", x: 4, y: 0, params: { level2: 0.4 } },
+    { id: "ge6", type: "sample-recorder", x: 6, y: 0, params: { sample: 1 } },
+    { id: "ge7", type: "tape-head", x: 4, y: 3, params: { sample: 1, delay: 120 } },
+    { id: "ge8", type: "filter-lp", x: 6, y: 3, params: { cutoff: 3000, res: 0, mod: 0 } },
+    { id: "ge9", type: "shaper-soft", x: 8, y: 3, params: { drive: 0 } },
+    { id: "ge10", type: "audio-out", x: 9, y: 0, params: {} },
+  ],
+  cables: [
+    { from: { module: "ge1", port: "out" }, to: { module: "ge2", port: "in" } },
+    { from: { module: "ge3", port: "out" }, to: { module: "ge2", port: "cv" } },
+    { from: { module: "ge2", port: "out" }, to: { module: "ge4", port: "in" } },
+    { from: { module: "ge4", port: "out" }, to: { module: "ge5", port: "in1" } },
+    { from: { module: "ge7", port: "out" }, to: { module: "ge8", port: "in" } },
+    { from: { module: "ge8", port: "out" }, to: { module: "ge9", port: "in" } },
+    { from: { module: "ge9", port: "out" }, to: { module: "ge5", port: "in2" } },
+    { from: { module: "ge5", port: "out" }, to: { module: "ge6", port: "in" } },
+    { from: { module: "ge5", port: "out" }, to: { module: "ge10", port: "left" } },
+  ],
+  pages: [],
+  samples: [null, { kind: "tape", seconds: 1 }],
+});
+
 export const fixtures = {
   "basic-synth": basicSynth,
   "shared-filter": sharedFilter,
@@ -487,4 +557,6 @@ export const fixtures = {
   "math-and-logic": mathAndLogic,
   scoped,
   sampler,
+  looper,
+  "tape-echo": tapeEcho,
 } as const;

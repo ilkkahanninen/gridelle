@@ -367,6 +367,45 @@ const DEFS: ModuleDef[] = [
     layout: "rows",
   },
   {
+    // Writes its input onto its sample, going round, and gives the tape as it passes: a
+    // looper. One for all voices. Record is a knob so that an Organelle knob can play it.
+    type: "sample-recorder",
+    name: "Recorder",
+    category: "sample",
+    // Three wide: Record's row also has the Position output's name.
+    width: 3,
+    height: 2,
+    inputs: [audioInput, settingInput("record", "Record"), settingInput("overdub", "Overdub")],
+    outputs: [audioOutput, { id: "position", label: "Position", hint: "mod" }],
+    params: [
+      { id: "record", label: "Record", min: 0, max: 1, default: 1, curve: "lin", step: 1 },
+      level("overdub", "Overdub", 1, 0),
+      sampleChoice,
+      // In the order of the [r $1-mode] numbers in `ge-sample-recorder`.
+      choice("mode", "Mode", ["Loop", "Once"]),
+    ],
+    pd: "ge-sample-recorder",
+    scope: "global",
+    layout: "rows",
+    sample: "writes",
+  },
+  {
+    // What its sample's Recorder wrote a while ago: with the Recorder, a tape delay whose
+    // feedback path is whatever is patched from here back to the Recorder.
+    type: "tape-head",
+    name: "Tape Head",
+    category: "sample",
+    width: 2,
+    height: 1,
+    inputs: [settingInput("delay", "Delay")],
+    outputs: [audioOutput],
+    params: [{ id: "delay", label: "Delay", min: 2, max: 10000, default: 300, curve: "exp", unit: "ms" }, sampleChoice],
+    pd: "ge-tape-head",
+    scope: "global",
+    layout: "rows",
+    sample: "follows",
+  },
+  {
     // Draws the signal patched into it, in the editor only. Inside the voices it shows
     // the voice of the latest note. Time and Range say how it is drawn.
     type: "scope",

@@ -31,6 +31,8 @@ export interface Diagnostic {
     | "too-many-scopes"
     | "empty-sample"
     | "long-sample"
+    | "two-recorders"
+    | "no-recorder"
     | "missing-abstraction";
   message: string;
   module?: ModuleId;
@@ -257,6 +259,20 @@ export function analyze(doc: PatchDocument): Analysis {
   const samples: UsedSample[] = [...usedSlots.keys()].sort((a, b) => a - b).map((slot) => ({ slot, sample: doc.samples?.[slot] ?? null }));
   for (const { slot, sample } of samples) {
     const users = usedSlots.get(slot)!;
+    // One module may record onto a sample: two would write over each other at every sample.
+    const writers = users.filter((m) => m.def.sample === "writes");
+    if (writers.length > 1) {
+      error("two-recorders", `Two modules record onto sample ${sampleLetter(slot)}. A sample can have one.`, writers[1].instance.id);
+    }
+    const follower = users.find((m) => m.def.sample === "follows");
+    if (follower && writers.length === 0) {
+      diagnostics.push({
+        severity: "warning",
+        code: "no-recorder",
+        message: `${follower.def.name} plays behind the recording of sample ${sampleLetter(slot)}, which nothing records.`,
+        module: follower.instance.id,
+      });
+    }
     if (!sample) {
       diagnostics.push({
         severity: "warning",

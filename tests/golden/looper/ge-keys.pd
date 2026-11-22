@@ -1,0 +1,15 @@
+#N canvas 0 0 520 240 12;
+#X obj 30 20 inlet~;
+#X obj 100 20 inlet~;
+#X obj 170 20 inlet~;
+#X obj 30 160 outlet~;
+#X obj 100 160 outlet~;
+#X obj 170 160 outlet~;
+#X obj 240 100 *~ 0.0078740;
+#X obj 240 160 outlet~;
+#X text 30 200 Inlets: pitch - gate - velocity \, from the voice. Outlets: pitch - gate - velocity - key (pitch / 127).;
+#X connect 0 0 3 0;
+#X connect 1 0 4 0;
+#X connect 2 0 5 0;
+#X connect 0 0 6 0;
+#X connect 6 0 7 0;

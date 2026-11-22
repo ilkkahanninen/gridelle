@@ -23,6 +23,11 @@ export const MODULE_DOCS: Record<string, string> = {
   "sample-head":
     "The sample at the place patched into Position: 0 is its start and 1 its end, and beyond that it goes round. Sweep it with an LFO to scrub, or with an oscillator to scan it as a wave. Start moves the place; Position's knob sets how far the input reaches.",
 
+  "sample-recorder":
+    "Records In onto its sample, going round and round. Record switches recording on and off, and a gate patched into it does the same. Overdub is how much of the old sound stays under the new. Out is the tape as it passes: what was there a lap ago, so alone it is a looper. One for all voices.",
+  "tape-head":
+    "Plays what the Recorder of its sample wrote Delay ago. Patch Out back into that Recorder, through a filter or a shaper if you like, and it is a tape echo whose feedback is yours to shape. Wobble Delay through its input for wow and flutter. One for all voices.",
+
   // Oscillators
   "osc-sine":
     "A sine wave. Pitch follows the played note unless something else is patched in; Tune moves it in semitones and Fine tune in cents. A signal in the Modulation input changes the pitch or the level, as Modulation mode says, by the amount on its knob.",
