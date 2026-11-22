@@ -45,6 +45,8 @@
 .category-shaper { --category: #f2705a; }
 .category-random { --category: #e6d15a; }
 .category-fx { --category: #e58ad0; }
+.category-math { --category: #9ad06a; }
+.category-logic { --category: #cfa37c; }
 
 /*
  * One colour per knob page, by the page's place in the order Aux steps through. These

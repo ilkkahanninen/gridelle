@@ -235,6 +235,34 @@ describe("compile", () => {
     }
   });
 
+  it("treats sound that has been through a math module as sound still", () => {
+    // Saw x LFO into a delay: the product has no audio port, but it is the saw all the same.
+    const tremolo = doc({
+      modules: [
+        { id: "ge1", type: "osc-saw", x: 0, y: 0, params: {} },
+        { id: "ge2", type: "lfo", x: 0, y: 3, params: {} },
+        { id: "ge3", type: "math-multiply", x: 2, y: 0, params: {} },
+        { id: "ge4", type: "math-scale", x: 2, y: 3, params: {} },
+        { id: "ge5", type: "fx-delay", x: 4, y: 0, params: {} },
+        { id: "ge6", type: "audio-out", x: 6, y: 0, params: {} },
+      ],
+      cables: [
+        { from: { module: "ge1", port: "out" }, to: { module: "ge3", port: "a" } },
+        { from: { module: "ge2", port: "uni" }, to: { module: "ge3", port: "b" } },
+        { from: { module: "ge3", port: "out" }, to: { module: "ge5", port: "in" } },
+        { from: { module: "ge2", port: "out" }, to: { module: "ge4", port: "in" } },
+        { from: { module: "ge4", port: "out" }, to: { module: "ge5", port: "time" } },
+        { from: { module: "ge5", port: "out" }, to: { module: "ge6", port: "left" } },
+      ],
+    });
+    const voice = compile(tremolo, abstractionLibrary).files["voice.pd"];
+    const names = objectBoxes(voice).map((b) => b.name);
+    const [product, scaled, delay] = ["ge-math-multiply", "ge-math-scale", "ge-fx-delay"].map((name) => names.indexOf(name));
+    // The product goes into the delay through a gate; the scaled LFO goes straight into its Time.
+    expect(voice).not.toContain(`#X connect ${product} 0 ${delay} 0;`);
+    expect(voice).toContain(`#X connect ${scaled} 0 ${delay} 1;`);
+  });
+
   it("lets a modulation signal into a module with a tail as it is", () => {
     const wobble = doc({
       modules: [

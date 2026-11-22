@@ -17,6 +17,8 @@ const CATEGORY_NAMES: Record<Category, string> = {
   pitch: "Pitch",
   random: "Random",
   fx: "Delay & FX",
+  math: "Math",
+  logic: "Logic",
 };
 
 /** The categories that have modules, in the order of the selector, each with its modules. */

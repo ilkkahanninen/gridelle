@@ -147,8 +147,8 @@ function addVoiceLife(patch: PdPatch, voice: Box, modules: ResolvedModule[], box
  * multiplied by `playing`. Modules with a tail complicate that: their echoes should ring
  * on after the key is up, but an oscillator that never stops must not go on feeding them.
  * So the modules with a tail and everything after them in the voice form the ringing part:
- * audio entering it from the rest of the voice is multiplied by `playing`, and what leaves
- * the voice from it by `heard`.
+ * sound entering it from the rest of the voice is multiplied by `playing`, and what leaves
+ * the voice from it by `heard`. Modulation enters it as it is.
  */
 export function emitVoice(analysis: Analysis): string {
   const modules = analysis.modules.filter((m) => m.scope === "voice");
@@ -174,8 +174,18 @@ export function emitVoice(analysis: Analysis): string {
       }
     }
   }
-  const carriesAudio = (id: ModuleId, outlet: number) =>
-    modules.find((m) => m.instance.id === id)?.def.outputs[outlet]?.hint === "audio";
+  // What may carry sound: the modules with an audio output, and whatever they feed, since
+  // a Multiply or a Scale passes on what it is given. An LFO through a Scale stays modulation.
+  const sounding = new Set(modules.filter((m) => m.def.outputs.some((port) => port.hint === "audio")).map((m) => m.instance.id));
+  for (let grew = true; grew; ) {
+    grew = false;
+    for (const wire of inside) {
+      if (sounding.has(wire.from) && !sounding.has(wire.to)) {
+        sounding.add(wire.to);
+        grew = true;
+      }
+    }
+  }
 
   const lifeY = bottom(modules, top) + 100;
   const life =
@@ -198,7 +208,7 @@ export function emitVoice(analysis: Analysis): string {
   };
 
   for (const wire of inside) {
-    const entersRinging = ringing.has(wire.to) && !ringing.has(wire.from) && carriesAudio(wire.from, wire.outlet);
+    const entersRinging = ringing.has(wire.to) && !ringing.has(wire.from) && sounding.has(wire.from);
     const [source, outlet] = entersRinging ? whilePlaying(wire.from, wire.outlet) : [boxes.get(wire.from)!, wire.outlet];
     patch.connect(source, outlet, boxes.get(wire.to)!, wire.inlet);
   }

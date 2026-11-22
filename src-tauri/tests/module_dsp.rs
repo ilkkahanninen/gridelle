@@ -1,7 +1,8 @@
 //! Measures what the module abstractions in `pd-lib/modules` actually do, in real Pd:
 //! oscillator pitch, level, aliasing and modulation, filter frequency responses, the
 //! shapers' curves, mixer sums, the envelope's stages, the LFOs, the effects, the wrappers of
-//! Pd's own filters and reverbs, the pitch modules, and that every setting's input multiplies its knob.
+//! Pd's own filters and reverbs, the pitch, math and logic modules, and that every setting's
+//! input multiplies its knob.
 //!
 //! Each check loads a few-box test patch around one abstraction and analyses the audio
 //! it renders. libpd is a single global instance, so everything runs from one test.
@@ -70,6 +71,12 @@ fn inlets_of(name: &str) -> &'static [Inlet] {
         "ge-filter-soft-lp" | "ge-filter-soft-hp" => &[Main, Setting, Mod],
         "ge-fx-cavern" | "ge-follower" => &[Main, Setting, Setting],
         "ge-sample-hold" | "ge-pitch-quantize" => &[Main, Mod],
+        "ge-math-add" | "ge-math-multiply" | "ge-math-min" | "ge-math-max" | "ge-logic-and" | "ge-logic-or" => &[Main, Mod],
+        "ge-math-abs" | "ge-logic-not" | "ge-logic-toggle" => &[Main],
+        "ge-math-constant" => &[Setting],
+        "ge-math-scale" | "ge-math-smooth" => &[Main, Setting, Setting],
+        "ge-math-crossfade" => &[Main, Mod, Setting],
+        "ge-logic-compare" | "ge-logic-divider" => &[Main, Setting],
         "ge-pitch-transpose" => &[Main, Setting, Setting, Mod],
         "ge-pitch-glide" => &[Main, Setting],
         "ge-shaper-soft" | "ge-shaper-fold" | "ge-shaper-cheby" => &[Main, Setting, Mod, Setting],
@@ -1615,6 +1622,151 @@ fn pitch_modules(pd: &mut Pd, dir: &Path) {
     println!("ge-keys: pitch, gate and velocity handed on, key = pitch / 127");
 }
 
+// --- math and logic ------------------------------------------------------------------------
+
+/// A module with a `[sig~]` on its first input, set through `t-a`, and one on its second (for
+/// those that have a second input which is not a setting's), set through `t-b`.
+fn with_values<T>(pd: &mut Pd, dir: &Path, name: &str, measure: impl FnOnce(&mut Pd) -> T) -> T {
+    let boxes = ["r t-a", "sig~ 0", "r t-b", "sig~ 0"];
+    let connections = [[0, 0, 1, 0], [2, 0, 3, 0]];
+    with_module(pd, dir, name, &boxes, &connections, [Some(1), Some(3), None], to_left, measure)
+}
+
+/// What a module gives for the values `a` and `b` at its inputs, once it has settled.
+fn result(pd: &mut Pd, a: f32, b: f32) -> f32 {
+    pd.send_float("t-a", a);
+    pd.send_float("t-b", b);
+    settled_pitch(pd)
+}
+
+fn math_modules(pd: &mut Pd, dir: &Path) {
+    let operators: [(&str, fn(f32, f32) -> f32); 4] =
+        [("ge-math-add", |a, b| a + b), ("ge-math-multiply", |a, b| a * b), ("ge-math-min", f32::min), ("ge-math-max", f32::max)];
+    for (name, expected) in operators {
+        with_values(pd, dir, name, |pd| {
+            for (a, b) in [(0.3, 0.4), (-0.5, 0.25), (0.0, -1.0), (2.0, 3.0)] {
+                close(result(pd, a, b), expected(a, b), 0.0001, &format!("{name} of {a} and {b}"));
+            }
+        });
+    }
+    with_values(pd, dir, "ge-math-abs", |pd| {
+        for a in [0.3, -0.3, 0.0, -2.5] {
+            close(result(pd, a, 0.0), a.abs(), 0.0001, &format!("abs of {a}"));
+        }
+    });
+    with_values(pd, dir, "ge-math-constant", |pd| {
+        set(pd, &[("value", 0.5), ("range", 0.0)]);
+        close(settled_pitch(pd), 0.5, 0.0001, "constant is its Value");
+        set(pd, &[("range", 1.0)]);
+        close(settled_pitch(pd), 5.0, 0.0001, "constant times 10");
+        set(pd, &[("range", 2.0), ("value", -0.25)]);
+        close(settled_pitch(pd), -25.0, 0.0001, "constant times 100");
+        pd.send_float("t-in0", 0.5);
+        close(settled_pitch(pd), -12.5, 0.0001, "constant's input multiplies it");
+    });
+    with_values(pd, dir, "ge-math-scale", |pd| {
+        set(pd, &[("amount", -2.0), ("offset", 0.25)]);
+        close(result(pd, 0.5, 0.0), -0.75, 0.0001, "scale is in x Amount + Offset");
+        set(pd, &[("amount", 0.5), ("offset", 0.5)]);
+        close(result(pd, -1.0, 0.0), 0.0, 0.0001, "scale moves -1..1 into 0..1: the bottom");
+        close(result(pd, 1.0, 0.0), 1.0, 0.0001, "scale moves -1..1 into 0..1: the top");
+    });
+    with_values(pd, dir, "ge-math-crossfade", |pd| {
+        for (mix, expected) in [(0.0, 1.0), (0.25, 0.5), (0.5, 0.0), (1.0, -1.0)] {
+            set(pd, &[("mix", mix)]);
+            close(result(pd, 1.0, -1.0), expected, 0.0001, &format!("crossfade from 1 to -1 at Mix {mix}"));
+        }
+    });
+    with_values(pd, dir, "ge-math-smooth", |pd| {
+        // A step from 0 to 1 and back: a third of the way into each time it is 1 - 1/e along.
+        let third = 1.0 - (-1.0f32).exp();
+        let step = |pd: &mut Pd, rise: f32, fall: f32| {
+            set(pd, &[("rise", rise), ("fall", fall)]);
+            pd.send_float("t-a", 0.0);
+            render(pd, 3.0);
+            pd.send_float("t-a", 1.0);
+            let up = render(pd, 2.0).0;
+            pd.send_float("t-a", 0.0);
+            (up, render(pd, 2.0).0)
+        };
+        for (rise, fall) in [(90.0, 300.0), (300.0, 90.0), (150.0, 150.0)] {
+            let (up, down) = step(pd, rise, fall);
+            close(level_at(&up, rise / 3.0), third, 0.02, &format!("smooth a third into a Rise of {rise} ms (Fall {fall})"));
+            close(level_at(&up, rise), 0.95, 0.02, &format!("smooth after its Rise of {rise} ms"));
+            close(level_at(&down, fall / 3.0), 1.0 - third, 0.02, &format!("smooth a third into a Fall of {fall} ms (Rise {rise})"));
+            close(level_at(&down, fall), 0.05, 0.02, &format!("smooth after its Fall of {fall} ms"));
+        }
+    });
+    println!("math: add, multiply, min, max, abs, constant, scale, crossfade and smooth give what they should");
+}
+
+fn logic_modules(pd: &mut Pd, dir: &Path) {
+    // On is anything above a half; what comes out is exactly 0 or 1.
+    let gates: [(&str, fn(bool, bool) -> bool); 2] = [("ge-logic-and", |a, b| a && b), ("ge-logic-or", |a, b| a || b)];
+    for (name, expected) in gates {
+        with_values(pd, dir, name, |pd| {
+            for (a, b) in [(0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (1.0, 1.0), (0.6, 0.4), (0.51, 7.0), (-1.0, 0.49)] {
+                let on = expected(a > 0.5, b > 0.5);
+                assert_eq!(result(pd, a, b), if on { 1.0 } else { 0.0 }, "{name} of {a} and {b}");
+            }
+        });
+    }
+    with_values(pd, dir, "ge-logic-not", |pd| {
+        for (a, expected) in [(0.0, 1.0), (1.0, 0.0), (0.4, 1.0), (0.6, 0.0)] {
+            assert_eq!(result(pd, a, 0.0), expected, "not of {a}");
+        }
+    });
+    with_values(pd, dir, "ge-logic-compare", |pd| {
+        set(pd, &[("threshold", 0.5)]);
+        for (a, expected) in [(0.3, 0.0), (0.7, 1.0), (-0.9, 0.0)] {
+            assert_eq!(result(pd, a, 0.0), expected, "compare {a} with a Threshold of 0.5");
+        }
+        // Threshold's input makes it a comparison of two signals: Threshold 1 times the input.
+        set(pd, &[("threshold", 1.0)]);
+        for (a, b, expected) in [(0.3, 0.2, 1.0), (0.3, 0.4, 0.0), (-0.5, -0.6, 1.0)] {
+            pd.send_float("t-in1", b);
+            assert_eq!(result(pd, a, 0.0), expected, "compare {a} with {b}");
+        }
+    });
+
+    // One gate: on for 20 ms, off for 20 ms. Returns the output while it was on.
+    let pulse = |pd: &mut Pd| {
+        pd.send_float("t-a", 1.0);
+        let on = render(pd, 0.02).0;
+        pd.send_float("t-a", 0.0);
+        render(pd, 0.02);
+        *on.last().unwrap()
+    };
+    with_values(pd, dir, "ge-logic-toggle", |pd| {
+        render(pd, 0.05);
+        let states: Vec<f32> = (0..6).map(|_| pulse(pd)).collect();
+        assert_eq!(states, [1.0, 0.0, 1.0, 0.0, 1.0, 0.0], "toggle flips each time its input goes on");
+        assert_eq!(settled_pitch(pd), 0.0, "toggle keeps its state while the input is off");
+    });
+    with_values(pd, dir, "ge-logic-divider", |pd| {
+        set(pd, &[("divide", 3.0)]);
+        render(pd, 0.05);
+        let passed: Vec<f32> = (0..7).map(|_| pulse(pd)).collect();
+        assert_eq!(passed, [1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0], "divider by 3 lets the first of every three gates through");
+        assert_eq!(settled_pitch(pd), 0.0, "divider is off between gates");
+    });
+    with_values(pd, dir, "ge-logic-divider", |pd| {
+        // Divide's input multiplies it: 4 x 0.5 is every other gate. A Divide of 1 passes them all.
+        set(pd, &[("divide", 4.0)]);
+        pd.send_float("t-in1", 0.5);
+        render(pd, 0.05);
+        let passed: Vec<f32> = (0..4).map(|_| pulse(pd)).collect();
+        assert_eq!(passed, [1.0, 0.0, 1.0, 0.0], "divider by 4 x 0.5");
+    });
+    with_values(pd, dir, "ge-logic-divider", |pd| {
+        set(pd, &[("divide", 1.0)]);
+        render(pd, 0.05);
+        let passed: Vec<f32> = (0..3).map(|_| pulse(pd)).collect();
+        assert_eq!(passed, [1.0, 1.0, 1.0], "divider by 1 passes every gate");
+    });
+    println!("logic: and, or, not, compare, toggle and divider give what they should");
+}
+
 // --- setting inputs ------------------------------------------------------------------------
 
 /// One render of a module with a knob at `knob` and that setting's input at `input`.
@@ -1647,6 +1799,14 @@ fn with_setting(pd: &mut Pd, dir: &Path, name: &str, inlet: usize, receiver: &st
         with_oscillator(pd, dir, name, measure)
     } else if name == "ge-lfo" {
         with_lfo(pd, dir, measure)
+    } else if name.starts_with("ge-math-") || name.starts_with("ge-logic-") {
+        with_values(pd, dir, name, |pd| {
+            set(pd, &[("amount", 1.0), ("offset", 0.5), ("mix", 0.5), ("value", 1.0), ("range", 0.0)]);
+            set(pd, &[("threshold", 1.0), ("rise", 400.0), ("fall", 400.0)]);
+            pd.send_float("t-a", 0.6);
+            pd.send_float("t-b", -0.4);
+            measure(pd)
+        })
     } else if name.starts_with("ge-pitch-") {
         with_pitch(pd, dir, name, |pd| {
             set(pd, &[("octave", 1.0), ("semi", 3.0), ("mod", 0.0), ("time", 150.0)]);
@@ -1723,6 +1883,12 @@ fn setting_inputs(pd: &mut Pd, dir: &Path) {
         ("ge-pitch-transpose", 1, "octave", 2.0, 0.5),
         ("ge-pitch-transpose", 2, "semi", 3.0, 4.0),
         ("ge-pitch-glide", 1, "time", 400.0, 0.5),
+        ("ge-math-constant", 0, "value", 0.8, 0.5),
+        ("ge-math-scale", 1, "amount", 1.6, 0.5),
+        ("ge-math-scale", 2, "offset", 0.8, -0.5),
+        ("ge-math-crossfade", 2, "mix", 0.8, 0.5),
+        ("ge-math-smooth", 1, "rise", 400.0, 0.25),
+        ("ge-logic-compare", 1, "threshold", 1.0, 0.5),
     ];
     let mut worst = 0.0f32;
     for &(name, inlet, receiver, knob, input) in cases {
@@ -1829,6 +1995,8 @@ fn modules_do_what_they_are_designed_to() {
     sample_and_hold(&mut pd, &dir);
     follower(&mut pd, &dir);
     pitch_modules(&mut pd, &dir);
+    math_modules(&mut pd, &dir);
+    logic_modules(&mut pd, &dir);
     setting_inputs(&mut pd, &dir);
     amp_and_output(&mut pd, &dir);
 

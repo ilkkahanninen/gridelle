@@ -349,6 +349,69 @@ export const pitches: PatchDocument = settle({
   pages: [],
 });
 
+/**
+ * Every math and logic module in one patch. A saw and a sine are crossfaded (a Toggle on
+ * the key gate picks which) and multiplied by a scaled LFO for a tremolo. The rest work on
+ * the LFO beside that and end at inputs where they change nothing audible.
+ */
+export const mathAndLogic: PatchDocument = settle({
+  version: DOCUMENT_VERSION,
+  name: "Math and Logic",
+  voices: 2,
+  modules: [
+    { id: "ge1", type: "osc-saw", x: 0, y: 0, params: {} },
+    { id: "ge2", type: "osc-sine", x: 0, y: 3, params: { tune: 7 } },
+    { id: "ge3", type: "math-crossfade", x: 2, y: 0, params: {} },
+    { id: "ge4", type: "math-multiply", x: 4, y: 0, params: {} },
+    { id: "ge5", type: "math-scale", x: 2, y: 3, params: { amount: 0.3, offset: 0.7 } },
+    { id: "ge6", type: "lfo", x: 0, y: 6, params: { rate: 5 } },
+    { id: "ge7", type: "amp", x: 5, y: 0, params: {} },
+    { id: "ge8", type: "env-adsr", x: 5, y: 3, params: { release: 100 } },
+    { id: "ge9", type: "audio-out", x: 6, y: 0, params: {} },
+    { id: "ge10", type: "logic-toggle", x: 2, y: 6, params: {} },
+    { id: "ge11", type: "math-constant", x: 8, y: 0, params: { value: 0.5 } },
+    { id: "ge12", type: "math-add", x: 10, y: 0, params: {} },
+    { id: "ge13", type: "math-max", x: 11, y: 0, params: {} },
+    { id: "ge14", type: "math-abs", x: 10, y: 1, params: {} },
+    { id: "ge15", type: "math-min", x: 12, y: 0, params: {} },
+    { id: "ge16", type: "math-smooth", x: 13, y: 0, params: { rise: 20, fall: 200 } },
+    { id: "ge17", type: "logic-compare", x: 8, y: 3, params: { threshold: 0 } },
+    { id: "ge18", type: "logic-and", x: 11, y: 3, params: {} },
+    { id: "ge19", type: "logic-not", x: 10, y: 3, params: {} },
+    { id: "ge20", type: "logic-or", x: 12, y: 3, params: {} },
+    { id: "ge21", type: "logic-divider", x: 13, y: 3, params: { divide: 3 } },
+  ],
+  cables: [
+    { from: { module: "ge1", port: "out" }, to: { module: "ge3", port: "a" } },
+    { from: { module: "ge2", port: "out" }, to: { module: "ge3", port: "b" } },
+    { from: { module: "ge10", port: "out" }, to: { module: "ge3", port: "mix" } },
+    { from: { module: "ge3", port: "out" }, to: { module: "ge4", port: "a" } },
+    { from: { module: "ge6", port: "out" }, to: { module: "ge5", port: "in" } },
+    { from: { module: "ge5", port: "out" }, to: { module: "ge4", port: "b" } },
+    { from: { module: "ge4", port: "out" }, to: { module: "ge7", port: "in" } },
+    { from: { module: "ge8", port: "out" }, to: { module: "ge7", port: "cv" } },
+    { from: { module: "ge7", port: "out" }, to: { module: "ge9", port: "left" } },
+    { from: { module: "ge11", port: "out" }, to: { module: "ge12", port: "a" } },
+    { from: { module: "ge6", port: "uni" }, to: { module: "ge12", port: "b" } },
+    { from: { module: "ge12", port: "out" }, to: { module: "ge13", port: "a" } },
+    { from: { module: "ge6", port: "out" }, to: { module: "ge14", port: "in" } },
+    { from: { module: "ge14", port: "out" }, to: { module: "ge13", port: "b" } },
+    { from: { module: "ge13", port: "out" }, to: { module: "ge15", port: "a" } },
+    { from: { module: "ge11", port: "out" }, to: { module: "ge15", port: "b" } },
+    { from: { module: "ge15", port: "out" }, to: { module: "ge16", port: "in" } },
+    { from: { module: "ge16", port: "out" }, to: { module: "ge1", port: "fine" } },
+    { from: { module: "ge6", port: "out" }, to: { module: "ge17", port: "a" } },
+    { from: { module: "ge17", port: "out" }, to: { module: "ge18", port: "a" } },
+    { from: { module: "ge17", port: "out" }, to: { module: "ge19", port: "in" } },
+    { from: { module: "ge19", port: "out" }, to: { module: "ge18", port: "b" } },
+    { from: { module: "ge18", port: "out" }, to: { module: "ge20", port: "a" } },
+    { from: { module: "ge19", port: "out" }, to: { module: "ge20", port: "b" } },
+    { from: { module: "ge20", port: "out" }, to: { module: "ge21", port: "in" } },
+    { from: { module: "ge21", port: "out" }, to: { module: "ge2", port: "fine" } },
+  ],
+  pages: [],
+});
+
 export const fixtures = {
   "basic-synth": basicSynth,
   "shared-filter": sharedFilter,
@@ -359,4 +422,5 @@ export const fixtures = {
   flavours,
   "audio-input": audioInput,
   pitches,
+  "math-and-logic": mathAndLogic,
 } as const;

@@ -167,6 +167,48 @@ const pitchModule = (type: string, name: string, inputs: PortDef[], params: Para
   scope: "voice",
 });
 
+/** A signal of any kind going in or out of a math or logic module. */
+const anyOutput: PortDef = { id: "out", label: "Out", hint: "mod" };
+const anyInput = (id: string, label: string): PortDef => ({ id, label, hint: "mod" });
+const gateOutput: PortDef = { id: "out", label: "Out", hint: "gate" };
+const gateInput = (id: string, label: string): PortDef => ({ id, label, hint: "gate" });
+
+/** A module with no knobs, one cell big: its ports and nothing else. */
+const operator = (type: string, name: string, category: "math" | "logic", inputs: PortDef[], output: PortDef): ModuleDef => ({
+  type,
+  name,
+  category,
+  width: 1,
+  height: 1,
+  inputs,
+  outputs: [output],
+  params: [],
+  pd: `ge-${type}`,
+  scope: "voice",
+});
+
+/** A math or logic module with knobs: rows, each knob beside the input it belongs to. */
+const calculator = (
+  type: string,
+  name: string,
+  category: "math" | "logic",
+  inputs: PortDef[],
+  output: PortDef,
+  params: ParamDef[],
+): ModuleDef => ({
+  type,
+  name,
+  category,
+  width: 2,
+  height: rowsHeight(inputs),
+  layout: "rows",
+  inputs,
+  outputs: [output],
+  params,
+  pd: `ge-${type}`,
+  scope: "voice",
+});
+
 /** A left and a right output. The first is `out`, as on every module with one output. */
 const stereoOutputs: PortDef[] = [
   { id: "out", label: "L", hint: "audio" },
@@ -504,6 +546,47 @@ const DEFS: ModuleDef[] = [
   effect("fx-cavern", "Cavern", [{ ...reverbDecay, min: 2.5, max: 40, default: 5 }, level("mix", "Mix", 1, 0.3)]),
   effect("fx-room", "Room", [reverbDecay, level("damp", "Damp", 1, 0.3), reverbTone, level("mix", "Mix", 1, 0.3)], stereoOutputs),
   effect("fx-hall", "Hall", [reverbDecay, level("damp", "Damp", 1, 0.3), reverbTone, level("mix", "Mix", 1, 0.3)], stereoOutputs),
+  // Math: sums, products and the like, on any kind of signal.
+  operator("math-add", "Add", "math", [anyInput("a", "A"), anyInput("b", "B")], anyOutput),
+  // A ring modulator for two sounds, a VCA for a sound and a modulation.
+  operator("math-multiply", "Multiply", "math", [anyInput("a", "A"), anyInput("b", "B")], anyOutput),
+  // A knob as a signal, to patch a fixed value into any input. Range multiplies it.
+  calculator("math-constant", "Constant", "math", [settingInput("value", "Value")], anyOutput, [
+    { id: "value", label: "Value", min: -1, max: 1, default: 1, curve: "lin" },
+    // In the order `ge-math-constant` numbers them.
+    choice("range", "Range", ["x 1", "x 10", "x 100"]),
+  ]),
+  // An attenuverter with an offset: in x Amount + Offset.
+  calculator("math-scale", "Scale", "math", [anyInput("in", "In"), settingInput("amount", "Amount"), settingInput("offset", "Offset")], anyOutput, [
+    { id: "amount", label: "Amount", min: -2, max: 2, default: 1, curve: "lin" },
+    { id: "offset", label: "Offset", min: -1, max: 1, default: 0, curve: "lin" },
+  ]),
+  // A at Mix 0, B at Mix 1, a straight blend between.
+  calculator("math-crossfade", "Crossfade", "math", [anyInput("a", "A"), anyInput("b", "B"), settingInput("mix", "Mix")], anyOutput, [
+    level("mix", "Mix", 1, 0.5),
+  ]),
+  // A lag: follows its input, taking Rise to go up and Fall to come down (95 % of the way).
+  calculator("math-smooth", "Smooth", "math", [anyInput("in", "In"), settingInput("rise", "Rise"), settingInput("fall", "Fall")], anyOutput, [
+    { id: "rise", label: "Rise", min: 0.1, max: 5000, default: 50, curve: "exp", unit: "ms" },
+    { id: "fall", label: "Fall", min: 0.1, max: 5000, default: 50, curve: "exp", unit: "ms" },
+  ]),
+  operator("math-abs", "Abs", "math", [anyInput("in", "In")], anyOutput),
+  operator("math-min", "Min", "math", [anyInput("a", "A"), anyInput("b", "B")], anyOutput),
+  operator("math-max", "Max", "math", [anyInput("a", "A"), anyInput("b", "B")], anyOutput),
+  // Logic: a signal is on above a half, and what comes out is 0 or 1.
+  // On while A is above Threshold. Threshold's input makes it a comparison of two signals.
+  calculator("logic-compare", "Compare", "logic", [anyInput("a", "A"), settingInput("threshold", "Threshold")], gateOutput, [
+    { id: "threshold", label: "Threshold", min: -1, max: 1, default: 0.5, curve: "lin" },
+  ]),
+  operator("logic-and", "And", "logic", [gateInput("a", "A"), gateInput("b", "B")], gateOutput),
+  operator("logic-or", "Or", "logic", [gateInput("a", "A"), gateInput("b", "B")], gateOutput),
+  operator("logic-not", "Not", "logic", [gateInput("in", "In")], gateOutput),
+  // Flips each time its input goes on: a latch. The input follows the key gate.
+  operator("logic-toggle", "Toggle", "logic", [{ id: "in", label: "In", hint: "gate", precord: "gate" }], gateOutput),
+  // Lets through the first of every Divide gates.
+  calculator("logic-divider", "Divider", "logic", [gateInput("in", "In"), settingInput("divide", "Divide")], gateOutput, [
+    { id: "divide", label: "Divide", min: 1, max: 16, default: 2, curve: "lin", step: 1 },
+  ]),
   {
     type: "amp",
     name: "Amp",

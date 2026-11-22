@@ -61,7 +61,9 @@ export type Category =
   | "pitch"
   | "shaper"
   | "random"
-  | "fx";
+  | "fx"
+  | "math"
+  | "logic";
 
 /**
  * - `voice`: lives in every voice unless it sits downstream of a global module.

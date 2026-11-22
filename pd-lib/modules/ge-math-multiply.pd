@@ -1,0 +1,9 @@
+#N canvas 0 0 420 240 12;
+#X obj 30 20 inlet~;
+#X obj 100 20 inlet~;
+#X obj 30 100 *~;
+#X obj 30 180 outlet~;
+#X text 30 210 Inlets: a - b. Out: a * b.;
+#X connect 0 0 2 0;
+#X connect 1 0 2 1;
+#X connect 2 0 3 0;

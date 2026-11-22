@@ -1,0 +1,7 @@
+#N canvas 0 0 360 220 12;
+#X obj 30 20 inlet~;
+#X obj 30 90 abs~;
+#X obj 30 150 outlet~;
+#X text 30 190 Out: the input without its sign.;
+#X connect 0 0 1 0;
+#X connect 1 0 2 0;
