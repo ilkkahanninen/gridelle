@@ -396,19 +396,13 @@ export function assignKnob(doc: PatchDocument, slot: KnobSlot, assignment: KnobA
   };
 }
 
-/** Put a parameter on the first free knob, adding a page if every knob is taken. */
-export function assignToFreeKnob(doc: PatchDocument, assignment: KnobAssignment): PatchDocument {
-  for (const [page, { knobs }] of doc.pages.entries()) {
-    const knob = knobs.indexOf(null);
-    if (knob >= 0) return assignKnob(doc, { page, knob }, assignment);
+/** The first empty knob of `page` after knob `after`, going round to the start; `null` if there is none. */
+export function nextFreeKnob(doc: PatchDocument, page: number, after: number): number | null {
+  const knobs = doc.pages[page]?.knobs;
+  if (!knobs) return null;
+  for (let step = 1; step <= KNOBS_PER_PAGE; step++) {
+    const knob = (after + step) % KNOBS_PER_PAGE;
+    if (!knobs[knob]) return knob;
   }
-  const withPage = addPage(doc);
-  if (withPage === doc) return doc;
-  return assignKnob(withPage, { page: withPage.pages.length - 1, knob: 0 }, assignment);
-}
-
-/** Take a parameter off whatever knob it is on. */
-export function unassign(doc: PatchDocument, module: ModuleId, param: string): PatchDocument {
-  const slot = findAssignment(doc, module, param);
-  return slot ? assignKnob(doc, slot, null) : doc;
+  return null;
 }

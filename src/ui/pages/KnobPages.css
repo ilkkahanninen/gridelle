@@ -135,9 +135,42 @@
   background: var(--category);
 }
 
+/* The knob waiting for a setting. The ring says so on its own where motion is turned off. */
+.pages-knob-number-armed {
+  box-shadow:
+    0 0 0 1.5px var(--chrome),
+    0 0 0 3px var(--text);
+  animation: pages-blink 1s ease-in-out infinite;
+}
+
+@keyframes pages-blink {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pages-knob-number-armed {
+    animation: none;
+  }
+}
+
 .pages-knob-free {
-  padding-left: 4px;
+  flex: 1;
+  min-width: 0;
+  padding: 1px 4px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
   color: var(--text-dim);
+  text-align: left;
+  cursor: pointer;
+}
+
+.pages-knob-free:hover,
+.pages-knob-free[aria-pressed="true"] {
+  background: var(--surface-raised);
+  color: var(--text);
 }
 
 .pages-clear {

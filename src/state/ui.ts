@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import type { KnobSlot } from "../core/model/ops";
 import type { Cable, PortRef } from "../core/model/types";
 import type { Point, View } from "../ui/canvas/geometry";
 
@@ -25,6 +26,11 @@ interface UiState {
    * point past the last page after one is removed: use `shownKnobPage`.
    */
   knobPage: number;
+  /**
+   * The Organelle knob waiting for a setting: the next knob clicked on the grid goes on
+   * it. See `state/assign.ts`.
+   */
+  assigning: KnobSlot | null;
   setView(view: View): void;
 }
 
@@ -34,6 +40,7 @@ export const useUi = create<UiState>((set) => ({
   placing: null,
   cableDrag: null,
   knobPage: 0,
+  assigning: null,
   setView: (view) => set({ view }),
 }));
 

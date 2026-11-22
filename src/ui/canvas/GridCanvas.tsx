@@ -67,6 +67,7 @@ export function GridCanvas() {
   const view = useUi((s) => s.view);
   const placing = useUi((s) => s.placing);
   const cableDrag = useUi((s) => s.cableDrag);
+  const assigning = useUi((s) => s.assigning);
 
   const viewportRef = useRef<HTMLDivElement>(null);
   const [tileDrag, setTileDrag] = useState<TileDrag | null>(null);
@@ -407,6 +408,8 @@ export function GridCanvas() {
   // A module in hand can be dropped on the ports it has something to cable to.
   if (ghostDef?.outputs.length) classes.push("canvas-plug-in");
   if (ghostDef?.inputs.length) classes.push("canvas-plug-out");
+  // An Organelle knob is waiting for a setting: the tile knobs are there to be clicked, in its page's colour.
+  if (assigning) classes.push("canvas-assigning", `page-color-${assigning.page}`);
 
   return (
     <div

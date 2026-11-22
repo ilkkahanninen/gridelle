@@ -91,7 +91,10 @@
   gap: 1px;
 }
 
-/* Marks a setting that an Organelle knob plays: the knob's number, in the colour of its knob page. */
+/*
+ * Marks a setting that an Organelle knob plays: the knob's number, in the colour of its
+ * knob page. A click shows that page in the Knob pages panel.
+ */
 .tile-knob-badge {
   position: absolute;
   top: -5px;
@@ -103,9 +106,31 @@
   border-radius: 50%;
   background: var(--page);
   color: var(--page-ink);
+  padding: 0;
+  border: 0;
   font-size: 10.5px;
   font-weight: 600;
   line-height: 1;
+  cursor: pointer;
+}
+
+.tile-knob-badge:hover {
+  transform: scale(1.2);
+}
+
+/* While an Organelle knob waits for a setting, a click on a tile knob gives it that one. */
+.canvas-assigning .tile-knob .knob-dial {
+  cursor: pointer;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--page) 55%, transparent);
+}
+
+.canvas-assigning .tile-knob:hover .knob-dial {
+  box-shadow: 0 0 0 2.5px var(--page);
+}
+
+/* A cable lying over a knob must not take the click meant for it. */
+.canvas-assigning .cable-hit {
   pointer-events: none;
 }
 

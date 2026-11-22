@@ -124,18 +124,6 @@
   color: var(--hint-gate);
 }
 
-.inspector-knob {
-  grid-column: 1 / -1;
-  margin-top: 2px;
-  padding: 2px 4px;
-  border: 1px solid var(--line-strong);
-  border-radius: 4px;
-  background: var(--surface);
-  color: var(--text-dim);
-  font: inherit;
-  font-size: 13px;
-}
-
 .inspector section:has(.inspector-param) {
   gap: 12px;
 }

@@ -3,6 +3,7 @@ import * as ops from "../../core/model/ops";
 import { KNOBS_PER_PAGE, type ModuleInstance } from "../../core/model/types";
 import { formatParam, fromNormalized, toNormalized } from "../../core/modules/params";
 import type { ModuleDef, ParamDef, PortDef } from "../../core/modules/types";
+import { assignToArmed } from "../../state/assign";
 import { useEditor } from "../../state/store";
 import { shownKnobPage, useUi } from "../../state/ui";
 import { Knob } from "../controls/Knob";
@@ -28,6 +29,14 @@ interface TileProps {
 const KNOB_WIDTH = 44;
 const KNOB_GAP = 7;
 
+/**
+ * The click that last put a setting on an Organelle knob. A second click on the same tile
+ * knob straight after it is the rest of a double-click: it neither assigns again nor
+ * resets the value.
+ */
+let lastAssigned = { knob: "", at: 0 };
+const DOUBLE_CLICK_MS = 500;
+
 const VOICE_SIGNAL_LABEL = { pitch: "the played note", gate: "the key gate", velocity: "key velocity" } as const;
 
 function ParamKnob({ module, param, size = 30 }: { module: ModuleInstance; param: ParamDef; size?: number }) {
@@ -51,6 +60,17 @@ function ParamKnob({ module, param, size = 30 }: { module: ModuleInstance; param
       onPointerEnter={(e) => e.buttons === 0 && setActive(true)}
       onPointerLeave={(e) => e.buttons === 0 && setActive(false)}
       onPointerUp={(e) => !e.currentTarget.matches(":hover") && setActive(false)}
+      // While an Organelle knob is armed, a click here assigns this setting instead of turning the knob.
+      onPointerDownCapture={(e) => {
+        if (e.button !== 0) return;
+        const knob = `${module.id}:${param.id}`;
+        const again = lastAssigned.knob === knob && e.timeStamp - lastAssigned.at < DOUBLE_CLICK_MS;
+        if (!again && !assignToArmed(module.id, param.id)) return;
+        e.stopPropagation();
+        e.preventDefault();
+        if (!again) lastAssigned = { knob, at: e.timeStamp };
+      }}
+      onDoubleClickCapture={(e) => e.timeStamp - lastAssigned.at < 2 * DOUBLE_CLICK_MS && e.stopPropagation()}
       title={`${param.label}: ${formatParam(param, value)}${hardwareKnob > 0 ? ` (${pageName}, knob ${hardwareKnob})` : ""}`}
     >
       <Knob
@@ -66,9 +86,14 @@ function ParamKnob({ module, param, size = 30 }: { module: ModuleInstance; param
         }
       />
       {hardwareKnob > 0 && (
-        <span className={`tile-knob-badge page-color-${page}${onShownPage ? " tile-knob-badge-shown" : ""}`}>
+        <button
+          className={`tile-knob-badge page-color-${page}${onShownPage ? " tile-knob-badge-shown" : ""}`}
+          title={`${pageName}, knob ${hardwareKnob}. Click to show this knob page.`}
+          aria-label={`Show knob page ${pageName}`}
+          onClick={() => useUi.setState({ knobPage: page })}
+        >
           {hardwareKnob}
-        </span>
+        </button>
       )}
     </div>
   );

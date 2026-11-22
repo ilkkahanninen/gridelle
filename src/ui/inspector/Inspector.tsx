@@ -1,7 +1,6 @@
 import * as ops from "../../core/model/ops";
-import { MAX_VOICES, MIN_VOICES, type ModuleInstance, type PatchDocument } from "../../core/model/types";
+import { MAX_VOICES, MIN_VOICES, type ModuleInstance } from "../../core/model/types";
 import { formatParam, fromNormalized, toNormalized } from "../../core/modules/params";
-import { getModuleDef } from "../../core/modules/registry";
 import { visibleDef } from "../../core/modules/shape";
 import type { ModuleDef, ParamDef } from "../../core/modules/types";
 import { usePreview } from "../../state/preview";
@@ -31,12 +30,11 @@ function ParamRow({ module, param }: { module: ModuleInstance; param: ParamDef }
         onChange={(e) => set(fromNormalized(param, Number(e.target.value)), true)}
         onDoubleClick={() => set(param.default, false)}
       />
-      <KnobSelect module={module} param={param} />
     </div>
   );
 }
 
-/** A setting that is one of a few named options. It stays off the Organelle's knobs. */
+/** A setting that is one of a few named options. */
 function ChoiceRow({ module, param }: { module: ModuleInstance; param: ParamDef }) {
   const id = `param-${module.id}-${param.id}`;
   return (
@@ -56,54 +54,6 @@ function ChoiceRow({ module, param }: { module: ModuleInstance; param: ParamDef 
         ))}
       </select>
     </div>
-  );
-}
-
-const NEXT_FREE = "next";
-
-/** Choose which Organelle knob, if any, controls a parameter. */
-function KnobSelect({ module, param }: { module: ModuleInstance; param: ParamDef }) {
-  const pages = useEditor((s) => s.doc.pages);
-  const modules = useEditor((s) => s.doc.modules);
-  const apply = useEditor((s) => s.apply);
-  const assignment = { module: module.id, param: param.id };
-  const current = ops.findAssignment({ pages } as PatchDocument, module.id, param.id);
-
-  const occupant = (page: number, knob: number) => {
-    const taken = pages[page].knobs[knob];
-    if (!taken || (taken.module === module.id && taken.param === param.id)) return "";
-    const other = modules.find((m) => m.id === taken.module);
-    const def = other && getModuleDef(other.type);
-    const label = def?.params.find((p) => p.id === taken.param)?.label;
-    return def && label ? ` (replaces ${def.name} ${label})` : "";
-  };
-
-  return (
-    <select
-      className="inspector-knob"
-      aria-label={`Organelle knob for ${param.label}`}
-      value={current ? `${current.page}:${current.knob}` : ""}
-      onChange={(e) => {
-        const choice = e.target.value;
-        apply((doc) => {
-          if (choice === "") return ops.unassign(doc, module.id, param.id);
-          if (choice === NEXT_FREE) return ops.assignToFreeKnob(doc, assignment);
-          const [page, knob] = choice.split(":").map(Number);
-          return ops.assignKnob(doc, { page, knob }, assignment);
-        });
-      }}
-    >
-      <option value="">Not on a knob</option>
-      {!current && <option value={NEXT_FREE}>Next free knob</option>}
-      {pages.flatMap((page, p) =>
-        page.knobs.map((_, k) => (
-          <option key={`${p}:${k}`} value={`${p}:${k}`}>
-            {page.name || `Page ${p + 1}`}, knob {k + 1}
-            {occupant(p, k)}
-          </option>
-        )),
-      )}
-    </select>
   );
 }
 

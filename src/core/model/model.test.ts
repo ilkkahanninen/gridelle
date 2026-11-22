@@ -9,11 +9,9 @@ import {
   addModuleAtPort,
   addPage,
   assignKnob,
-  assignToFreeKnob,
   findAssignment,
   removePage,
   renamePage,
-  unassign,
   canMove,
   canPlace,
   connect,
@@ -22,6 +20,7 @@ import {
   findFreeCell,
   makeRoom,
   moveModules,
+  nextFreeKnob,
   nextModuleId,
   planPortDrop,
   type PortTarget,
@@ -221,22 +220,24 @@ describe("knob pages", () => {
     expect(assignKnob(doc, { page: 3, knob: 0 }, cutoff)).toBe(doc);
   });
 
-  it("clears a knob, and unassigns by parameter", () => {
+  it("clears a knob", () => {
     const assigned = assignKnob(doc, { page: 0, knob: 0 }, cutoff);
     expect(assignKnob(assigned, { page: 0, knob: 0 }, null).pages[0].knobs[0]).toBeNull();
-    expect(unassign(assigned, "ge1", "cutoff").pages[0].knobs[0]).toBeNull();
-    expect(unassign(doc, "ge1", "cutoff")).toBe(doc);
   });
 
-  it("fills the first free knob and adds a page when all are taken", () => {
-    let filled = build(["filter-lp", 0, 0], ["env-adsr", 2, 0]);
-    filled = assignToFreeKnob(filled, cutoff);
-    expect(filled.pages).toHaveLength(1);
-    for (const param of ["res", "mod"]) filled = assignToFreeKnob(filled, { module: "ge1", param });
-    filled = assignToFreeKnob(filled, { module: "ge2", param: "attack" });
-    filled = assignToFreeKnob(filled, { module: "ge2", param: "decay" });
-    expect(filled.pages.map((p) => p.knobs.filter(Boolean).length)).toEqual([4, 1]);
-    expect(findAssignment(filled, "ge1", "res")).toEqual({ page: 0, knob: 1 });
+  it("finds the next empty knob of a page, going round", () => {
+    // Knobs 1 and 3 of the only page are taken.
+    let some = assignKnob(doc, { page: 0, knob: 0 }, cutoff);
+    some = assignKnob(some, { page: 0, knob: 2 }, { module: "ge1", param: "res" });
+    expect(nextFreeKnob(some, 0, 0)).toBe(1);
+    expect(nextFreeKnob(some, 0, 1)).toBe(3);
+    expect(nextFreeKnob(some, 0, 3)).toBe(1);
+    // An empty knob is its own next one only when it is the last left.
+    const last = assignKnob(some, { page: 0, knob: 3 }, { module: "ge1", param: "mod" });
+    expect(nextFreeKnob(last, 0, 1)).toBe(1);
+    const full = assignKnob(last, { page: 0, knob: 1 }, { module: "ge2", param: "tune" });
+    expect(nextFreeKnob(full, 0, 1)).toBeNull();
+    expect(nextFreeKnob(full, 5, 0)).toBeNull();
   });
 });
 
