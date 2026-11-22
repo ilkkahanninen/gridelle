@@ -10,6 +10,7 @@
 #X obj 1200 140 ge-shaper-hard ge7;
 #X obj 1460 140 ge-shaper-rectify ge9;
 #X obj 1720 140 ge-shaper-crush ge10;
+#X obj 290 70 sig~ 1;
 #X obj 30 315 outlet~;
 #X connect 0 0 1 0;
 #X connect 2 0 3 0;
@@ -25,4 +26,8 @@
 #X connect 4 0 10 1;
 #X connect 1 0 2 0;
 #X connect 1 1 4 0;
-#X connect 10 0 11 0;
+#X connect 11 0 4 1;
+#X connect 11 0 4 2;
+#X connect 11 0 4 3;
+#X connect 11 0 4 4;
+#X connect 10 0 12 0;

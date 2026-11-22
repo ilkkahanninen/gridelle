@@ -13,6 +13,18 @@ export interface PortDef {
   hint: SignalHint;
   /** Inputs only: fed from this voice signal while the port has no cable. */
   precord?: VoiceSignal;
+  /**
+   * Inputs only: the parameter this input belongs to. The module multiplies the two
+   * (an ADSR time by its input, a mixer channel by its level), and in a `rows` layout
+   * the parameter's knob sits in the input's row.
+   */
+  param?: string;
+  /**
+   * Inputs only: the signal the input holds while it has no cable, where 0 will not do.
+   * A setting's input rests at 1, so that the knob alone gives the value. The compiler
+   * supplies it, since a Pd abstraction cannot tell whether an inlet is connected.
+   */
+  unpatched?: number;
 }
 
 export interface ParamDef {
@@ -75,7 +87,14 @@ export interface ModuleDef {
    */
   normalled?: [from: string, to: string][];
   /**
-   * Input *i* belongs with parameter *i* (a mixer channel and its level). The editor
+   * `rows`: the tile lists its inputs as rows, two to a grid cell under a half-cell
+   * header with the name, each with its port on the left edge and, where the input has
+   * a `param`, that parameter's knob beside it. `height` must be `ceil((rows + 1) / 2)`.
+   * Without it, ports run down the left edge and the knobs sit in a row along the bottom.
+   */
+  layout?: "rows";
+  /**
+   * A `rows` module whose input *i* belongs with parameter *i* (a mixer channel and its level). The editor
    * shows only the pairs in use plus one free pair, and the tile grows downwards with
    * them; see `visibleDef`. The definition and the abstraction always have all of them,
    * and `height` is the tile's height with a single pair.

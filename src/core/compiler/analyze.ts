@@ -51,6 +51,13 @@ export interface PrecordWire {
   inlet: number;
 }
 
+/** An input with no cable that rests at a value other than 0 (`PortDef.unpatched`). */
+export interface ConstantFeed {
+  value: number;
+  to: ModuleId;
+  inlet: number;
+}
+
 /** A hardware knob on a page, resolved to the parameter it controls. */
 export interface KnobBinding {
   module: ResolvedModule;
@@ -69,6 +76,7 @@ export interface Analysis {
   /** Cables and normalled connections. */
   wires: Wire[];
   precords: PrecordWire[];
+  constants: ConstantFeed[];
   pages: ResolvedPage[];
 }
 
@@ -182,6 +190,15 @@ export function analyze(doc: PatchDocument): Analysis {
     });
   }
 
+  const constants: ConstantFeed[] = [];
+  for (const { instance, def } of byId.values()) {
+    def.inputs.forEach((port, inlet) => {
+      if (port.unpatched !== undefined && !fed.has(inputKey(instance.id, inlet))) {
+        constants.push({ value: port.unpatched, to: instance.id, inlet });
+      }
+    });
+  }
+
   const outputs = [...byId.values()].filter((m) => m.def.type === "audio-out");
   if (!outputs.some((out) => wires.some((w) => w.to === out.instance.id))) {
     diagnostics.push({
@@ -217,5 +234,5 @@ export function analyze(doc: PatchDocument): Analysis {
     }),
   }));
 
-  return { diagnostics, modules: [...byId.values()], wires, precords, pages };
+  return { diagnostics, modules: [...byId.values()], wires, precords, constants, pages };
 }

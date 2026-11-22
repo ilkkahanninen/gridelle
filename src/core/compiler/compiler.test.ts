@@ -112,6 +112,53 @@ describe("compile", () => {
     expect(voice(off)).not.toContain("#X connect 1 0 2 0;");
   });
 
+  it("holds the inputs of settings at 1 while they have no cable", () => {
+    const envelopes = doc({
+      modules: [
+        { id: "ge1", type: "env-adsr", x: 0, y: 0, params: {} },
+        { id: "ge2", type: "env-adsr", x: 2, y: 0, params: {} },
+      ],
+      cables: [{ from: { module: "ge1", port: "out" }, to: { module: "ge2", port: "sustain" } }],
+    });
+    const voice = compile(envelopes, abstractionLibrary).files["voice.pd"];
+    const boxes = objectBoxes(voice).map((b) => b.name);
+    // One source serves every such input of the voice.
+    expect(boxes.filter((name) => name === "sig~")).toHaveLength(1);
+    expect(voice).toContain("#X obj 290 70 sig~ 1;");
+    const [one, first, second] = [boxes.indexOf("sig~"), boxes.indexOf("ge-env-adsr"), boxes.lastIndexOf("ge-env-adsr")];
+    // Inlets: gate, A, D, S, R. The first envelope has none of its settings cabled.
+    for (const inlet of [1, 2, 3, 4]) expect(voice).toContain(`#X connect ${one} 0 ${first} ${inlet};`);
+    // The second has its S fed by the first, so the constant stays out of it.
+    for (const inlet of [1, 2, 4]) expect(voice).toContain(`#X connect ${one} 0 ${second} ${inlet};`);
+    expect(voice).not.toContain(`#X connect ${one} 0 ${second} 3;`);
+    expect(voice).toContain(`#X connect ${first} 0 ${second} 3;`);
+  });
+
+  it("adds no constant to a patch whose inputs all rest at zero, and feeds a global module in main", () => {
+    const plain = doc({ modules: [{ id: "ge1", type: "osc-saw", x: 0, y: 0, params: {} }] });
+    const names = (text: string) => objectBoxes(text).map((b) => b.name);
+    expect(names(compile(plain, abstractionLibrary).files["voice.pd"])).not.toContain("sig~");
+
+    // An envelope after the voice sum runs once, in main.pd.
+    const summed = doc({
+      modules: [
+        { id: "ge1", type: "osc-saw", x: 0, y: 0, params: {} },
+        { id: "ge2", type: "voice-sum", x: 2, y: 0, params: {} },
+        { id: "ge3", type: "env-adsr", x: 3, y: 0, params: {} },
+      ],
+      cables: [
+        { from: { module: "ge1", port: "out" }, to: { module: "ge2", port: "in" } },
+        { from: { module: "ge2", port: "out" }, to: { module: "ge3", port: "gate" } },
+      ],
+    });
+    const files = compile(summed, abstractionLibrary).files;
+    expect(names(files["voice.pd"])).not.toContain("sig~");
+    const main = names(files["main.pd"]);
+    const [one, envelope] = [main.indexOf("sig~"), main.indexOf("ge-env-adsr")];
+    expect(one).toBeGreaterThan(-1);
+    for (const inlet of [1, 2, 3, 4]) expect(files["main.pd"]).toContain(`#X connect ${one} 0 ${envelope} ${inlet};`);
+  });
+
   it("sends the right channel what the left gets when only left is patched", () => {
     const main = compile(basicSynth, abstractionLibrary).files["main.pd"];
     const boxes = objectBoxes(main).map((b) => b.name);

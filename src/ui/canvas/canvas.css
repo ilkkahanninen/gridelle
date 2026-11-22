@@ -162,7 +162,7 @@
   font-size: 11px;
 }
 
-/* A module that grows with its inputs: each row is a port with its knob beside it. */
+/* The rows layout: each row is an input's port with, if it has a setting, that knob beside it. */
 .tile-row-knob {
   position: absolute;
   left: 26px;
@@ -185,7 +185,7 @@
   right: auto;
 }
 
-.tile-rows .port-label {
+.port-knobbed .port-label {
   display: none;
 }
 

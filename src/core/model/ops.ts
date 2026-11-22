@@ -212,6 +212,15 @@ export function makeRoom(doc: PatchDocument, id: ModuleId, direction: "down" | "
 }
 
 /**
+ * Move apart the tiles that lie on top of each other, each one pushing down what it
+ * covers. A document from an older build can have them, when a module's tile has since
+ * changed shape. The same document comes back when nothing overlaps.
+ */
+export function settle(doc: PatchDocument): PatchDocument {
+  return doc.modules.reduce((settled, module) => makeRoom(settled, module.id), doc);
+}
+
+/**
  * Patch a cable from an output to an input. An input holds one cable, so any
  * existing cable into `to` is replaced. Invalid connections leave the document unchanged.
  *

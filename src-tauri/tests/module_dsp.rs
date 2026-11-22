@@ -1,6 +1,6 @@
 //! Measures what the module abstractions in `pd-lib/modules` actually do, in real Pd:
 //! oscillator pitch, level, aliasing and modulation, filter frequency responses, the
-//! shapers' curves, mixer sums.
+//! shapers' curves, mixer sums, the envelope's stages.
 //!
 //! Each check loads a few-box test patch around one abstraction and analyses the audio
 //! it renders. libpd is a single global instance, so everything runs from one test.
@@ -668,6 +668,118 @@ fn mixer(pd: &mut Pd, dir: &Path) {
     });
 }
 
+// --- envelope ------------------------------------------------------------------------------
+
+/// The level `ms` milliseconds into a rendered stretch.
+fn level_at(signal: &[f32], ms: f32) -> f32 {
+    signal[((ms / 1000.0 * SAMPLE_RATE) as usize).min(signal.len() - 1)]
+}
+
+/// Hold the gate for `hold` seconds and then let go for `tail` seconds; returns both stretches.
+fn play(pd: &mut Pd, hold: f32, tail: f32) -> (Vec<f32>, Vec<f32>) {
+    pd.send_float("t-gate", 1.0);
+    let held = render(pd, hold).0;
+    pd.send_float("t-gate", 0.0);
+    (held, render(pd, tail).0)
+}
+
+/// The ADSR's stages are its knobs times its inputs, read when each stage starts.
+fn envelope(pd: &mut Pd, dir: &Path) {
+    // The gate and the four setting inputs each come from a [sig~] that a message sets.
+    let boxes = [
+        "r t-gate", "sig~", "r t-a", "sig~ 1", "r t-d", "sig~ 1", "r t-s", "sig~ 1", "r t-r", "sig~ 1",
+        "ge-env-adsr t", "dac~ 1",
+    ];
+    let connections = [
+        [0, 0, 1, 0], [1, 0, 10, 0], [2, 0, 3, 0], [3, 0, 10, 1], [4, 0, 5, 0], [5, 0, 10, 2],
+        [6, 0, 7, 0], [7, 0, 10, 3], [8, 0, 9, 0], [9, 0, 10, 4], [10, 0, 11, 0],
+    ];
+    with_patch(pd, dir, &boxes, &connections, |pd| {
+        for (knob, value) in [("attack", 100.0), ("decay", 100.0), ("sustain", 0.5), ("release", 200.0)] {
+            pd.send_float(&format!("t-{knob}"), value);
+        }
+        let inputs = |pd: &mut Pd, a: f32, d: f32, s: f32, r: f32| {
+            for (input, value) in [("a", a), ("d", d), ("s", s), ("r", r)] {
+                pd.send_float(&format!("t-{input}"), value);
+            }
+            // The inputs are signals: let them reach the envelope before a key goes down.
+            render(pd, 0.05);
+        };
+        // A stage starts on a block boundary, up to 1.5 ms late, which is 0.015 on a 100 ms ramp.
+        let tolerance = 0.03;
+
+        assert_eq!(peak(&render(pd, 0.2).0), 0.0, "envelope is silent before a key is played");
+
+        // Inputs at 1, as when nothing is patched: the knobs alone.
+        inputs(pd, 1.0, 1.0, 1.0, 1.0);
+        let (held, tail) = play(pd, 0.5, 0.4);
+        close(level_at(&held, 50.0), 0.5, tolerance, "attack of 100 ms is half way at 50 ms");
+        close(level_at(&held, 150.0), 0.75, tolerance, "decay of 100 ms is half way down to sustain at 150 ms");
+        close(level_at(&held, 400.0), 0.5, 0.001, "sustain is 0.5");
+        close(level_at(&tail, 100.0), 0.25, tolerance, "release of 200 ms is half way at 100 ms");
+        assert_eq!(level_at(&tail, 300.0), 0.0, "envelope is silent after its release");
+        assert!(peak(&held) <= 1.0, "envelope peaks at 1, got {}", peak(&held));
+
+        // Each input scales its own stage and no other.
+        inputs(pd, 0.5, 1.0, 1.0, 1.0);
+        let (held, _) = play(pd, 0.5, 0.4);
+        close(level_at(&held, 25.0), 0.5, tolerance, "A input 0.5: attack is 50 ms");
+        close(level_at(&held, 100.0), 0.75, tolerance, "A input 0.5: decay still 100 ms, after the shorter attack");
+
+        inputs(pd, 1.0, 2.0, 1.0, 1.0);
+        let (held, _) = play(pd, 0.5, 0.4);
+        close(level_at(&held, 50.0), 0.5, tolerance, "D input 2: attack unchanged");
+        close(level_at(&held, 200.0), 0.75, tolerance, "D input 2: decay is 200 ms");
+
+        inputs(pd, 1.0, 1.0, 0.5, 1.0);
+        let (held, tail) = play(pd, 0.5, 0.4);
+        close(level_at(&held, 400.0), 0.25, 0.001, "S input 0.5: sustain is 0.25");
+        close(level_at(&tail, 100.0), 0.125, tolerance, "S input 0.5: release unchanged");
+
+        inputs(pd, 1.0, 1.0, 1.0, 0.25);
+        let (held, tail) = play(pd, 0.5, 0.4);
+        close(level_at(&held, 400.0), 0.5, 0.001, "R input 0.25: sustain unchanged");
+        close(level_at(&tail, 25.0), 0.25, tolerance, "R input 0.25: release is 50 ms");
+        assert_eq!(level_at(&tail, 60.0), 0.0, "R input 0.25: silent after 50 ms");
+
+        // Out of range: sustain stops at 1, a negative time is no time.
+        inputs(pd, -1.0, 1.0, 3.0, -1.0);
+        let (held, tail) = play(pd, 0.5, 0.4);
+        close(level_at(&held, 5.0), 1.0, 0.001, "negative A input: the attack is immediate");
+        close(level_at(&held, 400.0), 1.0, 0.001, "S input 3: sustain stays at 1");
+        assert_eq!(level_at(&tail, 5.0), 0.0, "negative R input: the release is immediate");
+        assert!(held.iter().chain(&tail).all(|v| v.is_finite() && (0.0..=1.0).contains(v)), "envelope stays within 0..1");
+
+        // An input is read when its stage starts: a change during a note waits for the next one.
+        inputs(pd, 1.0, 1.0, 1.0, 1.0);
+        pd.send_float("t-gate", 1.0);
+        render(pd, 0.4);
+        pd.send_float("t-s", 0.5);
+        pd.send_float("t-r", 0.25);
+        close(level_at(&render(pd, 0.2).0, 150.0), 0.5, 0.001, "sustain of a held note does not follow its input");
+        pd.send_float("t-gate", 0.0);
+        close(level_at(&render(pd, 0.4).0, 25.0), 0.25, tolerance, "release takes the input as it is at key up");
+        let (held, _) = play(pd, 0.5, 0.4);
+        close(level_at(&held, 400.0), 0.25, 0.001, "the next note takes the new sustain");
+
+        // A key played again during the release carries on from where the envelope is.
+        inputs(pd, 1.0, 1.0, 1.0, 1.0);
+        let (_, tail) = play(pd, 0.4, 0.1);
+        let before = *tail.last().unwrap();
+        pd.send_float("t-gate", 1.0);
+        let again = render(pd, 0.3).0;
+        close(before, 0.25, tolerance, "half way through the release");
+        let lowest = again.iter().cloned().fold(f32::MAX, f32::min);
+        // The release runs on for the block in which the new gate is noticed, no further.
+        assert!(lowest >= before - 0.01, "retrigger starts from {before}, not from zero (went down to {lowest})");
+        close(level_at(&again, 250.0), 0.5, 0.001, "and reaches sustain again");
+        pd.send_float("t-gate", 0.0);
+        render(pd, 0.4);
+
+        println!("ge-env-adsr: stages are knob x input, read at key down (A, D, S) and key up (R)");
+    });
+}
+
 #[test]
 fn modules_do_what_they_are_designed_to() {
     let events = Pd::init().expect("first init returns the event stream");
@@ -689,6 +801,7 @@ fn modules_do_what_they_are_designed_to() {
     bitcrusher(&mut pd, &dir);
     chebyshev(&mut pd, &dir);
     mixer(&mut pd, &dir);
+    envelope(&mut pd, &dir);
 
     drop(pd);
     let _ = fs::remove_dir_all(&dir);

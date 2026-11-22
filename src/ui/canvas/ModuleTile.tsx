@@ -119,12 +119,16 @@ function Port({
   onPointerDown: TileProps["onPortPointerDown"];
 }) {
   const precord = side === "in" && !cabled && port.precord && (module.precords?.[port.id] ?? true) ? port.precord : null;
+  // In a row that has a knob, the knob's label names the row.
+  const knobbed = def.layout === "rows" && !!def.inputs[index]?.param;
   const hint = precord
     ? `${port.label}: follows ${VOICE_SIGNAL_LABEL[precord]} until you patch a cable in`
-    : `${port.label} ${side === "in" ? "input" : "output"}`;
+    : side === "in" && port.param && port.unpatched !== undefined
+      ? `${port.label} input: multiplies the ${port.label} knob. ${port.unpatched} with nothing patched.`
+      : `${port.label} ${side === "in" ? "input" : "output"}`;
   return (
     <div
-      className={`port port-${side} hint-${port.hint}${cabled ? " port-cabled" : ""}${precord ? " port-precord" : ""}${target ? " port-target" : ""}`}
+      className={`port port-${side} hint-${port.hint}${cabled ? " port-cabled" : ""}${precord ? " port-precord" : ""}${target ? " port-target" : ""}${knobbed ? " port-knobbed" : ""}`}
       style={{ top: portOffset(def, index), [side === "in" ? "left" : "right"]: PORT_INSET }}
       data-port-module={module.id}
       data-port-id={port.id}
@@ -155,7 +159,8 @@ export const ModuleTile = memo(function ModuleTile({
   if (offset) classes.push("tile-dragging");
   if (blocked) classes.push("tile-blocked");
   if (def.width === 1) classes.push("tile-narrow");
-  if (def.growsWithInputs) classes.push("tile-rows");
+  const rows = def.layout === "rows";
+  if (rows) classes.push("tile-rows");
   // Choices are made in the inspector; everything else gets a knob on the tile.
   const knobs = def.params.filter((param) => !param.options);
   const dense = knobs.length * (KNOB_WIDTH + KNOB_GAP) - KNOB_GAP > rect.width;
@@ -200,18 +205,23 @@ export const ModuleTile = memo(function ModuleTile({
           onPointerDown={onPortPointerDown}
         />
       ))}
-      {def.growsWithInputs
-        ? // One row per input: its port on the left and its knob beside it.
-          knobs.map((param, i) => (
-            <div
-              key={param.id}
-              className="tile-row-knob"
-              style={{ top: portOffset(def, i) }}
-              onPointerDown={(e) => e.stopPropagation()}
-            >
-              <ParamKnob module={module} param={param} size={24} />
-            </div>
-          ))
+      {rows
+        ? // One row per input: its port on the left and, if it has a setting, that knob beside it.
+          def.inputs.map((port, i) => {
+            const param = knobs.find((p) => p.id === port.param);
+            return (
+              param && (
+                <div
+                  key={param.id}
+                  className="tile-row-knob"
+                  style={{ top: portOffset(def, i) }}
+                  onPointerDown={(e) => e.stopPropagation()}
+                >
+                  <ParamKnob module={module} param={param} size={24} />
+                </div>
+              )
+            );
+          })
         : knobs.length > 0 && (
             <div className={dense ? "tile-knobs tile-knobs-dense" : "tile-knobs"} onPointerDown={(e) => e.stopPropagation()}>
               {knobs.map((param) => (

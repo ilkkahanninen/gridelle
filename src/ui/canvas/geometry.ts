@@ -13,15 +13,16 @@ export const PORT_GAP = 20;
 export const PORT_INSET = 11;
 
 /**
- * A module that grows with its inputs lists them as rows, two to a grid cell, under a
- * half-cell header. Row heights must agree with the tile height in `core/modules/shape.ts`.
+ * A module with the `rows` layout lists its inputs as rows, two to a grid cell, under a
+ * half-cell header. Row heights must agree with the tile height: the one in the registry,
+ * and for a module that grows the one in `core/modules/shape.ts`.
  */
 export const ROW_PITCH = CELL / 2;
 const ROW_TOP = CELL / 2 - TILE_INSET + ROW_PITCH / 2;
 
 /** Centre of a module's port number `index`, measured down from the top of its tile. */
-export function portOffset(def: Pick<ModuleDef, "growsWithInputs">, index: number): number {
-  return def.growsWithInputs ? ROW_TOP + index * ROW_PITCH : PORT_TOP + index * PORT_GAP;
+export function portOffset(def: Pick<ModuleDef, "layout">, index: number): number {
+  return def.layout === "rows" ? ROW_TOP + index * ROW_PITCH : PORT_TOP + index * PORT_GAP;
 }
 
 export const MIN_ZOOM = 0.4;

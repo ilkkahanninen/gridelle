@@ -1,6 +1,7 @@
 import * as files from "../bridge/files";
 import { sendPatch, type SendReport } from "../bridge/organelle";
 import { compile } from "../core/compiler";
+import { settle } from "../core/model/ops";
 import { exportFolderName, parseDocument, serializeDocument } from "../core/model/serialize";
 import { emptyDocument } from "../core/model/types";
 import { abstractionLibrary } from "../core/pdlib";
@@ -25,7 +26,8 @@ export async function openPatch(): Promise<void> {
   const path = await files.pickPatchToOpen();
   if (!path) return;
   try {
-    useEditor.getState().load(parseDocument(await files.readTextFile(path)), path);
+    // A patch from an older build may have tiles that overlap now that some modules are larger.
+    useEditor.getState().load(settle(parseDocument(await files.readTextFile(path))), path);
   } catch (e) {
     await files.showError(`Could not open the patch. ${text(e)}`);
   }

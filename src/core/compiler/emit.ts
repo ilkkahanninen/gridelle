@@ -57,6 +57,24 @@ function addModules(patch: PdPatch, modules: ResolvedModule[], top: number): Map
   return new Map(modules.map((m) => [m.instance.id, patch.obj(`${m.def.pd} ${m.instance.id}`, at(m))]));
 }
 
+/**
+ * Feed the inputs that rest at a value other than 0 while they have no cable: one
+ * `[sig~ value]` for each value, placed in a row from `at`.
+ */
+function addConstants(patch: PdPatch, analysis: Analysis, boxes: Map<ModuleId, Box>, at: Position): void {
+  const sources = new Map<number, Box>();
+  for (const constant of analysis.constants) {
+    const to = boxes.get(constant.to);
+    if (!to) continue;
+    let source = sources.get(constant.value);
+    if (!source) {
+      source = patch.obj(`sig~ ${pdNumber(constant.value)}`, { x: at.x + sources.size * 90, y: at.y });
+      sources.set(constant.value, source);
+    }
+    patch.connect(source, 0, to, constant.inlet);
+  }
+}
+
 /** One voice: the per-voice modules, fed by `ge-voice`, with an `outlet~` per crossing. */
 export function emitVoice(analysis: Analysis): string {
   const modules = analysis.modules.filter((m) => m.scope === "voice");
@@ -77,6 +95,7 @@ export function emitVoice(analysis: Analysis): string {
   for (const precord of analysis.precords) {
     patch.connect(voice, VOICE_OUTLET[precord.signal], boxes.get(precord.to)!, precord.inlet);
   }
+  addConstants(patch, analysis, boxes, { x: MARGIN.x + 2 * CELL.x, y: MARGIN.y + 40 });
 
   // Pd numbers outlets by horizontal position, so lay them out left to right in order.
   const outletY = bottom(modules, top) + 40;
@@ -140,6 +159,8 @@ export function emitMain(doc: PatchDocument, analysis: Analysis): string {
       patch.connect(clone, outlet, to, wire.inlet);
     }
   }
+
+  addConstants(patch, analysis, boxes, { x: MARGIN.x + 2 * CELL.x, y: column(5).y });
 
   const params = paramValues(analysis);
   if (params.length > 0) {

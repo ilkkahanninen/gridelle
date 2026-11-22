@@ -58,6 +58,35 @@ describe("module registry", () => {
     }
   });
 
+  it("ties an input to a real setting, and each setting to one input at most", () => {
+    for (const def of moduleDefs) {
+      const tied = def.inputs.flatMap((port) => (port.param ? [port.param] : []));
+      expect(new Set(tied).size, def.type).toBe(tied.length);
+      for (const id of tied) expect(def.params.map((p) => p.id), def.type).toContain(id);
+    }
+  });
+
+  it("rests an unpatched input at a value only where nothing else feeds it", () => {
+    const resting = moduleDefs.flatMap((def) => def.inputs.filter((port) => port.unpatched !== undefined));
+    expect(resting.length).toBeGreaterThan(0);
+    for (const port of resting) expect(port.precord, port.id).toBeUndefined();
+    for (const def of moduleDefs) {
+      for (const output of def.outputs) expect([output.param, output.unpatched, output.precord]).toEqual([undefined, undefined, undefined]);
+    }
+  });
+
+  it("makes a rows tile as tall as its rows need", () => {
+    const rows = moduleDefs.filter((def) => def.layout === "rows");
+    expect(rows.map((def) => def.type)).toEqual(expect.arrayContaining(["env-adsr", "mixer"]));
+    for (const def of rows) {
+      // A module that grows starts with a single row.
+      const count = def.growsWithInputs ? 1 : def.inputs.length;
+      expect(def.height, def.type).toBe(Math.ceil((count + 1) / 2));
+      expect(def.outputs.length, def.type).toBeLessThanOrEqual(count);
+    }
+    for (const def of moduleDefs) if (def.growsWithInputs) expect(def.layout, def.type).toBe("rows");
+  });
+
   it("has a voice abstraction with a note inlet and pitch, gate and velocity outlets", () => {
     const voice = abstractionInterface(abstractionLibrary[VOICE_ABSTRACTION]);
     expect(voice).toMatchObject({ controlInlets: 1, signalInlets: 0, signalOutlets: 3, params: [] });

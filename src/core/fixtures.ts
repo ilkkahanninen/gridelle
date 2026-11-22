@@ -95,6 +95,7 @@ export const sourcesAndFilters: PatchDocument = {
     { id: "ge11", type: "env-adsr", x: 8, y: 2, params: { release: 200 } },
     { id: "ge12", type: "amp", x: 14, y: 0, params: {} },
     { id: "ge13", type: "audio-out", x: 15, y: 0, params: {} },
+    { id: "ge14", type: "env-adsr", x: 10, y: 2, params: { attack: 50, decay: 400, sustain: 0.5 } },
   ],
   cables: [
     { from: { module: "ge1", port: "out" }, to: { module: "ge6", port: "in1" } },
@@ -113,6 +114,8 @@ export const sourcesAndFilters: PatchDocument = {
     { from: { module: "ge1", port: "out" }, to: { module: "ge2", port: "mod" } },
     { from: { module: "ge2", port: "out" }, to: { module: "ge3", port: "mod" } },
     { from: { module: "ge11", port: "out" }, to: { module: "ge5", port: "mod" } },
+    // A second envelope sets how long the first one's release is: its knob times where the second stands at key up.
+    { from: { module: "ge14", port: "out" }, to: { module: "ge11", port: "release" } },
   ],
   pages: [
     {

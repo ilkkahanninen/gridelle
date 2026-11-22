@@ -6,6 +6,7 @@ import { useEditor } from "../../state/store";
 import { formatParam, fromNormalized, toNormalized } from "../modules/params";
 import {
   addModule,
+  settle,
   addModuleAtPort,
   addPage,
   assignKnob,
@@ -376,7 +377,7 @@ describe("dropping a new module on a port", () => {
     const { doc, id } = addModuleAtPort(apart, "env-adsr", target("ge2", "mod", "in"));
     expect(id).toBe("ge3");
     expect(cables(doc)).toEqual(["ge3.out>ge2.mod"]);
-    expect(at(doc, "ge3")).toEqual([3, 0]);
+    expect(at(doc, "ge3")).toEqual([4, 0]);
   });
 
   it("cables it to a free output and puts it to the right", () => {
@@ -421,13 +422,14 @@ describe("dropping a new module on a port", () => {
   });
 
   it("goes in front of everything an output feeds", () => {
-    // One envelope into a filter's Mod and an amp's CV.
+    // One envelope into a filter's Mod and an amp's CV, with a free column after the envelope.
     let start = build(["env-adsr", 0, 0], ["filter-lp", 3, 0], ["amp", 5, 0]);
     start = connect(start, port("ge1", "out"), port("ge2", "mod"));
     start = connect(start, port("ge1", "out"), port("ge3", "cv"));
     const { doc } = addModuleAtPort(start, "filter-lp", target("ge1", "out", "out"));
     expect(cables(doc)).toEqual(["ge1.out>ge4.in", "ge4.out>ge2.mod", "ge4.out>ge3.cv"]);
-    expect(["ge1", "ge4", "ge2", "ge3"].map((m) => at(doc, m))).toEqual([[0, 0], [3, 0], [5, 0], [7, 0]]);
+    // The new filter is two wide: it starts in the free column and pushes the rest along.
+    expect(["ge1", "ge4", "ge2", "ge3"].map((m) => at(doc, m))).toEqual([[0, 0], [2, 0], [4, 0], [6, 0]]);
   });
 
   it("replaces the cable of an input when it has no input to go in between with", () => {
@@ -578,5 +580,33 @@ describe("removing a module from a chain", () => {
     expect(cables(useEditor.getState().doc)).toContain("ge1.out>ge3.in");
     useEditor.getState().undo();
     expect(useEditor.getState().doc).toBe(basicSynth);
+  });
+});
+
+describe("settling a document whose tiles overlap", () => {
+  const at = (doc: PatchDocument, id: string) => {
+    const module = doc.modules.find((m) => m.id === id)!;
+    return [module.x, module.y];
+  };
+
+  it("leaves a tidy document as it is", () => {
+    expect(settle(basicSynth)).toBe(basicSynth);
+    expect(settle(emptyDocument())).toEqual(emptyDocument());
+  });
+
+  it("pushes down what an envelope covers now that it is three cells tall", () => {
+    // Laid out when the ADSR was three wide and two tall: an amp right under it, another under that.
+    const old: PatchDocument = {
+      ...emptyDocument(),
+      modules: [
+        { id: "ge1", type: "env-adsr", x: 0, y: 0, params: {} },
+        { id: "ge2", type: "amp", x: 0, y: 2, params: {} },
+        { id: "ge3", type: "amp", x: 0, y: 4, params: {} },
+        { id: "ge4", type: "amp", x: 2, y: 0, params: {} },
+      ],
+    };
+    const tidy = settle(old);
+    expect(["ge1", "ge2", "ge3", "ge4"].map((id) => at(tidy, id))).toEqual([[0, 0], [0, 3], [0, 5], [2, 0]]);
+    expect(settle(tidy)).toBe(tidy);
   });
 });

@@ -25,6 +25,12 @@ const pitchInput: PortDef = { id: "pitch", label: "Pitch", hint: "pitch", precor
 const audioOutput: PortDef = { id: "out", label: "Out", hint: "audio" };
 const modInput: PortDef = { id: "mod", label: "Mod", hint: "mod" };
 
+/**
+ * The input of a setting, Eurorack style: the knob scales what is patched in, and with
+ * nothing patched the input rests at 1, so the knob alone sets the value.
+ */
+const settingInput = (param: string, label: string): PortDef => ({ id: param, label, hint: "mod", param, unpatched: 1 });
+
 /** Tune and Fine, as every pitched oscillator has them. */
 const tuning: ParamDef[] = [
   { id: "tune", label: "Tune", min: -36, max: 36, default: 0, curve: "lin", unit: "st", step: 1 },
@@ -168,12 +174,21 @@ const DEFS: ModuleDef[] = [
     scope: "voice",
   },
   {
+    // Each stage has an input that its knob scales: the time or level in use is knob x input,
+    // read when the stage starts (A, D and S at key down, R at key up).
     type: "env-adsr",
     name: "ADSR",
     category: "envelope",
-    width: 3,
-    height: 2,
-    inputs: [{ id: "gate", label: "Gate", hint: "gate", precord: "gate" }],
+    width: 2,
+    height: 3,
+    layout: "rows",
+    inputs: [
+      { id: "gate", label: "Gate", hint: "gate", precord: "gate" },
+      settingInput("attack", "A"),
+      settingInput("decay", "D"),
+      settingInput("sustain", "S"),
+      settingInput("release", "R"),
+    ],
     outputs: [{ id: "out", label: "Out", hint: "mod" }],
     params: [
       { id: "attack", label: "A", min: 0.5, max: 5000, default: 5, curve: "exp", unit: "ms" },
@@ -275,7 +290,8 @@ const DEFS: ModuleDef[] = [
     category: "level",
     width: 2,
     height: 1,
-    inputs: mixerChannels.map((n) => ({ id: `in${n}`, label: `${n}`, hint: "audio" })),
+    layout: "rows",
+    inputs: mixerChannels.map((n) => ({ id: `in${n}`, label: `${n}`, hint: "audio", param: `level${n}` })),
     outputs: [audioOutput],
     params: mixerChannels.map((n) => level(`level${n}`, `Level ${n}`)),
     pd: "ge-mixer",
