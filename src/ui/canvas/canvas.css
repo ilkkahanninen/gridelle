@@ -61,18 +61,63 @@
   outline-color: var(--danger);
 }
 
+/* The module's picture and its name, side by side at the top. */
 .tile-name {
   position: absolute;
-  inset: 7px 0 auto 0;
-  text-align: center;
+  inset: 8px 0 auto 0;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.01em;
+  padding-inline: 6px;
+  pointer-events: none;
+}
+
+.tile-name span {
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  padding-inline: 6px;
+}
+
+/* A tile with rows has a header half a cell high: the name sits in the middle of it. */
+.tile-rows .tile-name {
+  top: 11px;
+}
+
+.tile-glyph {
+  flex: none;
+  overflow: visible;
+  fill: none;
+  stroke: var(--category);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
   pointer-events: none;
+}
+
+.tile-glyph-name {
+  width: 20px;
+  height: 14px;
+}
+
+/* On a tile one cell wide: in the middle, between the ports of its edges. */
+.tile-glyph-body {
+  position: absolute;
+  left: 50%;
+  top: 46px;
+  width: 24px;
+  height: 17px;
+  transform: translate(-50%, -50%);
+}
+
+/* With rows, that is the first row, which has no knob. */
+.tile-rows .tile-glyph-body {
+  top: 55px;
 }
 
 .tile-knob {
@@ -177,9 +222,9 @@
 /* A Scope's picture: the tile below its name, right of its input. A drag on it moves the tile. */
 .tile-scope {
   position: absolute;
-  inset: 26px 8px 8px 30px;
+  inset: 30px 8px 8px 30px;
   width: calc(100% - 38px);
-  height: calc(100% - 34px);
+  height: calc(100% - 38px);
   border-radius: 3px;
   background: var(--surface);
   pointer-events: none;

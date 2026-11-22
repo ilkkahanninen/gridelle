@@ -7,6 +7,7 @@ import { assignToArmed } from "../../state/assign";
 import { useEditor } from "../../state/store";
 import { shownKnobPage, useUi } from "../../state/ui";
 import { Knob } from "../controls/Knob";
+import { GLYPHS } from "../palette/glyphs";
 import { PORT_INSET, portOffset, tileRect } from "./geometry";
 import { ScopeView } from "./ScopeView";
 
@@ -143,6 +144,16 @@ function Port({
   );
 }
 
+/** The module's picture from the browser, in the colour of its category. */
+function Glyph({ type, className }: { type: string; className: string }) {
+  const path = GLYPHS[type];
+  return path ? (
+    <svg className={`tile-glyph ${className}`} viewBox="0 0 28 20" aria-hidden="true">
+      <path d={path} />
+    </svg>
+  ) : null;
+}
+
 export const ModuleTile = memo(function ModuleTile({
   module,
   def,
@@ -159,7 +170,9 @@ export const ModuleTile = memo(function ModuleTile({
   if (selected) classes.push("tile-selected");
   if (offset) classes.push("tile-dragging");
   if (blocked) classes.push("tile-blocked");
-  if (def.width === 1) classes.push("tile-narrow");
+  // A tile one cell wide has no room for the picture beside its name: it goes below.
+  const narrow = def.width === 1;
+  if (narrow) classes.push("tile-narrow");
   const rows = def.layout === "rows";
   if (rows) classes.push("tile-rows");
 
@@ -176,7 +189,11 @@ export const ModuleTile = memo(function ModuleTile({
       data-module={module.id}
       onPointerDown={(e) => onTilePointerDown(e, module.id)}
     >
-      <div className="tile-name">{def.name}</div>
+      <div className="tile-name">
+        {!narrow && <Glyph type={def.type} className="tile-glyph-name" />}
+        <span>{def.name}</span>
+      </div>
+      {narrow && <Glyph type={def.type} className="tile-glyph-body" />}
       {def.tap && <ScopeView module={module} />}
       {def.inputs.map((port, i) => (
         <Port
