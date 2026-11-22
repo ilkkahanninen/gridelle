@@ -62,7 +62,7 @@ export async function exportToOrganelle(): Promise<void> {
   try {
     let written: string;
     try {
-      written = await files.exportPatch(parent, folder, result.files, false);
+      written = await files.exportPatch(parent, folder, result.files, result.samples, false);
     } catch (e) {
       if (text(e) !== "exists") throw e;
       const replace = await files.confirm(
@@ -70,7 +70,7 @@ export async function exportToOrganelle(): Promise<void> {
         "Replace",
       );
       if (!replace) return;
-      written = await files.exportPatch(parent, folder, result.files, true);
+      written = await files.exportPatch(parent, folder, result.files, result.samples, true);
     }
     await files.showInfo(`Exported to ${written}`);
   } catch (e) {
@@ -102,7 +102,7 @@ export async function sendToOrganelle(): Promise<void> {
   try {
     let report: SendReport;
     try {
-      report = await sendPatch(address, folder, result.files, false);
+      report = await sendPatch(address, folder, result.files, result.samples, false);
     } catch (e) {
       if (text(e) !== "exists") throw e;
       const replace = await files.confirm(
@@ -113,7 +113,7 @@ export async function sendToOrganelle(): Promise<void> {
         useOrganelle.setState({ status: { kind: "idle" } });
         return;
       }
-      report = await sendPatch(address, folder, result.files, true);
+      report = await sendPatch(address, folder, result.files, result.samples, true);
     }
     const message = report.started
       ? `${folder} is running on the Organelle.`

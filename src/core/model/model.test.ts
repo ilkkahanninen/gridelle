@@ -26,7 +26,9 @@ import {
   planPortDrop,
   type PortTarget,
   removeModules,
+  sampleAt,
   setParam,
+  setSample,
   setPrecord,
   togglePrecord,
 } from "./ops";
@@ -275,6 +277,33 @@ describe("saved files", () => {
     [JSON.stringify({ ...basicSynth, pages: [{ name: "P", knobs: [null] }] }), /damaged/],
   ])("rejects %s", (text, message) => {
     expect(() => parseDocument(text)).toThrow(message);
+  });
+
+  it("round-trips a document with samples, and rejects a damaged list of them", () => {
+    const file = { kind: "file", path: "/sounds/kick.wav", name: "kick.wav", frames: 22050, sampleRate: 44100 } as const;
+    const doc = setSample(setSample(basicSynth, 0, file), 2, { kind: "tape", seconds: 4 });
+    expect(doc.samples).toEqual([file, null, { kind: "tape", seconds: 4 }]);
+    expect(parseDocument(serializeDocument(doc))).toEqual(doc);
+    for (const samples of [[{ kind: "file", path: "/x.wav" }], [{ kind: "tape" }], [{ kind: "loop", seconds: 1 }], "A", Array(9).fill(null)]) {
+      expect(() => parseDocument(JSON.stringify({ ...basicSynth, samples }))).toThrow(/damaged/);
+    }
+  });
+
+  it("puts a sound or a tape in a sample slot, and takes it out again", () => {
+    const tape = setSample(basicSynth, 1, { kind: "tape", seconds: 4 });
+    expect(tape.samples).toEqual([null, { kind: "tape", seconds: 4 }]);
+    expect(sampleAt(tape, 1)).toEqual({ kind: "tape", seconds: 4 });
+    expect(sampleAt(tape, 0)).toBeNull();
+    // The same again changes nothing; a tape's length is kept in range.
+    expect(setSample(tape, 1, { kind: "tape", seconds: 4 })).toBe(tape);
+    expect(sampleAt(setSample(tape, 1, { kind: "tape", seconds: 500 }), 1)).toEqual({ kind: "tape", seconds: 60 });
+    expect(sampleAt(setSample(tape, 1, { kind: "tape", seconds: 0 }), 1)).toEqual({ kind: "tape", seconds: 0.1 });
+    // Emptying the last slot in use leaves a document with no list of samples, as it was.
+    expect(setSample(tape, 1, null)).toEqual(basicSynth);
+    expect(setSample(basicSynth, 3, null)).toBe(basicSynth);
+    // There are eight slots.
+    expect(setSample(basicSynth, 8, { kind: "tape", seconds: 1 })).toBe(basicSynth);
+    expect(setSample(basicSynth, -1, { kind: "tape", seconds: 1 })).toBe(basicSynth);
   });
 
   it("makes export folder names the Organelle installer accepts", () => {

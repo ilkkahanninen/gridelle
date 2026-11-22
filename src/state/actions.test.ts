@@ -25,7 +25,8 @@ describe("sendToOrganelle", () => {
   it("sends the compiled patch under its folder name and reports that it is running", async () => {
     await sendToOrganelle();
     expect(send).toHaveBeenCalledTimes(1);
-    const [address, folder, files, replace] = send.mock.calls[0];
+    const [address, folder, files, sounds, replace] = send.mock.calls[0];
+    expect(sounds).toEqual([]);
     expect([address, folder, replace]).toEqual(["192.168.1.20", "Basic_Synth", false]);
     expect(Object.keys(files)).toEqual(expect.arrayContaining(["main.pd", "voice.pd", "ge-voice.pd"]));
     expect(status()).toEqual({ kind: "sent", message: "Basic_Synth is running on the Organelle." });
@@ -50,7 +51,7 @@ describe("sendToOrganelle", () => {
     ask.mockResolvedValue(true);
     await sendToOrganelle();
     expect(ask).toHaveBeenCalledTimes(1);
-    expect(send.mock.calls.map((call) => call[3])).toEqual([false, true]);
+    expect(send.mock.calls.map((call) => call[4])).toEqual([false, true]);
     expect(status().kind).toBe("sent");
   });
 

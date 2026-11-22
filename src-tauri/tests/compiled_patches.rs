@@ -96,6 +96,25 @@ fn golden_patches_play_in_pd() {
             assert!(from_nothing < 1e-3, "{name}: silent again without input, got {from_nothing}");
             println!("{name}: input of 0.5 heard at {from_left:.3} from the left, {from_right:.3} from the right, with no key held");
         }
+        if name == "sampler" {
+            // Both samples were loaded when the patch started: the sound file from the
+            // folder, a quarter of a second of a tone, and half a second of blank tape.
+            let file = pd.read_array("ge-sample-0").expect("sample A has a table");
+            assert_eq!(file.len(), 11_025, "{name}: sample A is the sound file");
+            assert!((peak(&file) - 0.125).abs() < 0.001, "{name}: with its sound in it, peak {}", peak(&file));
+            let tape = pd.read_array("ge-sample-1").expect("sample B has a table");
+            assert_eq!((tape.len(), peak(&tape)), (22_080, 0.0), "{name}: sample B is half a second of silence, in whole blocks");
+
+            // A note that is let go at once still plays the sound to its end: at middle C a
+            // quarter of a second, and then the voice is quiet. (Interleaved: 4410 frames are 100 ms.)
+            pd.send_list("notes", &[Atom::Float(60.0), Atom::Float(100.0)]);
+            render(&mut pd, 0.01);
+            pd.send_list("notes", &[Atom::Float(60.0), Atom::Float(0.0)]);
+            let after = render(&mut pd, 0.5);
+            let part = |from_ms: usize, to_ms: usize| peak(&after[2 * 44 * from_ms..2 * 44 * to_ms]);
+            assert!(part(100, 200) > 0.02, "{name}: the sound plays on after the key, peak {}", part(100, 200));
+            assert!(part(300, 500) < 1e-4, "{name}: and ends when the sample does, peak {}", part(300, 500));
+        }
         if name == "voice-effects" {
             // The delay and reverb inside the voices ring on after the keys are up: the voice
             // stays audible until they are quiet. (Interleaved stereo: 4410 frames are 100 ms.)

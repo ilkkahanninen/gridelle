@@ -1,4 +1,4 @@
-import { DOCUMENT_VERSION, KNOBS_PER_PAGE, type PatchDocument } from "./types";
+import { DOCUMENT_VERSION, KNOBS_PER_PAGE, SAMPLE_SLOTS, type PatchDocument } from "./types";
 
 /** File extension for saved patches. */
 export const FILE_EXTENSION = "gridelle";
@@ -51,7 +51,20 @@ export function parseDocument(text: string): PatchDocument {
         p.knobs.length === KNOBS_PER_PAGE &&
         p.knobs.every((k) => k === null || (isRecord(k) && typeof k.module === "string" && typeof k.param === "string")),
     );
-  if (typeof data.name !== "string" || typeof data.voices !== "number" || !modulesOk || !cablesOk || !pagesOk) {
+  const isText = (value: unknown) => typeof value === "string";
+  const isCount = (value: unknown) => typeof value === "number" && Number.isFinite(value) && value >= 0;
+  const samplesOk =
+    data.samples === undefined ||
+    (Array.isArray(data.samples) &&
+      data.samples.length <= SAMPLE_SLOTS &&
+      data.samples.every(
+        (s) =>
+          s === null ||
+          (isRecord(s) &&
+            ((s.kind === "file" && isText(s.path) && isText(s.name) && isCount(s.frames) && isCount(s.sampleRate)) ||
+              (s.kind === "tape" && isCount(s.seconds)))),
+      ));
+  if (typeof data.name !== "string" || typeof data.voices !== "number" || !modulesOk || !cablesOk || !pagesOk || !samplesOk) {
     throw new Error("This patch file is damaged and cannot be opened.");
   }
   return data as unknown as PatchDocument;

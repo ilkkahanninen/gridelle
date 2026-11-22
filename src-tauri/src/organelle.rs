@@ -12,11 +12,14 @@
 //! files are deleted before they are uploaded, and everything is read back afterwards.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::net::UdpSocket;
 use std::thread::sleep;
 use std::time::Duration;
 
 use reqwest::blocking::{multipart, Client, Response};
+
+use crate::samples::{self, Converted, SampleFile};
 use serde::Serialize;
 use serde_json::Value;
 
@@ -191,8 +194,8 @@ impl Device {
         self.operation(&[("operation", "delete_node"), ("path", path)])
     }
 
-    fn upload(&self, folder: &str, name: &str, contents: &str) -> Result<(), String> {
-        let file = multipart::Part::bytes(contents.as_bytes().to_vec())
+    fn upload(&self, folder: &str, name: &str, contents: &[u8]) -> Result<(), String> {
+        let file = multipart::Part::bytes(contents.to_vec())
             .file_name(name.to_string())
             .mime_str("application/octet-stream")
             .map_err(|e| e.to_string())?;
@@ -266,9 +269,10 @@ impl Device {
     }
 }
 
-/// Whether a file name is that of one of Gridelle's module or helper abstractions.
-fn is_own_abstraction(name: &str) -> bool {
-    name.starts_with("ge-") && name.ends_with(".pd")
+/// Whether a file name is that of one of Gridelle's module or helper abstractions, or of a
+/// sound file a patch of Gridelle's plays.
+fn is_own_file(name: &str) -> bool {
+    (name.starts_with("ge-") && name.ends_with(".pd")) || samples::is_sample_name(name)
 }
 
 fn lost(error: reqwest::Error) -> String {
@@ -294,32 +298,38 @@ pub fn osc_message(address: &str, argument: &str) -> Vec<u8> {
     [osc_string(address), osc_string(",s"), osc_string(argument)].concat()
 }
 
-/// Put the patch `files` (name → text) in a folder named `folder` on the device at
-/// `address`, then start it. Fails with [`EXISTS`] when a folder of that name is there
-/// and is not a Gridelle patch, unless `replace` is set. Replacing swaps same-named files
-/// and removes abstractions of Gridelle's (`ge-*.pd`) that the patch no longer has;
-/// anything else in the folder is left alone.
+/// Put the patch `files` (name → text) and its sound files `sounds` in a folder named
+/// `folder` on the device at `address`, then start it. Fails with [`EXISTS`] when a folder
+/// of that name is there and is not a Gridelle patch, unless `replace` is set. Replacing
+/// swaps same-named files and removes abstractions and sound files of Gridelle's
+/// (`ge-*.pd`, `ge-sample-*.wav`) that the patch no longer has; anything else in the
+/// folder is left alone. A sound file the device already has is not sent again.
 pub fn send_patch(
     address: &str,
     folder: &str,
     files: &HashMap<String, String>,
+    sounds: &[SampleFile],
     replace: bool,
 ) -> Result<SendReport, String> {
-    send_patch_to(&parse_address(address)?, folder, files, replace)
+    send_patch_to(&parse_address(address)?, folder, files, sounds, replace)
 }
 
 pub fn send_patch_to(
     target: &Target,
     folder: &str,
     files: &HashMap<String, String>,
+    sounds: &[SampleFile],
     replace: bool,
 ) -> Result<SendReport, String> {
+    // Read the sound files before anything on the device is touched.
+    let sounds = samples::convert_all(sounds)?;
+    let sounds = &sounds;
     // The blocking HTTP client panics when it is created or dropped on an async runtime's
     // worker thread, and that is where Tauri runs commands. A thread of its own is always
     // safe, and a panic in it comes back as an error instead of a command that never answers.
     std::thread::scope(|scope| {
         scope
-            .spawn(|| send_on_this_thread(target, folder, files, replace))
+            .spawn(|| send_on_this_thread(target, folder, files, sounds, replace))
             .join()
             .unwrap_or_else(|_| Err("Sending to the Organelle stopped unexpectedly.".into()))
     })
@@ -329,6 +339,7 @@ fn send_on_this_thread(
     target: &Target,
     folder: &str,
     files: &HashMap<String, String>,
+    sounds: &[(String, Arc<Converted>)],
     replace: bool,
 ) -> Result<SendReport, String> {
     let device = Device::find(target)?;
@@ -356,13 +367,29 @@ fn send_on_this_thread(
         Vec::new()
     };
 
+    // The sound files first, so that the patch finds them when it starts. They can be
+    // large and Wi-Fi slow: one the device already has, byte for byte, stays as it is.
+    for (name, sound) in sounds {
+        let path = format!("{dir}/{name}");
+        if has(&existing, name, false) {
+            if device.download(&path)?.as_deref() == Some(sound.wav.as_slice()) {
+                continue;
+            }
+            device.delete(&path)?;
+        }
+        device.upload(&dir, name, &sound.wav)?;
+        if device.download(&path)?.as_deref() != Some(sound.wav.as_slice()) {
+            return Err(format!("The Organelle did not store {name} correctly. Try sending again."));
+        }
+    }
+
     let mut names: Vec<&String> = files.keys().collect();
     names.sort_by_key(|name| (name.as_str() == ENTRY_FILE, name.as_str()));
     for name in &names {
         if has(&existing, name, false) {
             device.delete(&format!("{dir}/{name}"))?;
         }
-        device.upload(&dir, name, &files[*name])?;
+        device.upload(&dir, name, files[*name].as_bytes())?;
     }
 
     // Nothing above reports a failure, so read every file back.
@@ -373,10 +400,12 @@ fn send_on_this_thread(
         }
     }
 
-    // Abstractions an earlier version of the patch used and this one does not. Only files
-    // named like Gridelle's own go: whatever else is in the folder is not ours to remove.
+    // Abstractions and sound files an earlier version of the patch used and this one does
+    // not. Only files named like Gridelle's own go: whatever else is in the folder is not
+    // ours to remove.
     for entry in &existing {
-        if !entry.is_folder && is_own_abstraction(&entry.name) && !files.contains_key(&entry.name) {
+        let kept = files.contains_key(&entry.name) || sounds.iter().any(|(name, _)| *name == entry.name);
+        if !entry.is_folder && is_own_file(&entry.name) && !kept {
             device.delete(&format!("{dir}/{}", entry.name))?;
         }
     }

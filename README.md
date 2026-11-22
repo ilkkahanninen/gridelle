@@ -65,5 +65,7 @@ Exports target Pd 0.49 so they run on Organelle OS 3.x, 4.x and 5.x. A few modul
 Cavern, Room, Hall) use objects from Pd's own `extra` folder, which the Organelle's Pd
 includes. Patches send audio to `throw~ outL` / `throw~ outR` and never contain `dac~`. The Audio In
 module reads the Organelle's input from `inL` / `inR`; in the editor it plays the computer's
-audio input instead (macOS asks for microphone access the first time). The Scope module draws
+audio input instead (macOS asks for microphone access the first time). A patch can have up to eight samples, each a sound file (WAV, AIFF, FLAC, MP3 or Ogg) or a blank
+tape; exporting and sending copy the sound files into the patch folder as mono 16-bit WAV.
+The Scope module draws
 the signal patched into it in the editor, up to eight at a time; on the Organelle it does nothing.

@@ -7,6 +7,7 @@ import { objectBoxes, objectClasses } from "../pd/inspect";
 import { PD_EXTRA_049, VANILLA_049_OBJECTS } from "../pd/vanilla049";
 import { abstractionLibrary } from "../pdlib";
 import { compile } from "./index";
+import { structureKey } from "./structure";
 
 /** Compiled fixtures live here as complete Organelle patch folders; Rust tests load them into Pd. */
 const GOLDEN = resolve(import.meta.dirname, "../../../tests/golden");
@@ -326,6 +327,79 @@ describe("compile", () => {
     expect(voice).toContain(`#X connect ${keys} 2 ${envelope} 3;`);
     // The glide's own pitch input is cabled, so the voice does not feed it as well.
     expect(voice).not.toContain(`#X connect ${note} 0 ${glide} 0;`);
+  });
+
+  describe("samples", () => {
+    const result = compile(fixtures.sampler, abstractionLibrary);
+
+    it("builds the sample a module works on into its abstraction, and sends it no value", () => {
+      expect(result.files["voice.pd"]).toContain("ge-sample-player ge1 0;");
+      expect(result.files["voice.pd"]).toContain("ge-sample-head ge3 0;");
+      expect(result.files["voice.pd"]).toContain("ge-sample-head ge7 1;");
+      expect(result.params.map((p) => p.receiver).filter((r) => r.endsWith("-sample"))).toEqual([]);
+      expect(result.params.map((p) => p.receiver)).toContain("ge1-mode");
+    });
+
+    it("gives each sample in use a table: a sound file to load, or a tape", () => {
+      expect(result.files["main.pd"]).toContain("ge-sample-file 0 ge-sample-a.wav;");
+      expect(result.files["main.pd"]).toContain("ge-sample-tape 1 0.5;");
+      expect(Object.keys(result.files)).toEqual(expect.arrayContaining(["ge-sample-file.pd", "ge-sample-tape.pd"]));
+      // The folder is complete with the sound file, which the compiler names but does not read.
+      expect(result.samples).toEqual([{ file: "ge-sample-a.wav", path: "tests/golden/sampler/ge-sample-a.wav" }]);
+    });
+
+    it("leaves out a sample no module uses, and a patch without sample modules has none", () => {
+      const unused = compile(ops.removeModules(fixtures.sampler, new Set(["ge7"])), abstractionLibrary);
+      expect(unused.files["main.pd"]).not.toContain("ge-sample-tape");
+      expect(unused.files["ge-sample-tape.pd"]).toBeUndefined();
+      const none = compile({ ...basicSynth, samples: fixtures.sampler.samples }, abstractionLibrary);
+      expect(none.samples).toEqual([]);
+      expect(none.files["main.pd"]).not.toContain("ge-sample");
+    });
+
+    it("gives a module on an empty sample a silent table, and says so", () => {
+      const empty = compile(ops.setParam(fixtures.sampler, "ge1", "sample", 5), abstractionLibrary);
+      expect(empty.ok).toBe(true);
+      expect(empty.diagnostics).toEqual([
+        { severity: "warning", code: "empty-sample", message: "Sample Player uses sample F, which is empty.", module: "ge1" },
+      ]);
+      expect(empty.files["voice.pd"]).toContain("ge-sample-player ge1 5;");
+      expect(empty.files["main.pd"]).toContain("ge-sample-tape 5 0;");
+    });
+
+    it("warns about a sound too long to play smoothly at other speeds", () => {
+      const long = ops.setSample(fixtures.sampler, 0, { kind: "file", path: "/sounds/long.wav", name: "long.wav", frames: 44100 * 30, sampleRate: 44100 });
+      expect(compile(long, abstractionLibrary).diagnostics.map((d) => d.code)).toEqual(["long-sample"]);
+    });
+
+    it("feeds the Pitch input the played note, or middle C when that is switched off", () => {
+      const followsNote = result.files["voice.pd"];
+      expect(followsNote).not.toContain("sig~ 60;");
+      const fixed = compile(ops.setPrecord(fixtures.sampler, "ge1", "pitch", false), abstractionLibrary).files["voice.pd"];
+      expect(fixed).toContain("sig~ 60;");
+      // One or the other, never both: the pitch outlet of the voice no longer reaches the player.
+      const connections = (text: string) => text.split("\n").filter((line) => line.startsWith("#X connect")).length;
+      expect(connections(fixed)).toBe(connections(followsNote));
+    });
+
+    it("reloads when a module is given another sample or a sample changes, and not for other choices", () => {
+      const key = structureKey(fixtures.sampler);
+      expect(structureKey(ops.setParam(fixtures.sampler, "ge1", "sample", 1))).not.toBe(key);
+      expect(structureKey(ops.setSample(fixtures.sampler, 1, { kind: "tape", seconds: 2 }))).not.toBe(key);
+      expect(structureKey(ops.setSample(fixtures.sampler, 0, null))).not.toBe(key);
+      expect(structureKey(ops.setParam(fixtures.sampler, "ge1", "mode", 1))).toBe(key);
+      expect(structureKey(ops.setParam(fixtures.sampler, "ge1", "tune", 7))).toBe(key);
+    });
+
+    it("keeps a voice alive while a Sample Player plays on, by its Playing output", () => {
+      // The Player's third outlet joins the key gate in what keeps the voice playing.
+      const voice = result.files["voice.pd"].split("\n");
+      const boxes = voice.filter((line) => line.startsWith("#X obj") || line.startsWith("#X msg"));
+      const player = boxes.findIndex((line) => line.includes("ge-sample-player ge1"));
+      const held = voice.filter((line) => line.startsWith(`#X connect ${player} 2 `));
+      expect(held).toHaveLength(1);
+      expect(boxes[Number(held[0].split(" ")[4])]).toContain("max~");
+    });
   });
 
   it("numbers the Scopes and tells each which voice it is in", () => {

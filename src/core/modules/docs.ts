@@ -17,6 +17,12 @@ export const MODULE_DOCS: Record<string, string> = {
   "voice-sum":
     "Adds the voices together. Everything patched after it runs once for all voices instead of once for each, which is where a shared filter or effect goes.",
 
+  // Samples
+  "sample-player":
+    "Plays its sample when Trigger goes on. Middle C plays it as recorded and other keys transpose it; with Pitch not following the note, every key does. Start and Length choose the part to play. Position says where it is, from 0 to 1, and Playing is on until it ends.",
+  "sample-head":
+    "The sample at the place patched into Position: 0 is its start and 1 its end, and beyond that it goes round. Sweep it with an LFO to scrub, or with an oscillator to scan it as a wave. Start moves the place; Position's knob sets how far the input reaches.",
+
   // Oscillators
   "osc-sine":
     "A sine wave. Pitch follows the played note unless something else is patched in; Tune moves it in semitones and Fine tune in cents. A signal in the Modulation input changes the pitch or the level, as Modulation mode says, by the amount on its knob.",

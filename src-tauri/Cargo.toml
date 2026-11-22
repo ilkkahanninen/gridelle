@@ -27,6 +27,7 @@ rtrb = "0.4.1"
 tauri-plugin-dialog = "2.8.4"
 # Plain HTTP to the Organelle on the local network, so no TLS.
 reqwest = { version = "0.13", default-features = false, features = ["blocking", "multipart", "query", "form"] }
+symphonia = { version = "0.5.4", default-features = false, features = ["wav", "aiff", "flac", "mp3", "ogg", "vorbis", "pcm", "adpcm"] }
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration

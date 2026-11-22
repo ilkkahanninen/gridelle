@@ -22,6 +22,7 @@ use cpal::{FromSample, Sample, SampleFormat, SizedSample, StreamConfig};
 
 use super::pd::{Atom, Binding, Patch, Pd, PdEvent};
 use super::scope::{self, ScopeStore};
+use crate::samples::{self, SampleFile};
 
 /// The Organelle runs Pd at this rate; the preview asks the device for the same.
 pub const DEVICE_SAMPLE_RATE: u32 = 44_100;
@@ -226,15 +227,18 @@ impl Engine {
         }
     }
 
-    /// Replace the running patch with `files` (name → Pd text); `entry` names the main patch.
-    /// The output fades out, the patch is swapped under the Pd lock, and it fades back in.
+    /// Replace the running patch with `files` (name → Pd text) and the sound files `sounds`;
+    /// `entry` names the main patch. The output fades out, the patch is swapped under the Pd
+    /// lock, and it fades back in. A sound file that cannot be read fails the load before
+    /// anything is swapped.
     ///
     /// A patch with an Audio In module gets the computer's audio input. When that cannot be
     /// opened the patch still loads, with silence at its input, and the reason is returned.
-    pub fn load(&self, files: &HashMap<String, String>, entry: &str) -> Result<Option<String>, String> {
+    pub fn load(&self, files: &HashMap<String, String>, entry: &str, sounds: &[SampleFile]) -> Result<Option<String>, String> {
         if !files.contains_key(entry) {
             return Err(format!("entry patch {entry} is not among the files"));
         }
+        let sounds = samples::convert_all(sounds)?;
         let revision = self.revision.fetch_add(1, Ordering::Relaxed);
         let dir = preview_dir().join(format!("rev-{revision}"));
         fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
@@ -245,6 +249,9 @@ impl Engine {
             fs::write(dir.join(name), text).map_err(|e| e.to_string())?;
         }
         fs::write(dir.join(HOST_FILE), HOST_PATCH).map_err(|e| e.to_string())?;
+        for (name, sound) in &sounds {
+            fs::write(dir.join(name), &sound.wav).map_err(|e| e.to_string())?;
+        }
 
         let mut loaded = self.loaded.lock().unwrap();
         store(&self.shared.fade, 0.0);

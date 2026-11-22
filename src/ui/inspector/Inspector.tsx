@@ -1,10 +1,11 @@
 import * as ops from "../../core/model/ops";
-import { MAX_VOICES, MIN_VOICES, type ModuleInstance } from "../../core/model/types";
+import { MAX_VOICES, MIN_VOICES, SAMPLE_PARAM, sampleLetter, type ModuleInstance } from "../../core/model/types";
 import { MODULE_DOCS } from "../../core/modules/docs";
 import { visibleDef } from "../../core/modules/shape";
 import type { ModuleDef, ParamDef } from "../../core/modules/types";
 import { usePreview } from "../../state/preview";
 import { useEditor } from "../../state/store";
+import { describeSample, SampleList, SampleSlotEditor } from "./Samples";
 import "./Inspector.css";
 
 const VOICE_SIGNAL = { pitch: "the played note", gate: "the key gate", velocity: "key velocity" } as const;
@@ -12,6 +13,10 @@ const VOICE_SIGNAL = { pitch: "the played note", gate: "the key gate", velocity:
 /** A setting that is one of a few named options. */
 function ChoiceRow({ module, param }: { module: ModuleInstance; param: ParamDef }) {
   const id = `param-${module.id}-${param.id}`;
+  // The Sample choice says what each of the patch's samples holds.
+  const samples = useEditor((s) => (param.id === SAMPLE_PARAM ? s.doc.samples : undefined));
+  const text = (option: string, i: number) =>
+    param.id === SAMPLE_PARAM ? `${sampleLetter(i)}: ${describeSample(samples?.[i] ?? null)}` : option;
   return (
     <div className="inspector-param inspector-choice">
       <label htmlFor={id}>{param.label}</label>
@@ -24,7 +29,7 @@ function ChoiceRow({ module, param }: { module: ModuleInstance; param: ParamDef 
       >
         {param.options!.map((option, i) => (
           <option key={option} value={i}>
-            {option}
+            {text(option, i)}
           </option>
         ))}
       </select>
@@ -58,6 +63,13 @@ function ModuleInspector({ module, def }: { module: ModuleInstance; def: ModuleD
           {choices.map((param) => (
             <ChoiceRow key={param.id} module={module} param={param} />
           ))}
+        </section>
+      )}
+
+      {/* The sample the module works on can be loaded from here. */}
+      {def.params.some((param) => param.id === SAMPLE_PARAM) && (
+        <section className="inspector-sample">
+          <SampleSlotEditor slot={ops.paramValue(module, SAMPLE_PARAM)} />
         </section>
       )}
 
@@ -126,6 +138,8 @@ function PatchInspector() {
           Each voice runs its own copy of the modules. Modules placed after a Voice Sum run once for all voices.
         </p>
       </section>
+
+      <SampleList />
 
       {diagnostics.length > 0 && (
         <section>

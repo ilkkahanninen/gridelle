@@ -8,6 +8,7 @@ import "./Palette.css";
 
 const CATEGORY_NAMES: Record<Category, string> = {
   io: "In / Out",
+  sample: "Sample",
   oscillator: "Oscillator",
   envelope: "Envelope",
   lfo: "LFO",

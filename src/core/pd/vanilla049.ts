@@ -25,7 +25,7 @@ export const VANILLA_049_OBJECTS: ReadonlySet<string> = new Set([
   "exp~", "log~", "mtof~", "ftom~", "dbtorms~", "rmstodb~", "cos~",
   // signal sources and control-to-signal
   "sig~", "line~", "vline~", "phasor~", "osc~", "noise~", "tabosc4~", "tabread4~",
-  "tabread~", "tabwrite~", "table",
+  "tabread~", "tabwrite~", "table", "soundfiler", "bang~",
   // filters and delays
   "vcf~", "lop~", "hip~", "bp~", "biquad~", "rpole~", "rzero~", "cpole~", "czero~", "rzero_rev~",
   "delwrite~", "delread~", "vd~", "samphold~",

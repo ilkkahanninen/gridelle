@@ -442,6 +442,38 @@ export const scoped: PatchDocument = settle({
   pages: [],
 });
 
+/**
+ * A sound file played from the keys, mixed with the same sound scanned by an LFO through a
+ * Play Head. A second Play Head reads a blank tape, so both kinds of sample are loaded.
+ * The file is the tone in the fixture's golden folder: a quarter of a second of 441 Hz.
+ */
+export const sampler: PatchDocument = settle({
+  version: DOCUMENT_VERSION,
+  name: "Sampler",
+  voices: 3,
+  modules: [
+    { id: "ge1", type: "sample-player", x: 0, y: 0, params: { sample: 0 } },
+    { id: "ge2", type: "lfo", x: 0, y: 3, params: { rate: 3, shape: 2 } },
+    { id: "ge3", type: "sample-head", x: 2, y: 3, params: { sample: 0 } },
+    { id: "ge4", type: "mixer", x: 4, y: 0, params: { level2: 0.5 } },
+    { id: "ge5", type: "voice-sum", x: 6, y: 0, params: {} },
+    { id: "ge6", type: "audio-out", x: 7, y: 0, params: {} },
+    { id: "ge7", type: "sample-head", x: 4, y: 3, params: { sample: 1 } },
+  ],
+  cables: [
+    { from: { module: "ge1", port: "out" }, to: { module: "ge4", port: "in1" } },
+    { from: { module: "ge2", port: "uni" }, to: { module: "ge3", port: "position" } },
+    { from: { module: "ge3", port: "out" }, to: { module: "ge4", port: "in2" } },
+    { from: { module: "ge4", port: "out" }, to: { module: "ge5", port: "in" } },
+    { from: { module: "ge5", port: "out" }, to: { module: "ge6", port: "left" } },
+  ],
+  pages: [],
+  samples: [
+    { kind: "file", path: "tests/golden/sampler/ge-sample-a.wav", name: "tone.wav", frames: 11025, sampleRate: 44100 },
+    { kind: "tape", seconds: 0.5 },
+  ],
+});
+
 export const fixtures = {
   "basic-synth": basicSynth,
   "shared-filter": sharedFilter,
@@ -454,4 +486,5 @@ export const fixtures = {
   pitches,
   "math-and-logic": mathAndLogic,
   scoped,
+  sampler,
 } as const;

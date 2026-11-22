@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use gridelle_lib::engine::audio::Engine;
 use gridelle_lib::engine::pd::{Atom, PdEvent};
+use gridelle_lib::samples::SampleFile;
 
 const VOLUME: f32 = 0.01;
 
@@ -24,7 +25,7 @@ fn engine_renders_loaded_patch_to_the_device() {
         ("main.pd".to_string(), include_str!("../../pd-lib/spike/main.pd").to_string()),
         ("voice.pd".to_string(), include_str!("../../pd-lib/spike/voice.pd").to_string()),
     ]);
-    let _ = engine.load(&files, "main.pd").expect("patch loads");
+    let _ = engine.load(&files, "main.pd", &[]).expect("patch loads");
     sleep(Duration::from_millis(150));
     assert!(engine.peak() < 1e-5, "silent before any note, peak {}", engine.peak());
 
@@ -36,7 +37,7 @@ fn engine_renders_loaded_patch_to_the_device() {
     assert!(playing <= VOLUME * 1.001, "volume caps the output, peak {playing}");
 
     // Reloading while a note sounds must leave a working, silent patch behind.
-    let _ = engine.load(&files, "main.pd").expect("patch reloads");
+    let _ = engine.load(&files, "main.pd", &[]).expect("patch reloads");
     sleep(Duration::from_millis(200));
     assert!(engine.peak() < 1e-5, "fresh patch is silent, peak {}", engine.peak());
     engine.send("notes", vec![Atom::Float(57.0), Atom::Float(100.0)]).unwrap();
@@ -53,7 +54,7 @@ fn engine_renders_loaded_patch_to_the_device() {
         .map(|entry| entry.unwrap().path())
         .map(|path| (path.file_name().unwrap().to_string_lossy().into_owned(), std::fs::read_to_string(&path).unwrap()))
         .collect();
-    let _ = engine.load(&scoped, "main.pd").expect("the scoped patch loads");
+    let _ = engine.load(&scoped, "main.pd", &[]).expect("the scoped patch loads");
     engine.send("notes", vec![Atom::Float(57.0), Atom::Float(100.0)]).unwrap();
     sleep(Duration::from_millis(400));
     let window = engine.sample_rate() as usize / 50;
@@ -73,6 +74,35 @@ fn engine_renders_loaded_patch_to_the_device() {
     engine.send("notes", vec![Atom::Float(57.0), Atom::Float(0.0)]).unwrap();
     sleep(Duration::from_millis(300));
 
+    // A patch that plays a sound file: the engine converts the file (a FLAC here) and puts
+    // it beside the patch, where the patch loads it.
+    let folder = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../tests/golden/sampler");
+    let sampler: HashMap<String, String> = std::fs::read_dir(&folder)
+        .expect("run `npm test` to generate the fixtures")
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| path.extension().is_some_and(|e| e == "pd"))
+        .map(|path| (path.file_name().unwrap().to_string_lossy().into_owned(), std::fs::read_to_string(&path).unwrap()))
+        .collect();
+    let sound = |path: &str| SampleFile { file: "ge-sample-a.wav".into(), path: path.into() };
+    let flac = format!("{}/tests/sounds/tone.flac", env!("CARGO_MANIFEST_DIR"));
+    let _ = engine.load(&sampler, "main.pd", &[sound(&flac)]).expect("the sampler loads");
+    sleep(Duration::from_millis(150));
+    assert!(engine.peak() < 1e-5, "the sampler is silent before a note, peak {}", engine.peak());
+    engine.send("notes", vec![Atom::Float(60.0), Atom::Float(100.0)]).unwrap();
+    sleep(Duration::from_millis(150));
+    let sampled = engine.peak();
+    assert!(sampled > VOLUME * 0.02, "the sound file is heard, peak {sampled}");
+    engine.send("notes", vec![Atom::Float(60.0), Atom::Float(0.0)]).unwrap();
+    sleep(Duration::from_millis(400));
+    // A sound file that is not there refuses the load, and the patch that was playing stays.
+    let error = engine.load(&sampler, "main.pd", &[sound("/nowhere/kick.wav")]).unwrap_err();
+    assert!(error.starts_with("kick.wav is not where the patch expects it"), "{error}");
+    engine.send("notes", vec![Atom::Float(60.0), Atom::Float(100.0)]).unwrap();
+    sleep(Duration::from_millis(150));
+    assert!(engine.peak() > VOLUME * 0.02, "the patch from before still plays");
+    engine.send("notes", vec![Atom::Float(60.0), Atom::Float(0.0)]).unwrap();
+    sleep(Duration::from_millis(300));
+
     let events = events.lock().unwrap();
     let errors: Vec<_> = events
         .iter()
@@ -83,5 +113,5 @@ fn engine_renders_loaded_patch_to_the_device() {
         events.iter().any(|e| matches!(e, PdEvent::Message { recv, .. } if recv == "screenLine1")),
         "screen text is forwarded"
     );
-    println!("sample rate {} Hz, peak while playing {playing}", engine.sample_rate());
+    println!("sample rate {} Hz, peak while playing {playing}, while playing a sample {sampled}", engine.sample_rate());
 }

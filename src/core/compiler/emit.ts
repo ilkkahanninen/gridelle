@@ -1,8 +1,8 @@
-import type { ModuleId, PatchDocument } from "../model/types";
+import { sampleLetter, type ModuleId, type PatchDocument } from "../model/types";
 import { VOICE_ABSTRACTION } from "../modules/registry";
 import type { VoiceSignal } from "../modules/types";
 import { pdNumber, PdPatch, type Box, type Position } from "../pd/patch";
-import type { Analysis, ResolvedModule } from "./analyze";
+import { argumentValues, type Analysis, type ResolvedModule } from "./analyze";
 import { emitKnobPages } from "./knobPages";
 
 /** Outlet of `ge-voice` that carries each voice signal. */
@@ -57,6 +57,12 @@ function bottom(modules: ResolvedModule[], top: number): number {
  * editor draws the input of also gets its scope number and `voice`, the number of the
  * voice it is in: `$1` inside a voice, which is what `[clone]` passes, -1 outside them.
  */
+/** The helpers that hold a sample's table: one that loads a sound file, one that makes a tape. */
+export const SAMPLE_FILE_ABSTRACTION = "ge-sample-file";
+export const SAMPLE_TAPE_ABSTRACTION = "ge-sample-tape";
+/** The name a slot's sound file has in the patch folder. */
+export const sampleFileName = (slot: number) => `ge-sample-${sampleLetter(slot).toLowerCase()}.wav`;
+
 /** Where `main.pd` sends the number of the voice that got the latest note, for the Scopes. */
 const SCOPE_VOICE = "ge-scope-voice";
 
@@ -64,8 +70,10 @@ function addModules(patch: PdPatch, analysis: Analysis, modules: ResolvedModule[
   const at = layout(modules, top);
   return new Map(
     modules.map((m) => {
+      // After the id: the values that are built into the patch, then a tap's numbers.
+      const built = argumentValues(m).map((value) => ` ${value}`).join("");
       const tap = m.def.tap ? ` ${analysis.taps.get(m.instance.id) ?? 0} ${voice}` : "";
-      return [m.instance.id, patch.obj(`${m.def.pd} ${m.instance.id}${tap}`, at(m))];
+      return [m.instance.id, patch.obj(`${m.def.pd} ${m.instance.id}${built}${tap}`, at(m))];
     }),
   );
 }
@@ -133,8 +141,13 @@ function addHighest(patch: PdPatch, signals: [box: Box, outlet: number][], at: P
  */
 function addVoiceLife(patch: PdPatch, voice: Box, modules: ResolvedModule[], boxes: Map<ModuleId, Box>, at: Position) {
   const output = (m: ResolvedModule): [Box, number] => [boxes.get(m.instance.id)!, 0];
+  // The output that holds the voice: the first, or the one `holdsVoice` names.
+  const holding = (m: ResolvedModule): [Box, number] => [
+    boxes.get(m.instance.id)!,
+    Math.max(0, m.def.outputs.findIndex((port) => port.id === m.def.holdsVoice)),
+  ];
   const holders = modules.filter((m) => m.def.holdsVoice && m.def.outputs.length > 0);
-  const playing = addFade(patch, addHighest(patch, [[voice, VOICE_OUTLET.gate], ...holders.map(output)], at), { x: at.x, y: at.y + 30 });
+  const playing = addFade(patch, addHighest(patch, [[voice, VOICE_OUTLET.gate], ...holders.map(holding)], at), { x: at.x, y: at.y + 30 });
 
   const ringers = modules.filter((m) => m.def.tail && m.def.outputs.length > 0);
   if (ringers.length === 0) return { playing, heard: playing };
@@ -246,7 +259,8 @@ export function emitVoice(analysis: Analysis): string {
 /** Current value of every parameter of every module, clamped to its range. */
 export function paramValues(analysis: Analysis): ParamValue[] {
   return analysis.modules.flatMap(({ instance, def }) =>
-    def.params.map((param) => ({
+    // A value that is built into the patch has no receiver to send to.
+    def.params.filter((param) => !param.argument).map((param) => ({
       receiver: `${instance.id}-${param.id}`,
       value: Math.min(param.max, Math.max(param.min, instance.params[param.id] ?? param.default)),
     })),
@@ -308,6 +322,13 @@ export function emitMain(doc: PatchDocument, analysis: Analysis): string {
   }
 
   addConstants(patch, analysis, boxes, { x: MARGIN.x + 2 * CELL.x, y: column(5).y });
+
+  // The samples the modules work on: a table each, loaded or sized when the patch starts.
+  analysis.samples.forEach(({ slot, sample }, i) => {
+    const at = { x: MARGIN.x + 6 * CELL.x, y: MARGIN.y + i * 35 };
+    if (sample?.kind === "file") patch.obj(`${SAMPLE_FILE_ABSTRACTION} ${slot} ${sampleFileName(slot)}`, at);
+    else patch.obj(`${SAMPLE_TAPE_ABSTRACTION} ${slot} ${pdNumber(sample?.seconds ?? 0)}`, at);
+  });
 
   const params = paramValues(analysis);
   if (params.length > 0) {

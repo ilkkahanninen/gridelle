@@ -10,12 +10,15 @@ import { visibleDef } from "../modules/shape";
 import {
   KNOBS_PER_PAGE,
   MAX_PAGES,
+  MAX_TAPE_SECONDS,
+  SAMPLE_SLOTS,
   type Cable,
   type KnobAssignment,
   type ModuleId,
   type ModuleInstance,
   type PatchDocument,
   type PortRef,
+  type SampleSlot,
 } from "./types";
 
 export interface Cell {
@@ -340,6 +343,29 @@ export function setPrecord(doc: PatchDocument, id: ModuleId, port: string, enabl
     ...doc,
     modules: doc.modules.map((m) => (m === module ? { ...m, precords: { ...m.precords, [port]: enabled } } : m)),
   };
+}
+
+/** The sample in a slot, or `null` when the slot is empty. */
+export function sampleAt(doc: Pick<PatchDocument, "samples">, slot: number): SampleSlot | null {
+  return doc.samples?.[slot] ?? null;
+}
+
+/**
+ * Put a sound file or a tape in a sample slot, or empty it with `null`. A tape's length
+ * is kept between a tenth of a second and the longest a tape can be.
+ */
+export function setSample(doc: PatchDocument, slot: number, sample: SampleSlot | null): PatchDocument {
+  if (!Number.isInteger(slot) || slot < 0 || slot >= SAMPLE_SLOTS) return doc;
+  const next: SampleSlot | null =
+    sample?.kind === "tape" ? { kind: "tape", seconds: Math.min(MAX_TAPE_SECONDS, Math.max(0.1, sample.seconds || 0)) } : sample;
+  const current = sampleAt(doc, slot);
+  if (JSON.stringify(current) === JSON.stringify(next)) return doc;
+  const samples: (SampleSlot | null)[] = Array.from({ length: SAMPLE_SLOTS }, (_, i) => sampleAt(doc, i));
+  samples[slot] = next;
+  // No trailing empty slots, and no list at all when every slot is empty.
+  while (samples.length > 0 && samples[samples.length - 1] === null) samples.pop();
+  const { samples: _dropped, ...rest } = doc;
+  return samples.length > 0 ? { ...rest, samples } : rest;
 }
 
 /**

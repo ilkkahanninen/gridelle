@@ -49,6 +49,33 @@ export interface KnobPage {
   knobs: (KnobAssignment | null)[];
 }
 
+/** Samples a patch can have: the letters A to H in the editor, 0 to 7 in the patch. */
+export const SAMPLE_SLOTS = 8;
+/** A sample's letter in the editor. */
+export const sampleLetter = (slot: number) => String.fromCharCode(65 + slot);
+/** The id of the parameter that says which sample a module works on. */
+export const SAMPLE_PARAM = "sample";
+/** The longest blank tape, in seconds. */
+export const MAX_TAPE_SECONDS = 60;
+
+/**
+ * A sound the sample modules share. A sound file is referred to where it is on this
+ * computer; exporting copies it into the patch folder. A tape starts out silent, for a
+ * Recorder to fill.
+ */
+export type SampleSlot =
+  | {
+      kind: "file";
+      /** Where the sound file is. */
+      path: string;
+      /** Its file name, for showing. */
+      name: string;
+      /** Its length in samples and its sample rate, as found when it was chosen. */
+      frames: number;
+      sampleRate: number;
+    }
+  | { kind: "tape"; seconds: number };
+
 export interface PatchDocument {
   version: typeof DOCUMENT_VERSION;
   name: string;
@@ -57,6 +84,8 @@ export interface PatchDocument {
   modules: ModuleInstance[];
   cables: Cable[];
   pages: KnobPage[];
+  /** The patch's samples by slot; `null` or a missing entry is an empty slot. */
+  samples?: (SampleSlot | null)[];
 }
 
 export const MIN_VOICES = 1;

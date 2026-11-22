@@ -97,7 +97,7 @@ export function startPreviewSync(): () => void {
       if (result.ok && usePreview.getState().engine.kind === "ready") {
         // A patch writes to the screen while it loads, so blank it before the load starts.
         usePreview.setState({ screen: blankScreen(), led: 0 });
-        const inputProblem = await engine.load(result.files, result.entry);
+        const inputProblem = await engine.load(result.files, result.entry, result.samples);
         if (stopped) return;
         loadedKey = key;
         // The patch sets these itself on load.

@@ -3,9 +3,13 @@ import {
   MAX_PAGES,
   MAX_VOICES,
   MIN_VOICES,
+  SAMPLE_PARAM,
+  SAMPLE_SLOTS,
+  sampleLetter,
   type ModuleId,
   type ModuleInstance,
   type PatchDocument,
+  type SampleSlot,
 } from "../model/types";
 import { getModuleDef, SCOPE_SLOTS } from "../modules/registry";
 import type { ModuleDef, ParamDef, Scope, VoiceSignal } from "../modules/types";
@@ -25,6 +29,8 @@ export interface Diagnostic {
     | "bad-knob"
     | "page-count"
     | "too-many-scopes"
+    | "empty-sample"
+    | "long-sample"
     | "missing-abstraction";
   message: string;
   module?: ModuleId;
@@ -83,7 +89,27 @@ export interface Analysis {
    * the order of the document. 0 for those beyond what the editor can show.
    */
   taps: Map<ModuleId, number>;
+  /**
+   * The sample slots the modules use, in order, each with what the document has there
+   * (`null` for an empty slot, which the patch gives a silent table).
+   */
+  samples: UsedSample[];
   pages: ResolvedPage[];
+}
+
+export interface UsedSample {
+  slot: number;
+  sample: SampleSlot | null;
+}
+
+/** Beyond this many seconds a position signal is too coarse to play a sample smoothly at other speeds. */
+const LONG_SAMPLE_SECONDS = 20;
+
+/** The values a module's abstraction gets as creation arguments after its id (`ParamDef.argument`). */
+export function argumentValues({ instance, def }: Pick<ResolvedModule, "instance" | "def">): number[] {
+  return def.params
+    .filter((param) => param.argument)
+    .map((param) => Math.min(param.max, Math.max(param.min, Math.round(instance.params[param.id] ?? param.default))));
 }
 
 /** Ids become Pd symbols and receiver prefixes, so keep them to a safe alphabet. */
@@ -204,6 +230,8 @@ export function analyze(doc: PatchDocument): Analysis {
       const enabled = instance.precords?.[port.id] ?? true;
       if (port.precord && enabled && !fed.has(inputKey(instance.id, inlet))) {
         precords.push({ signal: port.precord, to: instance.id, inlet });
+        // An input that follows the voice does not also rest at its `unpatched` value.
+        fed.add(inputKey(instance.id, inlet));
       }
     });
   }
@@ -216,6 +244,33 @@ export function analyze(doc: PatchDocument): Analysis {
         constants.push({ value: port.unpatched, to: instance.id, inlet });
       }
     });
+  }
+
+  // The samples the modules work on. An empty one is worth a word: the module is silent.
+  const usedSlots = new Map<number, ResolvedModule[]>();
+  for (const module of byId.values()) {
+    const index = module.def.params.filter((p) => p.argument).findIndex((p) => p.id === SAMPLE_PARAM);
+    if (index < 0) continue;
+    const slot = argumentValues(module)[index];
+    if (slot >= 0 && slot < SAMPLE_SLOTS) usedSlots.set(slot, [...(usedSlots.get(slot) ?? []), module]);
+  }
+  const samples: UsedSample[] = [...usedSlots.keys()].sort((a, b) => a - b).map((slot) => ({ slot, sample: doc.samples?.[slot] ?? null }));
+  for (const { slot, sample } of samples) {
+    const users = usedSlots.get(slot)!;
+    if (!sample) {
+      diagnostics.push({
+        severity: "warning",
+        code: "empty-sample",
+        message: `${users[0].def.name} uses sample ${sampleLetter(slot)}, which is empty.`,
+        module: users[0].instance.id,
+      });
+    } else if (sample.kind === "file" && sample.sampleRate > 0 && sample.frames / sample.sampleRate > LONG_SAMPLE_SECONDS) {
+      diagnostics.push({
+        severity: "warning",
+        code: "long-sample",
+        message: `Sample ${sampleLetter(slot)} is longer than ${LONG_SAMPLE_SECONDS} seconds: it plays, but grows grainy at other speeds than its own.`,
+      });
+    }
   }
 
   const taps = new Map<ModuleId, number>();
@@ -265,5 +320,5 @@ export function analyze(doc: PatchDocument): Analysis {
     }),
   }));
 
-  return { diagnostics, modules: [...byId.values()], wires, precords, constants, taps, pages };
+  return { diagnostics, modules: [...byId.values()], wires, precords, constants, taps, samples, pages };
 }

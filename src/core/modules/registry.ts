@@ -1,3 +1,4 @@
+import { SAMPLE_PARAM, SAMPLE_SLOTS, sampleLetter } from "../model/types";
 import type { ModuleDef, ParamDef, PortDef } from "./types";
 
 const level = (id = "level", label = "Level", max = 2, def = 1): ParamDef => ({
@@ -243,6 +244,15 @@ const reverbTone: ParamDef = { id: "tone", label: "Tone", min: 500, max: 12000, 
 /** The rate of an effect's own LFO. */
 const sweepRate = (def: number): ParamDef => ({ id: "rate", label: "Rate", min: 0.02, max: 20, default: def, curve: "exp", unit: "Hz", decimals: 2 });
 
+/**
+ * Which of the patch's samples a module works on. The value is built into the patch: the
+ * abstraction gets it as its second argument and names its table with it.
+ */
+const sampleChoice: ParamDef = {
+  ...choice(SAMPLE_PARAM, "Sample", Array.from({ length: SAMPLE_SLOTS }, (_, slot) => sampleLetter(slot))),
+  argument: true,
+};
+
 /** The widths of a Scope's picture, in milliseconds, in the order of its Time choice. */
 export const SCOPE_TIMES = [5, 20, 100, 500, 2000];
 /** The heights of a Scope's picture, either side of zero, after "Auto" in its Range choice. */
@@ -305,6 +315,56 @@ const DEFS: ModuleDef[] = [
     params: [],
     pd: "ge-keys",
     scope: "voice",
+  },
+  {
+    // Plays its sample from a trigger. Middle C is the sample as recorded. Once plays to
+    // the end whatever the key does, and holds its voice until then; Loop goes round.
+    type: "sample-player",
+    name: "Sample Player",
+    category: "sample",
+    width: 2,
+    height: 3,
+    inputs: [
+      { id: "trigger", label: "Trigger", hint: "gate", precord: "gate" },
+      // With its pre-cord off the sample plays as recorded on every key.
+      { id: "pitch", label: "Pitch", hint: "pitch", precord: "pitch", unpatched: 60 },
+      settingInput("tune", "Tune"),
+      settingInput("start", "Start"),
+      settingInput("length", "Length"),
+    ],
+    outputs: [
+      audioOutput,
+      { id: "position", label: "Position", hint: "mod" },
+      { id: "playing", label: "Playing", hint: "gate" },
+    ],
+    params: [
+      { id: "tune", label: "Tune", min: -36, max: 36, default: 0, curve: "lin", unit: "st", step: 1 },
+      level("start", "Start", 1, 0),
+      level("length", "Length", 1, 1),
+      sampleChoice,
+      // In the order of the [r $1-mode] and [r $1-direction] numbers in `ge-sample-player`.
+      choice("mode", "Mode", ["Once", "Loop"]),
+      choice("direction", "Direction", ["Forward", "Reverse"]),
+    ],
+    pd: "ge-sample-player",
+    scope: "voice",
+    layout: "rows",
+    holdsVoice: "playing",
+  },
+  {
+    // The sample at the position patched in, 0 to 1 and round again: for scrubbing with
+    // an LFO, scanning at audio rate, or reading in step with a player's Position.
+    type: "sample-head",
+    name: "Play Head",
+    category: "sample",
+    width: 2,
+    height: 2,
+    inputs: [settingInput("position", "Position"), settingInput("start", "Start")],
+    outputs: [audioOutput],
+    params: [level("position", "Position", 1, 1), level("start", "Start", 1, 0), sampleChoice],
+    pd: "ge-sample-head",
+    scope: "voice",
+    layout: "rows",
   },
   {
     // Draws the signal patched into it, in the editor only. Inside the voices it shows

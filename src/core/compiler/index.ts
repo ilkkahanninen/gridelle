@@ -3,7 +3,15 @@ import { VOICE_ABSTRACTION } from "../modules/registry";
 import { objectClasses } from "../pd/inspect";
 import { isPdObject } from "../pd/vanilla049";
 import { analyze, type Diagnostic } from "./analyze";
-import { emitMain, emitVoice, paramValues, type ParamValue } from "./emit";
+import {
+  emitMain,
+  emitVoice,
+  paramValues,
+  SAMPLE_FILE_ABSTRACTION,
+  SAMPLE_TAPE_ABSTRACTION,
+  sampleFileName,
+  type ParamValue,
+} from "./emit";
 import { KNOB_ABSTRACTION, knobSlots, usesKnobs, type KnobSlotValue } from "./knobPages";
 
 export type { Diagnostic } from "./analyze";
@@ -32,6 +40,17 @@ export interface CompileResult {
    * left out. The preview engine has what scope `n` taps under slot `n - 1`.
    */
   scopes: Record<ModuleId, number>;
+  /**
+   * The sound files the patch plays: the name each must have in the patch folder, and
+   * where it is now. The folder is not complete without them; whoever writes it (the
+   * preview, an export, a send) converts and adds them.
+   */
+  samples: SampleFile[];
+}
+
+export interface SampleFile {
+  file: string;
+  path: string;
 }
 
 /**
@@ -61,7 +80,12 @@ export function compile(doc: PatchDocument, library: AbstractionLibrary): Compil
   const diagnostics = [...analysis.diagnostics];
 
   const needed = withHelpers(
-    [VOICE_ABSTRACTION, ...analysis.modules.map((m) => m.def.pd), ...(usesKnobs(analysis) ? [KNOB_ABSTRACTION] : [])],
+    [
+      VOICE_ABSTRACTION,
+      ...analysis.modules.map((m) => m.def.pd),
+      ...(usesKnobs(analysis) ? [KNOB_ABSTRACTION] : []),
+      ...analysis.samples.map(({ sample }) => (sample?.kind === "file" ? SAMPLE_FILE_ABSTRACTION : SAMPLE_TAPE_ABSTRACTION)),
+    ],
     library,
   );
   for (const name of needed) {
@@ -75,7 +99,7 @@ export function compile(doc: PatchDocument, library: AbstractionLibrary): Compil
   }
 
   if (diagnostics.some((d) => d.severity === "error")) {
-    return { ok: false, diagnostics, files: {}, entry: ENTRY_FILE, params: [], knobSlots: [], scopes: {} };
+    return { ok: false, diagnostics, files: {}, entry: ENTRY_FILE, params: [], knobSlots: [], scopes: {}, samples: [] };
   }
 
   const files: Record<string, string> = {
@@ -92,5 +116,8 @@ export function compile(doc: PatchDocument, library: AbstractionLibrary): Compil
     params: paramValues(analysis),
     knobSlots: knobSlots(analysis),
     scopes: Object.fromEntries([...analysis.taps].filter(([, slot]) => slot > 0)),
+    samples: analysis.samples.flatMap(({ slot, sample }) =>
+      sample?.kind === "file" ? [{ file: sampleFileName(slot), path: sample.path }] : [],
+    ),
   };
 }

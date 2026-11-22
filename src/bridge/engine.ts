@@ -18,6 +18,12 @@ export interface EngineStatus {
 /** Patch files by name, e.g. `{ "main.pd": "#N canvas ..." }`. */
 export type PatchFiles = Record<string, string>;
 
+/** A sound file a patch plays: the name it has in the patch folder, and where it is now. */
+export interface SoundFile {
+  file: string;
+  path: string;
+}
+
 /**
  * The live preview. The editor talks to Pd only through this interface, so the
  * native libpd backend could be swapped for another runtime without touching the UI.
@@ -25,11 +31,13 @@ export type PatchFiles = Record<string, string>;
 export interface PreviewEngine {
   status(): Promise<EngineStatus>;
   /**
-   * Replace the running patch. `entry` is the main patch's file name. A patch with an
-   * Audio In module is fed the computer's audio input; when that cannot be opened the
-   * patch plays without it, and the answer is the reason. Otherwise `null`.
+   * Replace the running patch. `entry` is the main patch's file name, and `sounds` the
+   * sound files it plays, which are converted and put beside it; one that cannot be read
+   * rejects the load, and the old patch plays on. A patch with an Audio In module is fed
+   * the computer's audio input; when that cannot be opened the patch plays without it,
+   * and the answer is the reason. Otherwise `null`.
    */
-  load(files: PatchFiles, entry: string): Promise<string | null>;
+  load(files: PatchFiles, entry: string, sounds: SoundFile[]): Promise<string | null>;
   /** Send to a receiver in the patch: a hardware name (`knob1`, `notes`) or a parameter. */
   send(recv: string, ...atoms: Atom[]): Promise<void>;
   setVolume(volume: number): Promise<void>;
@@ -47,7 +55,7 @@ export interface PreviewEngine {
 
 const desktopEngine: PreviewEngine = {
   status: () => invoke<EngineStatus>("engine_status"),
-  load: (files, entry) => invoke<string | null>("engine_load", { files, entry }),
+  load: (files, entry, sounds) => invoke<string | null>("engine_load", { files, entry, samples: sounds }),
   send: (recv, ...atoms) => invoke("engine_send", { recv, atoms }),
   setVolume: (volume) => invoke("engine_set_volume", { volume }),
   peak: () => invoke<number>("engine_peak"),

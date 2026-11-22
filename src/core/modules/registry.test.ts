@@ -47,7 +47,9 @@ describe("module registry", () => {
       expect(actual.signalOutlets).toBe(def.outputs.length);
       expect(actual.controlInlets).toBe(0);
       expect(actual.controlOutlets).toBe(0);
-      expect(actual.params.sort()).toEqual(def.params.map((p) => p.id).sort());
+      // A value that is built into the patch arrives as an argument, not at a receiver.
+      expect(actual.params.sort()).toEqual(def.params.filter((p) => !p.argument).map((p) => p.id).sort());
+      def.params.filter((p) => p.argument).forEach((_param, i) => expect(text, `uses its argument ${i + 2}`).toContain(`\\$${i + 2}`));
     },
   );
 
@@ -70,7 +72,8 @@ describe("module registry", () => {
   it("rests an unpatched input at a value only where nothing else feeds it", () => {
     const resting = moduleDefs.flatMap((def) => def.inputs.filter((port) => port.unpatched !== undefined));
     expect(resting.length).toBeGreaterThan(0);
-    for (const port of resting) expect(port.precord, port.id).toBeUndefined();
+    // Where such an input also follows the voice, the resting value is for when that is switched off.
+    for (const port of resting.filter((port) => port.precord)) expect(port.param, port.id).toBeUndefined();
     for (const def of moduleDefs) {
       for (const output of def.outputs) expect([output.param, output.unpatched, output.precord]).toEqual([undefined, undefined, undefined]);
     }

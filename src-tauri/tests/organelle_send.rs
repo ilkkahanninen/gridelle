@@ -15,6 +15,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 use gridelle_lib::organelle::{osc_message, parse_address, send_patch, send_patch_to, SendReport, Target, EXISTS};
+use gridelle_lib::samples::{self, SampleFile};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Generation {
@@ -28,6 +29,8 @@ struct State {
     generation: Generation,
     /// Absolute path → `None` for a folder, the contents for a file.
     nodes: BTreeMap<String, Option<Vec<u8>>>,
+    /// The name of every file uploaded, in order.
+    uploads: Vec<String>,
     resyncs: usize,
     /// When set, deleting does nothing (and still answers "ok", as the device would).
     deleting_is_broken: bool,
@@ -269,7 +272,9 @@ fn handle(state: &mut State, request: Request) -> Reply {
             if !state.is_folder(&folder) {
                 return failed;
             }
-            let path = state.free_name(&format!("{folder}/{}", name.expect("uploaded file has a name")));
+            let name = name.expect("uploaded file has a name");
+            state.uploads.push(name.clone());
+            let path = state.free_name(&format!("{folder}/{name}"));
             state.nodes.insert(path, Some(contents));
             (200, "application/json", br#"{"files":[{"name":"x"}]}"#.to_vec())
         }
@@ -310,6 +315,7 @@ impl FakeOrganelle {
         let state = Arc::new(Mutex::new(State {
             generation,
             nodes: folders.iter().map(|f| (f.to_string(), None)).collect(),
+            uploads: Vec::new(),
             resyncs: 0,
             deleting_is_broken: false,
             hears_osc: true,
@@ -368,7 +374,7 @@ impl FakeOrganelle {
     }
 
     fn send(&self, folder: &str, files: &HashMap<String, String>, replace: bool) -> Result<SendReport, String> {
-        send_patch_to(&self.target, folder, files, replace)
+        send_patch_to(&self.target, folder, files, &[], replace)
     }
 }
 
@@ -406,7 +412,7 @@ fn can_be_called_from_the_async_runtime_as_the_tauri_command_does() {
     let files = patch("x\n");
 
     let report = tauri::async_runtime::block_on(tauri::async_runtime::spawn(async move {
-        send_patch_to(&target, "My_Patch", &files, false)
+        send_patch_to(&target, "My_Patch", &files, &[], false)
     }));
 
     let report = report.expect("the sender does not panic on a runtime worker thread").unwrap();
@@ -452,6 +458,55 @@ fn resending_removes_the_abstractions_the_patch_no_longer_has() {
         assert_eq!(device.text(&format!("{dir}/main.pd")).as_deref(), Some("second version\n"));
         assert_eq!(device.state.lock().unwrap().current_patch().as_deref(), Some("My_Patch"));
     }
+}
+
+/// A sound file of the repository's test sounds, under the name a patch gives it.
+fn sound(file: &str, source: &str) -> SampleFile {
+    SampleFile { file: file.to_string(), path: format!("{}/tests/sounds/{source}", env!("CARGO_MANIFEST_DIR")) }
+}
+
+#[test]
+fn sends_a_patchs_sound_files_once_and_removes_those_it_no_longer_plays() {
+    for generation in [Generation::Classic, Generation::Os5] {
+        let device = FakeOrganelle::start(generation);
+        let dir = "/sdcard/Patches/My_Patch";
+        let files = patch("a sampler\n");
+        let uploads_of = |name: &str| device.state.lock().unwrap().uploads.iter().filter(|n| *n == name).count();
+        let stored = |name: &str| device.state.lock().unwrap().file(&format!("{dir}/{name}")).map(<[u8]>::to_vec);
+
+        // Two sounds, from a FLAC and an MP3: what arrives is the WAV the patch reads.
+        let both = [sound("ge-sample-a.wav", "tone.flac"), sound("ge-sample-b.wav", "tone.mp3")];
+        send_patch_to(&device.target, "My_Patch", &files, &both, false).unwrap();
+        assert_eq!(device.names(dir), ["ge-sample-a.wav", "ge-sample-b.wav", "ge-voice.pd", "main.pd", "voice.pd"], "{generation:?}");
+        let flac = samples::converted(&both[0].path).unwrap();
+        assert_eq!(stored("ge-sample-a.wav").as_deref(), Some(flac.wav.as_slice()), "{generation:?}: every byte of the sound");
+        assert_eq!(&flac.wav[..4], b"RIFF");
+        // The sounds are there before the patch that plays them.
+        let order = device.state.lock().unwrap().uploads.clone();
+        assert!(order.iter().position(|n| n == "ge-sample-b.wav") < order.iter().position(|n| n == "main.pd"), "{order:?}");
+
+        // Sent again, with the first sound the same and the second another: only that one travels.
+        let changed = [both[0].clone(), sound("ge-sample-b.wav", "tone-48k.wav")];
+        send_patch_to(&device.target, "My_Patch", &files, &changed, false).unwrap();
+        assert_eq!(uploads_of("ge-sample-a.wav"), 1, "{generation:?}: a sound the device has is not sent again");
+        assert_eq!(uploads_of("ge-sample-b.wav"), 2, "{generation:?}: a changed one is");
+        assert_eq!(stored("ge-sample-b.wav").as_deref(), Some(samples::converted(&changed[1].path).unwrap().wav.as_slice()));
+        assert_eq!(device.names(dir).len(), 5, "{generation:?}: and it replaced the old one, with no second copy");
+
+        // A patch that plays one sound fewer: that file goes, a sound of the user's own stays.
+        device.put(&format!("{dir}/my-sample.wav"), Some("mine"));
+        send_patch_to(&device.target, "My_Patch", &files, &changed[..1], false).unwrap();
+        assert_eq!(device.names(dir), ["ge-sample-a.wav", "ge-voice.pd", "main.pd", "my-sample.wav", "voice.pd"], "{generation:?}");
+    }
+}
+
+#[test]
+fn a_sound_that_cannot_be_read_stops_the_send_before_the_device_is_touched() {
+    let device = FakeOrganelle::start(Generation::Classic);
+    let missing = [SampleFile { file: "ge-sample-a.wav".into(), path: "/nowhere/kick.wav".into() }];
+    let error = send_patch_to(&device.target, "My_Patch", &patch("x\n"), &missing, false).unwrap_err();
+    assert!(error.starts_with("kick.wav is not where the patch expects it"), "{error}");
+    assert!(device.names("/sdcard/Patches").is_empty(), "nothing was created on the device");
 }
 
 #[test]
@@ -519,7 +574,7 @@ fn says_so_when_nothing_answers_or_it_is_not_an_organelle() {
     // A port nothing listens on: bind one, note it, close it.
     let free_port = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
     let nobody = Target { host: "127.0.0.1".into(), port: Some(free_port), osc_port: 9 };
-    let error = send_patch_to(&nobody, "My_Patch", &patch("x\n"), false).unwrap_err();
+    let error = send_patch_to(&nobody, "My_Patch", &patch("x\n"), &[], false).unwrap_err();
     assert!(error.starts_with("No Organelle found at 127.0.0.1"), "{error}");
 
     let router = FakeOrganelle::start(Generation::NotAnOrganelle);
@@ -564,7 +619,7 @@ fn sends_a_patch_to_a_real_organelle() {
         .collect();
     assert!(files.contains_key("main.pd"));
 
-    let report = send_patch(&address, "Gridelle_Test", &files, false).expect("the patch is sent");
+    let report = send_patch(&address, "Gridelle_Test", &files, &[], false).expect("the patch is sent");
 
     println!("sent {} files of {patch} to {}; started: {}", files.len(), report.path, report.started);
     assert!(report.path.ends_with("/Patches/Gridelle_Test"));

@@ -27,6 +27,7 @@ Single tests:
 npx vitest run src/core/compiler/compiler.test.ts -t "is deterministic"
 cd src-tauri && cargo test --test compiled_patches
 cd src-tauri && cargo test --test module_dsp -- --nocapture   # prints measured pitch, levels and filter responses
+cd src-tauri && cargo test --test sample_dsp                  # the sample helpers and modules, on a sample whose contents say what was read
 cd src-tauri && cargo test --test engine_audio -- --ignored   # opt-in: plays through the real audio device at -40 dB; the only test of the audio callback, scopes included
 cd src-tauri && ORGANELLE_ADDRESS=<ip> cargo test --test organelle_send -- --ignored --nocapture   # opt-in: writes the patch Gridelle_Test to a real Organelle and starts it
 cd src-tauri && ORGANELLE_ADDRESS=<ip> ORGANELLE_PATCH=flavours cargo test --test organelle_send -- --ignored   # the same with another fixture, or the path of any patch folder
@@ -65,6 +66,8 @@ PatchDocument ──compile()──► { "main.pd", "voice.pd", "ge-*.pd" } ─�
 A module dragged from the browser onto a port of another module is cabled in by `ops.addModuleAtPort`. `planPortDrop` decides what that means and is also what the canvas previews, so the two cannot disagree. The new module uses its first input and first output. On a free port it lands beside the port, or as near as there is room. On a cabled port it goes in between (dropped on an output, in front of everything that output feeds); when the spot beside the port is taken it takes that place in the row and `makeRoom(…, "right")` moves the tiles there along. A module with no input or no output to go in between with is cabled to the port alone.
 
 `ops.removeModules` is the reverse: a module taken out of a chain leaves the chain patched. What fed its first input now feeds whatever its first output fed, looking through a run of removed modules; cables on its other ports go with it. Tiles are not moved back.
+
+The patch's samples (`samples`, set with `ops.setSample`) are described under Samples below.
 
 A new document field touches `types.ts`, the hand-written shape check in `serialize.ts` (plus `DOCUMENT_VERSION` if older builds cannot read the result), and `structureKey` if it changes the emitted patch.
 
@@ -145,6 +148,17 @@ A bare `;` in a Pd comment ends the box, and Pd then tries to deliver the rest a
 - Toggle and Divider count rising edges as a signal: the gate through `rzero~ 1` and `max~ 0` is 1 at the sample it rises, and `rpole~ 1` adds those up. Toggle is whether the count is odd; Divider passes the gate while `(count - 1) / N` is a whole number.
 - Smooth runs two one-pole low-passes, one at Rise and one at Fall, and takes the higher of them when Rise is the shorter time and the lower when Fall is. That is exact for a step, which is what it is for.
 - Their ports have the `mod` or `gate` hint, but sound patched through one is still sound: `emitVoice` works out which modules may carry sound by following cables from every module with an audio output, and that set, not the port's hint, decides what is muted on its way into a module with a tail.
+
+**Samples.** A patch has up to eight samples (`PatchDocument.samples`, letters A–H in the editor, slots 0–7 in the patch), each a sound file or a blank tape of some seconds. A cable is a signal and cannot carry a sample, so the sample modules each choose one, and that shared choice is what links them: no cable is needed between a module that writes a sample and one that reads it.
+
+- The choice is `sampleChoice`, a param with `argument: true`: the value is a creation argument of the abstraction (`$2`), has no receiver, is left out of `paramValues`, and is part of `structureKey`, so changing it reloads. Names inside a sample module are therefore fixed when it is created (`tabread4~ ge-sample-$2`). `argumentValues` in `analyze.ts` gives them in order; a `tap`'s numbers come after.
+- `main.pd` gets one helper per slot a module uses (`analysis.samples`): `ge-sample-file <slot> <file>` reads `ge-sample-<letter>.wav` with `soundfiler` on load, `ge-sample-tape <slot> <seconds>` resizes its table to that many seconds at Pd's rate in whole blocks. An empty slot that a module uses is a tape of 0 seconds (one block of silence) and the `empty-sample` warning, so that Pd has a table and prints nothing. Both then send the rate in Hz to `ge-sample-<slot>-rate` and the size in samples to `ge-sample-<slot>-size`, in that order, which is what the modules compute from.
+- `compile` stays pure: it names the sound files (`CompileResult.samples`, the name in the folder and the path on this computer) and whoever writes the folder adds them. `src-tauri/src/samples.rs` decodes WAV, AIFF, FLAC, MP3 and Ogg Vorbis (the `symphonia` crate), mixes to one channel and writes a 16-bit WAV at the file's own rate, the one thing Pd 0.49's `soundfiler` reads without surprises (it takes a 32-bit WAV for float, refuses 8-bit and AIFC). Conversions are kept per path and modified time, since the preview reloads at every structural edit. `engine_load`, `export_patch` and `organelle_send` all convert first and fail with the file's name before touching anything.
+- A sample module plays a sound at its own speed whatever rate Pd runs at, from the rate the helper sends. Positions on cables are 0–1 across the sample; that is a 32-bit signal, so beyond about 20 s a sample grows grainy at other speeds than its own (`long-sample` warning).
+- **Sample Player**: a `phasor~` runs at one pass of the window (Start, Length) per cycle. A trigger takes note of the phase with `samphold~` (controlled by the gate upside down, since `samphold~` samples when its control falls), and the phase since then is the place in the window. The phase stepping back ends a pass; passes are counted (`rpole~ 1`) and the count at the trigger taken note of the same way. Middle C is the sample's own speed. `holdsVoice: "playing"` names the output that keeps the voice alive, so Once plays to the end after the key is up. Its Pitch input has both a pre-cord and `unpatched: 60`: `analyze` feeds one or the other.
+- **Play Head** is `tabread4~` at Start + Position, wrapped.
+- The settings pane edits the samples (`ui/inspector/Samples.tsx`, `state/sounds.ts`): the list under the patch settings, and the slot of a selected sample module. A sound's picture is read by the `sample_info` command and kept in `useSounds`, not in the patch.
+- `tests/golden/sampler/ge-sample-a.wav` is committed by hand: the compiler test writes only the text files, and `compiled_patches` needs the sound beside them.
 
 **Scope.** A Scope module draws the signal at its input on its tile. It is the one module whose point is the editor, and its two settings (Time, Range) say how the picture is drawn: they have receivers in `ge-scope` like any setting, which nothing there uses.
 
@@ -235,6 +249,7 @@ Exported patches must run on the device's stock Pd (0.49 on OS 3.x and 4.x: its 
 - Every operation answers `{"ok":"ok"}` even when it failed, so each file is downloaded and compared after sending.
 - The device plays from `/usbdrive/Patches` when that exists, otherwise `/sdcard/Patches`. It records the running patch as a folder name under `/tmp/curpatchname`, which is how a classic start is confirmed.
 - A folder counts as Gridelle's own, and is replaced without asking, when it contains `ge-voice.pd`.
-- After a send, the `ge-*.pd` files in the folder that the patch no longer has are deleted (modules removed since the last send). Nothing else in the folder is touched: it may hold the user's own files.
+- A patch's sound files (`ge-sample-<letter>.wav`) are uploaded before its patch files, and one the device already has, byte for byte, is not sent again.
+- After a send, the `ge-*.pd` and `ge-sample-*.wav` files in the folder that the patch no longer has are deleted (modules and samples removed since the last send). Nothing else in the folder is touched: it may hold the user's own files.
 
 `src-tauri/tests/organelle_send.rs` holds a fake device that reproduces both servers and these quirks. The OS 5 path has only ever run against that fake.

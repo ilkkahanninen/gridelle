@@ -39,6 +39,10 @@ unsafe extern "C" {
     fn libpd_finish_list(recv: *const c_char) -> c_int;
     fn libpd_finish_message(recv: *const c_char, msg: *const c_char) -> c_int;
 
+    fn libpd_arraysize(name: *const c_char) -> c_int;
+    fn libpd_read_array(dest: *mut c_float, name: *const c_char, offset: c_int, n: c_int) -> c_int;
+    fn libpd_write_array(name: *const c_char, offset: c_int, src: *const c_float, n: c_int) -> c_int;
+
     fn libpd_bind(recv: *const c_char) -> *mut c_void;
     fn libpd_unbind(binding: *mut c_void);
 
@@ -339,6 +343,20 @@ impl Pd {
             [Atom::Symbol(sel), rest @ ..] => self.send_message(recv, sel, rest),
             _ => self.send_list(recv, atoms),
         }
+    }
+
+    /// The contents of the array `name`: a sample's table. `None` when there is no such array.
+    pub fn read_array(&mut self, name: &str) -> Option<Vec<f32>> {
+        let name = cstr(name);
+        let size = unsafe { libpd_arraysize(name.as_ptr()) };
+        let mut values = vec![0.0f32; usize::try_from(size).ok()?];
+        (unsafe { libpd_read_array(values.as_mut_ptr(), name.as_ptr(), 0, size) } == 0).then_some(values)
+    }
+
+    /// Put `values` in the array `name` from index `offset`. False when they do not fit, or
+    /// there is no such array.
+    pub fn write_array(&mut self, name: &str, offset: usize, values: &[f32]) -> bool {
+        unsafe { libpd_write_array(cstr(name).as_ptr(), offset as c_int, values.as_ptr(), values.len() as c_int) == 0 }
     }
 
     /// Render blocks into `out`, which holds a whole number of blocks of the output

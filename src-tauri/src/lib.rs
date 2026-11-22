@@ -1,4 +1,5 @@
 pub mod engine;
+pub mod samples;
 pub mod organelle;
 
 use std::collections::HashMap;
@@ -8,6 +9,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 use engine::audio::Engine;
 use engine::pd::{Atom, PdEvent};
+use samples::{SampleFile, SampleInfo};
 
 /// Event name for everything the running patch prints or sends to the host.
 const PD_EVENT: &str = "pd-event";
@@ -53,8 +55,15 @@ fn engine_load(
     state: State<EngineState>,
     files: HashMap<String, String>,
     entry: String,
+    samples: Vec<SampleFile>,
 ) -> Result<Option<String>, String> {
-    state.get()?.load(&files, &entry)
+    state.get()?.load(&files, &entry, &samples)
+}
+
+/// What the editor shows of a sound file: its name, length, rate and a picture of it.
+#[tauri::command(async)]
+fn sample_info(path: String) -> Result<SampleInfo, String> {
+    crate::samples::info(&path)
 }
 
 #[tauri::command]
@@ -96,14 +105,16 @@ fn is_plain_name(name: &str) -> bool {
         && name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '~'))
 }
 
-/// Write an Organelle patch folder `folder` inside `parent` and return its path.
-/// Fails with "exists" if the folder is already there, unless `overwrite` is set;
-/// overwriting replaces same-named files and leaves anything else in the folder alone.
+/// Write an Organelle patch folder `folder` inside `parent`, with the patch's sound files
+/// `samples`, and return its path. Fails with "exists" if the folder is already there,
+/// unless `overwrite` is set; overwriting replaces same-named files and leaves anything
+/// else in the folder alone.
 #[tauri::command(async)]
 fn export_patch(
     parent: String,
     folder: String,
     files: HashMap<String, String>,
+    samples: Vec<SampleFile>,
     overwrite: bool,
 ) -> Result<String, String> {
     if !is_plain_name(&folder) || files.keys().any(|name| !is_plain_name(name)) {
@@ -113,7 +124,12 @@ fn export_patch(
     if dir.exists() && !overwrite {
         return Err("exists".into());
     }
+    // Read the sound files first: a patch folder without its sounds is no use.
+    let sounds = crate::samples::convert_all(&samples)?;
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    for (name, sound) in &sounds {
+        std::fs::write(dir.join(name), &sound.wav).map_err(|e| e.to_string())?;
+    }
     for (name, text) in &files {
         std::fs::write(dir.join(name), text).map_err(|e| e.to_string())?;
     }
@@ -127,12 +143,13 @@ fn organelle_send(
     address: String,
     folder: String,
     files: HashMap<String, String>,
+    samples: Vec<SampleFile>,
     replace: bool,
 ) -> Result<organelle::SendReport, String> {
     if !is_plain_name(&folder) || files.keys().any(|name| !is_plain_name(name)) {
         return Err("invalid patch or file name".into());
     }
-    organelle::send_patch(&address, &folder, &files, replace)
+    organelle::send_patch(&address, &folder, &files, &samples, replace)
 }
 
 fn start_engine(app: &AppHandle) -> EngineState {
@@ -166,6 +183,7 @@ pub fn run() {
             engine_set_volume,
             engine_peak,
             engine_scope,
+            sample_info,
             read_text_file,
             write_text_file,
             export_patch,

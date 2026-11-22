@@ -54,10 +54,18 @@ export interface ParamDef {
    * not as a knob.
    */
   options?: string[];
+  /**
+   * The value is built into the patch instead of sent to it: it is passed to the module's
+   * abstraction as a creation argument after the module's id (`$2`, then `$3` for a second
+   * such parameter), there is no receiver for it, and changing it reloads the patch. For
+   * what names an object needs when it is created: which sample a module plays.
+   */
+  argument?: boolean;
 }
 
 export type Category =
   | "io"
+  | "sample"
   | "oscillator"
   | "envelope"
   | "lfo"
@@ -106,9 +114,10 @@ export interface ModuleDef {
   normalled?: [from: string, to: string][];
   /**
    * While this module's first output is above zero, its voice keeps sounding after the
-   * key is let go: an envelope's release. See `emitVoice`.
+   * key is let go: an envelope's release. With the id of an output, it is that output
+   * that holds the voice (a Sample Player's Playing). See `emitVoice`.
    */
-  holdsVoice?: boolean;
+  holdsVoice?: boolean | string;
   /**
    * The module goes on sounding after its input has stopped: a delay, a reverb. Inside a
    * voice it is fed only while the voice is playing, and the voice is heard until the
