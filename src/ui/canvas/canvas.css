@@ -224,6 +224,16 @@
   opacity: 0.35;
 }
 
+/* While a module is in hand, the ports it can be dropped on light up; the one under the pointer most. */
+.canvas-plug-in .port-in .port-dot,
+.canvas-plug-out .port-out .port-dot {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--hint) 35%, transparent);
+}
+
+.port.port-target .port-dot {
+  box-shadow: 0 0 0 3px var(--accent);
+}
+
 /* Cables */
 
 .cables {

@@ -6,6 +6,7 @@ import { useEditor } from "../../state/store";
 import { formatParam, fromNormalized, toNormalized } from "../modules/params";
 import {
   addModule,
+  addModuleAtPort,
   addPage,
   assignKnob,
   assignToFreeKnob,
@@ -22,6 +23,8 @@ import {
   makeRoom,
   moveModules,
   nextModuleId,
+  planPortDrop,
+  type PortTarget,
   removeModules,
   setParam,
   setPrecord,
@@ -351,5 +354,150 @@ describe("a mixer grows with its inputs", () => {
     // The amp beside it can no longer slide left into the mixer's second row.
     expect(canMove(start, new Set([beside]), { x: -1, y: 0 })).toBe(true);
     expect(canMove(grown, new Set([beside]), { x: -1, y: 0 })).toBe(false);
+  });
+});
+
+describe("dropping a new module on a port", () => {
+  const target = (module: string, p: string, side: "in" | "out"): PortTarget => ({ module, port: p, side });
+  const at = (doc: PatchDocument, id: string) => {
+    const module = doc.modules.find((m) => m.id === id)!;
+    return [module.x, module.y];
+  };
+  const cables = (doc: PatchDocument) =>
+    doc.cables.map((c) => `${c.from.module}.${c.from.port}>${c.to.module}.${c.to.port}`).sort();
+
+  // A saw and a low-pass with four free cells between them, without and with a cable.
+  const apart = build(["osc-saw", 0, 0], ["filter-lp", 6, 0]);
+  const chain = connect(apart, port("ge1", "out"), port("ge2", "in"));
+
+  it("cables it to a free input and puts it to the left", () => {
+    const { doc, id } = addModuleAtPort(apart, "env-adsr", target("ge2", "mod", "in"));
+    expect(id).toBe("ge3");
+    expect(cables(doc)).toEqual(["ge3.out>ge2.mod"]);
+    expect(at(doc, "ge3")).toEqual([3, 0]);
+  });
+
+  it("cables it to a free output and puts it to the right", () => {
+    const { doc } = addModuleAtPort(apart, "shaper-soft", target("ge1", "out", "out"));
+    expect(cables(doc)).toEqual(["ge1.out>ge3.in"]);
+    expect(at(doc, "ge3")).toEqual([2, 0]);
+  });
+
+  it("lands as near as it can when the spot beside a free port is taken", () => {
+    const tight = build(["osc-saw", 0, 0], ["filter-lp", 2, 0]);
+    const { doc } = addModuleAtPort(tight, "env-adsr", target("ge2", "mod", "in"));
+    expect(cables(doc)).toEqual(["ge3.out>ge2.mod"]);
+    expect(doc.modules.slice(0, 2)).toEqual(tight.modules);
+    const [x, y] = at(doc, "ge3");
+    expect(canPlace(tight, "env-adsr", { x, y })).toBe(true);
+  });
+
+  it("goes in between on a cabled input", () => {
+    const { doc } = addModuleAtPort(chain, "shaper-soft", target("ge2", "in", "in"));
+    expect(cables(doc)).toEqual(["ge1.out>ge3.in", "ge3.out>ge2.in"]);
+    expect(at(doc, "ge3")).toEqual([4, 0]);
+    expect(doc.modules.slice(0, 2)).toEqual(chain.modules);
+  });
+
+  it("takes its place in a row without gaps, and the rest of the row moves right", () => {
+    // The default patch: Saw, Low-pass, Amp and Audio Out side by side, two envelopes below.
+    const { doc, id } = addModuleAtPort(basicSynth, "shaper-soft", target("ge2", "in", "in"));
+    expect(id).toBe("ge7");
+    expect(["ge1", "ge7", "ge2", "ge3", "ge4"].map((m) => at(doc, m))).toEqual([[0, 0], [2, 0], [4, 0], [6, 0], [7, 0]]);
+    expect([at(doc, "ge5"), at(doc, "ge6")]).toEqual([[0, 2], [3, 2]]);
+    expect(cables(doc)).toEqual([
+      "ge1.out>ge7.in",
+      "ge2.out>ge3.in",
+      "ge3.out>ge4.left",
+      "ge5.out>ge2.mod",
+      "ge6.out>ge3.cv",
+      "ge7.out>ge2.in",
+    ]);
+    expect(doc.pages).toBe(basicSynth.pages);
+    // Dropping it on the other end of the same cable comes to the same thing.
+    expect(addModuleAtPort(basicSynth, "shaper-soft", target("ge1", "out", "out")).doc).toEqual(doc);
+  });
+
+  it("goes in front of everything an output feeds", () => {
+    // One envelope into a filter's Mod and an amp's CV.
+    let start = build(["env-adsr", 0, 0], ["filter-lp", 3, 0], ["amp", 5, 0]);
+    start = connect(start, port("ge1", "out"), port("ge2", "mod"));
+    start = connect(start, port("ge1", "out"), port("ge3", "cv"));
+    const { doc } = addModuleAtPort(start, "filter-lp", target("ge1", "out", "out"));
+    expect(cables(doc)).toEqual(["ge1.out>ge4.in", "ge4.out>ge2.mod", "ge4.out>ge3.cv"]);
+    expect(["ge1", "ge4", "ge2", "ge3"].map((m) => at(doc, m))).toEqual([[0, 0], [3, 0], [5, 0], [7, 0]]);
+  });
+
+  it("replaces the cable of an input when it has no input to go in between with", () => {
+    const { doc } = addModuleAtPort(chain, "noise", target("ge2", "in", "in"));
+    expect(cables(doc)).toEqual(["ge3.out>ge2.in"]);
+    expect(at(doc, "ge3")).toEqual([5, 0]);
+    expect(doc.modules.slice(0, 2)).toEqual(chain.modules);
+  });
+
+  it("adds a branch to an output when it has no output to go in between with", () => {
+    const { doc } = addModuleAtPort(chain, "audio-out", target("ge1", "out", "out"));
+    expect(cables(doc)).toEqual(["ge1.out>ge2.in", "ge1.out>ge3.left"]);
+    expect(at(doc, "ge3")).toEqual([2, 0]);
+  });
+
+  it("is not cabled where it has nothing to plug in", () => {
+    expect(planPortDrop(apart, "audio-out", target("ge2", "in", "in"))).toBeNull();
+    expect(planPortDrop(apart, "noise", target("ge1", "out", "out"))).toBeNull();
+    expect(planPortDrop(apart, "osc-saw", target("ge9", "in", "in"))).toBeNull();
+    expect(planPortDrop(apart, "osc-saw", target("ge2", "in", "out"))).toBeNull();
+    expect(planPortDrop(apart, "nope", target("ge2", "in", "in"))).toBeNull();
+    const refused = addModuleAtPort(apart, "audio-out", target("ge2", "in", "in"));
+    expect(refused.doc).toBe(apart);
+    expect(refused.id).toBeNull();
+  });
+
+  it("does what it plans", () => {
+    const cases: [PatchDocument, string, PortTarget][] = [
+      [apart, "env-adsr", target("ge2", "mod", "in")],
+      [chain, "shaper-fold", target("ge2", "in", "in")],
+      [basicSynth, "filter-hp", target("ge2", "out", "out")],
+      [basicSynth, "noise", target("ge3", "cv", "in")],
+    ];
+    for (const [start, type, on] of cases) {
+      const plan = planPortDrop(start, type, on)!;
+      const { doc, id } = addModuleAtPort(start, type, on);
+      expect(id).toBe(nextModuleId(start));
+      expect(at(doc, id!)).toEqual([plan.at.x, plan.at.y]);
+      for (const cable of plan.cables) expect(doc.cables).toContainEqual(cable);
+      // Only a push moves anything that was already there.
+      if (!plan.push) expect(doc.modules.slice(0, -1)).toEqual(start.modules);
+    }
+  });
+
+  it("grows a mixer it is dropped on, and uses a new mixer's first input", () => {
+    const mixer = build(["mixer", 3, 0]);
+    const fed = addModuleAtPort(mixer, "osc-sine", target("ge1", "in1", "in")).doc;
+    expect(cables(fed)).toEqual(["ge2.out>ge1.in1"]);
+    expect(at(fed, "ge2")).toEqual([1, 0]);
+    expect(visibleDef(fed, fed.modules[0])!.inputs).toHaveLength(2);
+
+    const mixed = addModuleAtPort(chain, "mixer", target("ge2", "in", "in")).doc;
+    expect(cables(mixed)).toEqual(["ge1.out>ge3.in1", "ge3.out>ge2.in"]);
+    expect(visibleDef(mixed, mixed.modules[2])!.inputs).toHaveLength(2);
+  });
+
+  it("makes room to the right, tile after tile", () => {
+    // Two amps side by side and one in the row below; a filter put on top of the first.
+    const row = build(["amp", 2, 0], ["amp", 3, 0], ["amp", 3, 2]);
+    const crowded = { ...row, modules: [...row.modules, { id: "ge9", type: "filter-lp", x: 1, y: 0, params: {} }] };
+    const roomy = makeRoom(crowded, "ge9", "right");
+    expect(["ge9", "ge1", "ge2", "ge3"].map((m) => at(roomy, m))).toEqual([[1, 0], [3, 0], [4, 0], [3, 2]]);
+    expect(makeRoom(row, "ge1", "right")).toBe(row);
+  });
+
+  it("is one undo step, and selects the new module", () => {
+    useEditor.getState().load(basicSynth, null);
+    const id = useEditor.getState().addModuleAtPort("shaper-soft", target("ge2", "in", "in"));
+    expect(id).toBe("ge7");
+    expect([...useEditor.getState().selection]).toEqual(["ge7"]);
+    expect(useEditor.getState().doc.cables).toHaveLength(6);
+    useEditor.getState().undo();
+    expect(useEditor.getState().doc).toBe(basicSynth);
   });
 });

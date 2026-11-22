@@ -17,6 +17,8 @@ interface TileProps {
   blocked: boolean;
   /** Ports that currently have a cable, as `in:<id>` / `out:<id>`. */
   connected: ReadonlySet<string>;
+  /** The port a module in hand would be cabled to, as `in:<id>` / `out:<id>`. */
+  dropTarget: string | null;
   onTilePointerDown(e: React.PointerEvent, id: string): void;
   onPortPointerDown(e: React.PointerEvent, id: string, port: string, side: "in" | "out"): void;
 }
@@ -35,7 +37,8 @@ function ParamKnob({ module, param, size = 30 }: { module: ModuleInstance; param
   return (
     <div
       className="tile-knob"
-      onPointerEnter={() => setActive(true)}
+      // Not while something is being dragged across the tile: the label would keep showing the value.
+      onPointerEnter={(e) => e.buttons === 0 && setActive(true)}
       onPointerLeave={(e) => e.buttons === 0 && setActive(false)}
       onPointerUp={(e) => !e.currentTarget.matches(":hover") && setActive(false)}
       title={`${param.label}: ${formatParam(param, value)}`}
@@ -68,6 +71,7 @@ function Port({
   side,
   index,
   cabled,
+  target,
   onPointerDown,
 }: {
   module: ModuleInstance;
@@ -76,6 +80,7 @@ function Port({
   side: "in" | "out";
   index: number;
   cabled: boolean;
+  target: boolean;
   onPointerDown: TileProps["onPortPointerDown"];
 }) {
   const precord = side === "in" && !cabled && port.precord && (module.precords?.[port.id] ?? true) ? port.precord : null;
@@ -84,7 +89,7 @@ function Port({
     : `${port.label} ${side === "in" ? "input" : "output"}`;
   return (
     <div
-      className={`port port-${side} hint-${port.hint}${cabled ? " port-cabled" : ""}${precord ? " port-precord" : ""}`}
+      className={`port port-${side} hint-${port.hint}${cabled ? " port-cabled" : ""}${precord ? " port-precord" : ""}${target ? " port-target" : ""}`}
       style={{ top: portOffset(def, index), [side === "in" ? "left" : "right"]: PORT_INSET }}
       data-port-module={module.id}
       data-port-id={port.id}
@@ -105,6 +110,7 @@ export const ModuleTile = memo(function ModuleTile({
   offset,
   blocked,
   connected,
+  dropTarget,
   onTilePointerDown,
   onPortPointerDown,
 }: TileProps) {
@@ -142,6 +148,7 @@ export const ModuleTile = memo(function ModuleTile({
           side="in"
           index={i}
           cabled={connected.has(`in:${port.id}`)}
+          target={dropTarget === `in:${port.id}`}
           onPointerDown={onPortPointerDown}
         />
       ))}
@@ -154,6 +161,7 @@ export const ModuleTile = memo(function ModuleTile({
           side="out"
           index={i}
           cabled={connected.has(`out:${port.id}`)}
+          target={dropTarget === `out:${port.id}`}
           onPointerDown={onPortPointerDown}
         />
       ))}

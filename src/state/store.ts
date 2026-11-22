@@ -37,6 +37,8 @@ interface EditorState {
   clearSelection(): void;
 
   addModule(type: string, at: ops.Cell): ModuleId | null;
+  /** Add a module cabled to a port (`ops.planPortDrop`). `null` if there was nothing to cable. */
+  addModuleAtPort(type: string, target: ops.PortTarget): ModuleId | null;
   deleteSelection(): void;
 
   /** Replace the document (New, Open). Clears history and selection. */
@@ -106,6 +108,17 @@ export const useEditor = create<EditorState>((set, get) => ({
     let added: ModuleId | null = null;
     get().apply((doc) => {
       const result = ops.addModule(doc, type, at);
+      added = result.id;
+      return result.doc;
+    });
+    if (added) set({ selection: new Set([added]), selectedCable: null });
+    return added;
+  },
+
+  addModuleAtPort(type, target) {
+    let added: ModuleId | null = null;
+    get().apply((doc) => {
+      const result = ops.addModuleAtPort(doc, type, target);
       added = result.id;
       return result.doc;
     });

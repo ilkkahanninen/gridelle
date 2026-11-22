@@ -84,7 +84,11 @@ export function findFreeCell(doc: PatchDocument, type: string, near: Cell): Cell
 export function addModule(doc: PatchDocument, type: string, at: Cell): { doc: PatchDocument; id: ModuleId | null } {
   if (!canPlace(doc, type, at)) return { doc, id: null };
   const id = nextModuleId(doc);
-  return { doc: { ...doc, modules: [...doc.modules, { id, type, x: at.x, y: at.y, params: {} }] }, id };
+  return { doc: place(doc, id, type, at), id };
+}
+
+function place(doc: PatchDocument, id: ModuleId, type: string, at: Cell): PatchDocument {
+  return { ...doc, modules: [...doc.modules, { id, type, x: at.x, y: at.y, params: {} }] };
 }
 
 /** Whether the modules `ids` can all shift by `delta` without landing on another module. */
@@ -149,10 +153,11 @@ export function connectionProblem(doc: PatchDocument, from: PortRef, to: PortRef
 }
 
 /**
- * Move whatever module `id` overlaps to just below it, and whatever those land on in
- * turn. `id` itself stays where it is. Used when a tile has grown.
+ * Move whatever module `id` overlaps to just below it (or just right of it), and whatever
+ * those land on in turn. `id` itself stays where it is. Used when a tile has grown, and
+ * when one is put into a row of tiles.
  */
-export function makeRoom(doc: PatchDocument, id: ModuleId): PatchDocument {
+export function makeRoom(doc: PatchDocument, id: ModuleId, direction: "down" | "right" = "down"): PatchDocument {
   const rects = new Map<ModuleId, Rect>();
   for (const module of doc.modules) {
     const rect = rectOf(doc, module);
@@ -160,20 +165,24 @@ export function makeRoom(doc: PatchDocument, id: ModuleId): PatchDocument {
   }
   if (!rects.has(id)) return doc;
 
-  // A pushed module ends up below its pusher and can never push it back, so this ends.
+  // A pushed module ends up past its pusher and can never push it back, so this ends.
   const moved = new Set<ModuleId>();
   const pushers = [id];
   while (pushers.length > 0) {
     const pusher = rects.get(pushers.shift()!)!;
     for (const [otherId, other] of rects) {
       if (otherId === id || other === pusher || !overlaps(pusher, other)) continue;
-      other.y = pusher.y + pusher.height;
+      if (direction === "down") other.y = pusher.y + pusher.height;
+      else other.x = pusher.x + pusher.width;
       moved.add(otherId);
       pushers.push(otherId);
     }
   }
   if (moved.size === 0) return doc;
-  return { ...doc, modules: doc.modules.map((m) => (moved.has(m.id) ? { ...m, y: rects.get(m.id)!.y } : m)) };
+  return {
+    ...doc,
+    modules: doc.modules.map((m) => (moved.has(m.id) ? { ...m, x: rects.get(m.id)!.x, y: rects.get(m.id)!.y } : m)),
+  };
 }
 
 /**
@@ -195,6 +204,83 @@ export function connect(doc: PatchDocument, from: PortRef, to: PortRef): PatchDo
 export function disconnect(doc: PatchDocument, cable: Cable): PatchDocument {
   const cables = doc.cables.filter((c) => !sameCable(c, cable));
   return cables.length === doc.cables.length ? doc : { ...doc, cables };
+}
+
+/** A port of a module in the document, and which side of the tile it is on. */
+export interface PortTarget extends PortRef {
+  side: "in" | "out";
+}
+
+/** What dropping a new module on a port does. */
+export interface PortDrop {
+  /** Where the new module lands. */
+  at: Cell;
+  /** That spot is taken: the tiles there are moved right to make room. */
+  push: boolean;
+  /** The cables to patch, in order. The new module is in them under the id it will get. */
+  cables: Cable[];
+}
+
+/**
+ * Work out how a new module of `type` is cabled in when it is dropped on `target`. It
+ * uses its first input and first output:
+ *
+ * - on a free port it is cabled to that port and lands beside it (left of an input,
+ *   right of an output), or as near to that as there is room;
+ * - on a port that has cables it goes in between: what fed the input now feeds the new
+ *   module, or what the output fed is now fed by the new module. If the spot beside the
+ *   port is taken, it takes that place in the row and the tiles there move right;
+ * - a module with nothing to go in between with (no input, or no output) is cabled to
+ *   the port alone, replacing the cable of an input as any new cable would.
+ *
+ * `null` when the module has no port to cable to that side, or the port does not exist.
+ */
+export function planPortDrop(doc: PatchDocument, type: string, target: PortTarget): PortDrop | null {
+  const def = getModuleDef(type);
+  const host = doc.modules.find((m) => m.id === target.module);
+  const hostRect = host && rectOf(doc, host);
+  if (!def || !hostRect || !hasPort(doc, target, target.side === "in" ? "inputs" : "outputs")) return null;
+
+  const id = nextModuleId(doc);
+  const input = def.inputs[0] && { module: id, port: def.inputs[0].id };
+  const output = def.outputs[0] && { module: id, port: def.outputs[0].id };
+  const port = { module: target.module, port: target.port };
+  let cables: Cable[];
+  let between: boolean;
+  let beside: Cell;
+  if (target.side === "in") {
+    if (!output) return null;
+    const feed = input && doc.cables.find((c) => samePort(c.to, port));
+    between = !!feed;
+    cables = [...(feed ? [{ from: feed.from, to: input }] : []), { from: output, to: port }];
+    beside = { x: hostRect.x - def.width, y: hostRect.y };
+  } else {
+    if (!input) return null;
+    const fed = output ? doc.cables.filter((c) => samePort(c.from, port)) : [];
+    between = fed.length > 0;
+    cables = [{ from: port, to: input }, ...fed.map((c) => ({ from: output, to: c.to }))];
+    beside = { x: hostRect.x + hostRect.width, y: hostRect.y };
+  }
+
+  if (!between) return { at: findFreeCell(doc, type, beside), push: false, cables };
+  if (canPlace(doc, type, beside)) return { at: beside, push: false, cables };
+  // Into the row: in front of the module whose input it was dropped on, or right after the output's.
+  return { at: target.side === "in" ? { x: hostRect.x, y: hostRect.y } : beside, push: true, cables };
+}
+
+/** Add a module by dropping it on a port: see `planPortDrop`. Unchanged when there is nothing to cable. */
+export function addModuleAtPort(
+  doc: PatchDocument,
+  type: string,
+  target: PortTarget,
+): { doc: PatchDocument; id: ModuleId | null } {
+  const plan = planPortDrop(doc, type, target);
+  if (!plan) return { doc, id: null };
+  const id = nextModuleId(doc);
+  let next = place(doc, id, type, plan.at);
+  if (plan.push) next = makeRoom(next, id, "right");
+  for (const cable of plan.cables) next = connect(next, cable.from, cable.to);
+  return { doc: next, id };
 }
 
 /** Set a parameter, clamped to its range. Unknown modules or parameters leave the document unchanged. */

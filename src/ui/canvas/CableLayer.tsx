@@ -10,11 +10,18 @@ interface Props {
   cables: Cable[];
   portPoint(ref: PortRef, side: "in" | "out"): Point | null;
   hintOf(cable: Cable): SignalHint;
+  /** Cables that the drop in progress would patch. */
+  preview: { from: Point; to: Point; hint: SignalHint }[];
+  /** Cables that drop would take out; the preview stands in for them. */
+  replaced: Cable[];
   onPortPointerDown(e: React.PointerEvent, module: string, port: string, side: "in" | "out"): void;
 }
 
-/** All cables, plus the one being dragged. Drawn above the tiles, as in a real patch bay. */
-export function CableLayer({ cables, portPoint, hintOf, onPortPointerDown }: Props) {
+/**
+ * All cables, plus the one being dragged and those a module in hand would get. Drawn
+ * above the tiles, as in a real patch bay.
+ */
+export function CableLayer({ cables, portPoint, hintOf, preview, replaced, onPortPointerDown }: Props) {
   const selectedCable = useEditor((s) => s.selectedCable);
   const drag = useUi((s) => s.cableDrag);
 
@@ -30,6 +37,7 @@ export function CableLayer({ cables, portPoint, hintOf, onPortPointerDown }: Pro
       {cables.map((cable) => {
         // The cable being re-patched is drawn by the drag preview instead.
         if (drag?.detached && sameCable(drag.detached, cable)) return null;
+        if (replaced.includes(cable)) return null;
         const from = portPoint(cable.from, "out");
         const to = portPoint(cable.to, "in");
         if (!from || !to) return null;
@@ -62,6 +70,9 @@ export function CableLayer({ cables, portPoint, hintOf, onPortPointerDown }: Pro
           d={drag.anchorSide === "out" ? cablePath(dragFrom, drag.cursor) : cablePath(drag.cursor, dragFrom)}
         />
       )}
+      {preview.map(({ from, to, hint }, i) => (
+        <path key={i} className={`cable-line cable-dragging hint-${hint}`} d={cablePath(from, to)} />
+      ))}
     </svg>
   );
 }

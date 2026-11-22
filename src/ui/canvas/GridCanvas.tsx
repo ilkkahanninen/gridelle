@@ -35,19 +35,30 @@ interface Marquee {
 /** Pointer travel, in screen pixels, before a press counts as a drag. */
 const DRAG_THRESHOLD = 4;
 
-/** The port at a screen position, even when a cable is drawn over it. */
-export function portUnder(clientX: number, clientY: number): (PortRef & { side: "in" | "out" }) | null {
+/** Where a module dragged in from the browser would land, and the port it would be cabled to. */
+interface Ghost {
+  cell: ops.Cell;
+  drop: { target: ops.PortTarget; plan: ops.PortDrop } | null;
+}
+
+function portElementUnder(clientX: number, clientY: number): HTMLElement | null {
   for (const hit of document.elementsFromPoint(clientX, clientY)) {
     const el = hit.closest<HTMLElement>("[data-port-id]");
-    if (el) {
-      return {
-        module: el.dataset.portModule!,
-        port: el.dataset.portId!,
-        side: el.dataset.portSide as "in" | "out",
-      };
-    }
+    if (el) return el;
   }
   return null;
+}
+
+const portOf = (el: HTMLElement): ops.PortTarget => ({
+  module: el.dataset.portModule!,
+  port: el.dataset.portId!,
+  side: el.dataset.portSide as "in" | "out",
+});
+
+/** The port at a screen position, even when a cable is drawn over it. */
+export function portUnder(clientX: number, clientY: number): ops.PortTarget | null {
+  const el = portElementUnder(clientX, clientY);
+  return el ? portOf(el) : null;
 }
 
 export function GridCanvas() {
@@ -60,7 +71,7 @@ export function GridCanvas() {
   const viewportRef = useRef<HTMLDivElement>(null);
   const [tileDrag, setTileDrag] = useState<TileDrag | null>(null);
   const [marquee, setMarquee] = useState<Marquee | null>(null);
-  const [ghost, setGhost] = useState<ops.Cell | null>(null);
+  const [ghost, setGhost] = useState<Ghost | null>(null);
   const [panning, setPanning] = useState(false);
 
   const toWorld = useCallback((clientX: number, clientY: number) => {
@@ -273,12 +284,36 @@ export function GridCanvas() {
     // The ghost shows where the module will land: the cell under the pointer, or the nearest free one.
     const landing = (e: PointerEvent) =>
       ops.findFreeCell(useEditor.getState().doc, placing, cellCentredOn(toWorld(e.clientX, e.clientY), def));
-    const move = (e: PointerEvent) => setGhost(overCanvas(e) ? landing(e) : null);
+    // The port being aimed at stays the target for as long as the pointer is where the port
+    // was found: the preview may slide that port's tile aside to show the room being made.
+    let held: { target: ops.PortTarget; rect: DOMRect } | null = null;
+    const portAimedAt = (e: PointerEvent) => {
+      const within =
+        held &&
+        e.clientX >= held.rect.left &&
+        e.clientX <= held.rect.right &&
+        e.clientY >= held.rect.top &&
+        e.clientY <= held.rect.bottom;
+      if (!within) {
+        const el = portElementUnder(e.clientX, e.clientY);
+        held = el && { target: portOf(el), rect: el.getBoundingClientRect() };
+      }
+      return held?.target ?? null;
+    };
+    // Held over a port of another module, it is cabled to that port and lands beside it.
+    const aim = (e: PointerEvent): Ghost => {
+      const target = portAimedAt(e);
+      const plan = target && ops.planPortDrop(useEditor.getState().doc, placing, target);
+      return target && plan ? { cell: plan.at, drop: { target, plan } } : { cell: landing(e), drop: null };
+    };
+    const move = (e: PointerEvent) => setGhost(overCanvas(e) ? aim(e) : null);
     const up = (e: PointerEvent) => {
       useUi.setState({ placing: null });
       const editor = useEditor.getState();
       if (overCanvas(e)) {
-        editor.addModule(placing, landing(e));
+        const { cell, drop } = aim(e);
+        if (drop) editor.addModuleAtPort(placing, drop.target);
+        else editor.addModule(placing, cell);
       } else if ((e.target as HTMLElement | null)?.closest(".palette-modules")) {
         // Clicked in the module browser without dragging out: put it near the middle of the view.
         const { view, viewport } = useUi.getState();
@@ -303,7 +338,26 @@ export function GridCanvas() {
   const dragBlocked = !!tileDrag?.moved && !ops.canMove(doc, selection, tileDrag.delta);
   const dragOffset = tileDrag?.moved ? { x: tileDrag.delta.x * CELL, y: tileDrag.delta.y * CELL } : null;
 
-  /** Port position including the offset of tiles being dragged, so cables follow. */
+  const ghostDef = placing ? getModuleDef(placing) : undefined;
+  const drop = (ghostDef && ghost?.drop) || null;
+
+  // A drop that needs room moves tiles aside. Show them where they would go, in pixels from where they are.
+  const pushOn = drop?.plan.push ? drop.target : null;
+  const shifts = useMemo(() => {
+    const moved = new Map<ModuleId, Point>();
+    if (!placing || !pushOn) return moved;
+    const after = ops.addModuleAtPort(doc, placing, pushOn).doc;
+    for (const module of doc.modules) {
+      const then = after.modules.find((m) => m.id === module.id);
+      if (then && (then.x !== module.x || then.y !== module.y)) {
+        moved.set(module.id, { x: (then.x - module.x) * CELL, y: (then.y - module.y) * CELL });
+      }
+    }
+    return moved;
+    // The target is a new object on every pointer move; its parts say whether it changed.
+  }, [doc, placing, pushOn?.module, pushOn?.port, pushOn?.side]);
+
+  /** Port position including the offset of tiles being dragged or pushed aside, so cables follow. */
   const portPoint = useCallback(
     (ref: PortRef, side: "in" | "out"): Point | null => {
       const module = doc.modules.find((m) => m.id === ref.module);
@@ -312,11 +366,10 @@ export function GridCanvas() {
       const index = (side === "in" ? def.inputs : def.outputs).findIndex((p) => p.id === ref.port);
       if (index < 0) return null;
       const point = portPosition(module, def, side, index);
-      return dragOffset && selection.has(module.id)
-        ? { x: point.x + dragOffset.x, y: point.y + dragOffset.y }
-        : point;
+      const offset = (selection.has(module.id) ? dragOffset : null) ?? shifts.get(module.id);
+      return offset ? { x: point.x + offset.x, y: point.y + offset.y } : point;
     },
-    [doc, selection, dragOffset?.x, dragOffset?.y],
+    [doc, selection, dragOffset?.x, dragOffset?.y, shifts],
   );
 
   const hintOf = useCallback(
@@ -327,11 +380,33 @@ export function GridCanvas() {
     [doc.modules],
   );
 
-  const ghostDef = placing ? getModuleDef(placing) : undefined;
+  // The cables a drop on the port under the pointer would patch, between the ghost and the tiles.
+  const preview = useMemo(() => {
+    if (!ghost || !drop || !ghostDef) return [];
+    const isNew = (ref: PortRef) => !doc.modules.some((m) => m.id === ref.module);
+    const end = (ref: PortRef, side: "in" | "out") =>
+      isNew(ref) ? portPosition(ghost.cell, ghostDef, side, 0) : portPoint(ref, side);
+    return drop.plan.cables.flatMap((cable) => {
+      const from = end(cable.from, "out");
+      const to = end(cable.to, "in");
+      const hint = isNew(cable.from) ? ghostDef.outputs[0].hint : hintOf(cable);
+      return from && to ? [{ from, to, hint }] : [];
+    });
+  }, [ghost, drop, ghostDef, doc.modules, portPoint, hintOf]);
+
+  // ...and the cables it would take out: an input holds one cable.
+  const replaced = useMemo(
+    () => (drop ? doc.cables.filter((c) => drop.plan.cables.some((p) => p.to.module === c.to.module && p.to.port === c.to.port)) : []),
+    [drop, doc.cables],
+  );
+
   const gridSize = CELL * view.zoom;
   const classes = ["canvas"];
   if (panning) classes.push("canvas-panning");
   if (cableDrag) classes.push(`canvas-cabling-${cableDrag.anchorSide}`);
+  // A module in hand can be dropped on the ports it has something to cable to.
+  if (ghostDef?.outputs.length) classes.push("canvas-plug-in");
+  if (ghostDef?.inputs.length) classes.push("canvas-plug-out");
 
   return (
     <div
@@ -351,9 +426,10 @@ export function GridCanvas() {
               module={module}
               def={def}
               selected={selected}
-              offset={selected ? dragOffset : null}
+              offset={(selected ? dragOffset : null) ?? shifts.get(module.id) ?? null}
               blocked={selected && dragBlocked}
               connected={connectedByModule.get(module.id) ?? NONE}
+              dropTarget={drop?.target.module === module.id ? `${drop.target.side}:${drop.target.port}` : null}
               onTilePointerDown={onTilePointerDown}
               onPortPointerDown={onPortPointerDown}
             />
@@ -364,11 +440,13 @@ export function GridCanvas() {
           cables={doc.cables}
           portPoint={portPoint}
           hintOf={hintOf}
+          preview={preview}
+          replaced={replaced}
           onPortPointerDown={onPortPointerDown}
         />
 
         {ghost && ghostDef && (
-          <div className="tile-ghost" style={tileRect(ghost, ghostDef)} />
+          <div className="tile-ghost" style={tileRect(ghost.cell, ghostDef)} />
         )}
         {marquee && (
           <div
@@ -384,7 +462,7 @@ export function GridCanvas() {
       </div>
 
       {doc.modules.length === 0 && (
-        <p className="canvas-empty">Drag a module in from the left to start a patch.</p>
+        <p className="canvas-empty">Drag a module in from above to start a patch.</p>
       )}
     </div>
   );
