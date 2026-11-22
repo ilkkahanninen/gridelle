@@ -3,7 +3,7 @@
 #X obj 30 50 unpack f f;
 #X obj 180 90 > 0;
 #X obj 30 130 spigot;
-#X obj 30 170 sig~;
+#X obj 30 170 sig~ 60;
 #X obj 180 130 sel 1 0;
 #X msg 180 170 0 \, 1 0 1.5;
 #X msg 290 170 0;
@@ -14,7 +14,7 @@
 #X obj 30 300 outlet~;
 #X obj 180 300 outlet~;
 #X obj 440 300 outlet~;
-#X text 30 330 pitch (MIDI note) - gate (0/1 \, dips briefly on retrigger) - velocity (0..1);
+#X text 30 330 pitch (MIDI note \, middle C until the first note) - gate (0/1 \, dips briefly on retrigger) - velocity (0..1);
 #X connect 0 0 1 0;
 #X connect 1 0 3 0;
 #X connect 1 1 2 0;

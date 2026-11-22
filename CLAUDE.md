@@ -131,6 +131,12 @@ A bare `;` in a Pd comment ends the box, and Pd then tries to deliver the rest a
 - The soft filters are not the objects themselves: `lop~` and `hip~` take their cutoff as a number in Pd 0.49. They are rebuilt from `rpole~` and `rzero~` with the same coefficients, and the DSP test compares them with the real objects.
 - Decay is in seconds on all reverbs. For Room and Hall it becomes a liveness percentage through a loop time measured in the DSP test. For the Cavern, `rev1~`'s help is wrong about its own setting: measured, it takes 216 / (100 - dB) seconds to fall 60 dB and never under 2.2 s, so that is the formula used and the range offered.
 
+**Pitch modules** take and give a pitch the way the oscillators' Pitch input takes it: a note number as a signal (60 is middle C). Their Pitch input has the pitch pre-cord.
+
+- Transpose adds 12 times Octave, Semi and Mod times its amount. Glide is a one-pole low-pass on the pitch, with the pole that covers 95 % of the way in Time. Quantizer adds Mod times Range, splits the result into whole octaves above Root and a rest, and looks the rest up in a 13-entry table (`[table $0-scale]`, filled by the Scale choice) that maps each semitone to the nearest note of the scale, the lower one on a tie. The Scale options in the registry are in the order of `SCALES` in the generator.
+- Keys (in the In / Out group) gives the played note as outputs: pitch, gate, velocity, and the pitch as 0..1. It has no inputs: `voiceInlets` on its def names the voice signals its abstraction takes at its first inlets, and `analyze` feeds them through the same list as the pre-cords. A module's own inputs come after those inlets (`inletOf`).
+- An idle voice's pitch is 60, not 0 (`ge-voice`), so that a Glide starts its first note from middle C and not from the bottom of the range.
+
 **Rows layout.** `layout: "rows"` (every module with knobs) lists a module's inputs as rows, two to a grid cell under a half-cell header: the port on the left edge and, where the input has a `param`, that knob beside it. `height` must be `ceil((rows + 1) / 2)`; `registry.test.ts` checks it. `portOffset` in `ui/canvas/geometry.ts` places both the ports and the knobs. A tile one cell wide (Amp, Audio Out) shows the knobs without names. Voice Sum and Noise, with no knobs, keep the plain layout: ports down the edges.
 
 When a module's tile changes shape, older documents can have tiles on top of each other. `ops.settle` pushes them apart, and `actions.openPatch` runs it on every opened patch.

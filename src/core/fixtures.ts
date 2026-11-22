@@ -314,6 +314,41 @@ export const audioInput: PatchDocument = settle({
   pages: [],
 });
 
+/**
+ * The pitch modules in a row in front of an oscillator: the played note from Keys, glided,
+ * transposed, then snapped to A minor with random steps added. Velocity sets how loud the
+ * envelope's sustain is.
+ */
+export const pitches: PatchDocument = settle({
+  version: DOCUMENT_VERSION,
+  name: "Pitches",
+  voices: 3,
+  modules: [
+    { id: "ge1", type: "keys", x: 0, y: 0, params: {} },
+    { id: "ge2", type: "pitch-glide", x: 2, y: 0, params: { time: 30 } },
+    { id: "ge3", type: "pitch-transpose", x: 4, y: 0, params: { octave: -1, semi: 7 } },
+    { id: "ge4", type: "pitch-quantize", x: 6, y: 0, params: { root: 9, scale: 2 } },
+    { id: "ge5", type: "lfo-random", x: 6, y: 3, params: { rate: 8 } },
+    { id: "ge6", type: "osc-saw", x: 8, y: 0, params: {} },
+    { id: "ge7", type: "amp", x: 10, y: 0, params: {} },
+    { id: "ge8", type: "env-adsr", x: 8, y: 3, params: { release: 100 } },
+    { id: "ge9", type: "audio-out", x: 11, y: 0, params: {} },
+  ],
+  cables: [
+    { from: { module: "ge1", port: "pitch" }, to: { module: "ge2", port: "pitch" } },
+    { from: { module: "ge2", port: "out" }, to: { module: "ge3", port: "pitch" } },
+    { from: { module: "ge3", port: "out" }, to: { module: "ge4", port: "pitch" } },
+    { from: { module: "ge5", port: "out" }, to: { module: "ge4", port: "mod" } },
+    { from: { module: "ge4", port: "out" }, to: { module: "ge6", port: "pitch" } },
+    { from: { module: "ge6", port: "out" }, to: { module: "ge7", port: "in" } },
+    { from: { module: "ge1", port: "gate" }, to: { module: "ge8", port: "gate" } },
+    { from: { module: "ge1", port: "velocity" }, to: { module: "ge8", port: "sustain" } },
+    { from: { module: "ge8", port: "out" }, to: { module: "ge7", port: "cv" } },
+    { from: { module: "ge7", port: "out" }, to: { module: "ge9", port: "left" } },
+  ],
+  pages: [],
+});
+
 export const fixtures = {
   "basic-synth": basicSynth,
   "shared-filter": sharedFilter,
@@ -323,4 +358,5 @@ export const fixtures = {
   "voice-effects": voiceEffects,
   flavours,
   "audio-input": audioInput,
+  pitches,
 } as const;

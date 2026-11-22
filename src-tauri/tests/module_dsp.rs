@@ -1,7 +1,7 @@
 //! Measures what the module abstractions in `pd-lib/modules` actually do, in real Pd:
 //! oscillator pitch, level, aliasing and modulation, filter frequency responses, the
 //! shapers' curves, mixer sums, the envelope's stages, the LFOs, the effects, the wrappers of
-//! Pd's own filters and reverbs, and that every setting's input multiplies its knob.
+//! Pd's own filters and reverbs, the pitch modules, and that every setting's input multiplies its knob.
 //!
 //! Each check loads a few-box test patch around one abstraction and analyses the audio
 //! it renders. libpd is a single global instance, so everything runs from one test.
@@ -69,7 +69,9 @@ fn inlets_of(name: &str) -> &'static [Inlet] {
         "ge-filter-ladder" | "ge-filter-resonator" => &[Main, Setting, Setting, Mod],
         "ge-filter-soft-lp" | "ge-filter-soft-hp" => &[Main, Setting, Mod],
         "ge-fx-cavern" | "ge-follower" => &[Main, Setting, Setting],
-        "ge-sample-hold" => &[Main, Mod],
+        "ge-sample-hold" | "ge-pitch-quantize" => &[Main, Mod],
+        "ge-pitch-transpose" => &[Main, Setting, Setting, Mod],
+        "ge-pitch-glide" => &[Main, Setting],
         "ge-shaper-soft" | "ge-shaper-fold" | "ge-shaper-cheby" => &[Main, Setting, Mod, Setting],
         "ge-shaper-hard" | "ge-shaper-rectify" => &[Main, Setting, Mod],
         "ge-shaper-crush" => &[Main, Setting, Setting, Mod],
@@ -1513,6 +1515,106 @@ fn follower(pd: &mut Pd, dir: &Path) {
     });
 }
 
+// --- pitch ---------------------------------------------------------------------------------
+
+/// A pitch module with a `[sig~]` on its Pitch input (set through `t-pitch`, 60 to begin
+/// with) and one on its Mod input (`t-mod`).
+fn with_pitch<T>(pd: &mut Pd, dir: &Path, name: &str, measure: impl FnOnce(&mut Pd) -> T) -> T {
+    let boxes = ["r t-pitch", "sig~ 60", "r t-mod", "sig~ 0"];
+    let connections = [[0, 0, 1, 0], [2, 0, 3, 0]];
+    with_module(pd, dir, name, &boxes, &connections, [Some(1), Some(3), None], to_left, measure)
+}
+
+/// The pitch a module settles on.
+fn settled_pitch(pd: &mut Pd) -> f32 {
+    *settled(pd, 0.1).0.last().unwrap()
+}
+
+fn pitch_modules(pd: &mut Pd, dir: &Path) {
+    with_pitch(pd, dir, "ge-pitch-transpose", |pd| {
+        set(pd, &[("octave", 0.0), ("semi", 0.0), ("mod", 2.0)]);
+        close(settled_pitch(pd), 60.0, 0.001, "transpose at zero leaves the pitch alone");
+        set(pd, &[("octave", 1.0), ("semi", 7.0)]);
+        close(settled_pitch(pd), 79.0, 0.001, "transpose up an octave and a fifth");
+        set(pd, &[("octave", -2.0), ("semi", -3.0)]);
+        close(settled_pitch(pd), 33.0, 0.001, "transpose down two octaves and three semitones");
+        pd.send_float("t-mod", 0.5);
+        close(settled_pitch(pd), 34.0, 0.001, "transpose adds Mod times its amount, in semitones");
+        pd.send_float("t-mod", -1.0);
+        close(settled_pitch(pd), 31.0, 0.001, "and takes it away for a negative signal");
+        println!("ge-pitch-transpose: octaves, semitones and Mod add up");
+    });
+
+    with_pitch(pd, dir, "ge-pitch-glide", |pd| {
+        // From 48 to 60 with Time at 100 ms: a third of the way there in time it has covered
+        // 1 - 1/e of the distance, and 95 % at the end of it.
+        set(pd, &[("time", 100.0)]);
+        pd.send_float("t-pitch", 48.0);
+        close(settled_pitch(pd), 48.0, 0.01, "glide arrives");
+        render(pd, 1.0);
+        pd.send_float("t-pitch", 60.0);
+        let slide = render(pd, 0.3).0;
+        let third = 48.0 + 12.0 * (1.0 - (-1.0f32).exp());
+        close(level_at(&slide, 100.0 / 3.0), third, 0.15, "glide a third of its Time in");
+        close(level_at(&slide, 100.0), 48.0 + 12.0 * 0.95, 0.15, "glide has covered 95 % after its Time");
+        assert!(slide.windows(2).all(|w| w[1] >= w[0]), "glide only goes towards its target");
+        // The Time input multiplies the time: 100 ms x 0.1 is there ten times sooner.
+        pd.send_float("t-in1", 0.1);
+        render(pd, 0.05);
+        pd.send_float("t-pitch", 48.0);
+        let quick = render(pd, 0.1).0;
+        close(level_at(&quick, 10.0), 60.0 - 12.0 * 0.95, 0.2, "glide's Time input multiplies the time");
+        println!("ge-pitch-glide: {:.2} a third of the way into 100 ms from 48 to 60, {:.2} at 100 ms", level_at(&slide, 100.0 / 3.0), level_at(&slide, 100.0));
+    });
+
+    with_pitch(pd, dir, "ge-pitch-quantize", |pd| {
+        let snapped = |pd: &mut Pd, root: f32, scale: f32, pitch: f32| {
+            set(pd, &[("root", root), ("scale", scale)]);
+            pd.send_float("t-pitch", pitch);
+            settled_pitch(pd)
+        };
+        set(pd, &[("mod", 12.0)]);
+        // Scales in the order of the registry: 0 chromatic, 1 major, 2 minor, 4 minor pentatonic.
+        let cases: [(f32, f32, f32, f32, &str); 12] = [
+            (0.0, 0.0, 60.4, 60.0, "chromatic rounds down to the nearest semitone"),
+            (0.0, 0.0, 60.6, 61.0, "chromatic rounds up to the nearest semitone"),
+            (0.0, 1.0, 62.0, 62.0, "a note of C major stays"),
+            (0.0, 1.0, 63.0, 62.0, "D sharp goes to D in C major: of two neighbours, the lower"),
+            (0.0, 1.0, 66.0, 65.0, "F sharp goes to F in C major"),
+            (0.0, 1.0, 70.0, 69.0, "A sharp goes to A in C major"),
+            (0.0, 1.0, 71.6, 72.0, "above B the next octave's C is nearest"),
+            (2.0, 1.0, 60.0, 59.0, "C is not in D major: it goes to B"),
+            (2.0, 1.0, 1.0, 1.0, "C sharp at the very bottom stays in D major, below its root"),
+            (9.0, 2.0, 66.0, 65.0, "F sharp goes to F in A minor"),
+            (9.0, 4.0, 59.0, 60.0, "B goes to C in A minor pentatonic, a semitone away, not to A, two away"),
+            (0.0, 7.0, 61.0, 60.0, "C sharp goes to C in the whole-tone scale on C"),
+        ];
+        for (root, scale, pitch, expected, what) in cases {
+            close(snapped(pd, root, scale, pitch), expected, 0.001, what);
+        }
+        // Mod is added before the snap: half of a Range of 12 above middle C is F sharp, so F in C major.
+        pd.send_float("t-mod", 0.5);
+        close(snapped(pd, 0.0, 1.0, 60.0), 65.0, 0.001, "quantizer adds Mod times Range, then snaps");
+        // Every scale gives only its own notes, whatever goes in.
+        pd.send_float("t-mod", 0.0);
+        let minor_pentatonic = [0.0, 3.0, 5.0, 7.0, 10.0];
+        for tenth in 0..240 {
+            let out = snapped(pd, 4.0, 4.0, 40.0 + tenth as f32 * 0.1);
+            let class = (out - 4.0).rem_euclid(12.0);
+            assert!(minor_pentatonic.iter().any(|n| (n - class).abs() < 0.001), "E minor pentatonic gave {out} (class {class})");
+        }
+        println!("ge-pitch-quantize: {} spot checks, and a sweep of two octaves in E minor pentatonic gives only its notes", cases.len());
+    });
+
+    // Keys hands on what the voice gives it, and the pitch as a 0..1 signal.
+    for (outlet, expected, what) in [(0, 64.0, "pitch"), (1, 1.0, "gate"), (2, 0.5, "velocity"), (3, 64.0 / 127.0, "key")] {
+        let boxes = ["sig~ 64", "sig~ 1", "sig~ 0.5", "ge-keys t1", "dac~ 1"];
+        let connections = [[0, 0, 3, 0], [1, 0, 3, 1], [2, 0, 3, 2], [3, outlet, 4, 0]];
+        with_patch(pd, dir, &boxes, &connections, |pd| close(settled_pitch(pd), expected, 0.0001, &format!("keys' {what} output")));
+    }
+    println!("ge-keys: pitch, gate and velocity handed on, key = pitch / 127");
+}
+
 // --- setting inputs ------------------------------------------------------------------------
 
 /// One render of a module with a knob at `knob` and that setting's input at `input`.
@@ -1545,6 +1647,11 @@ fn with_setting(pd: &mut Pd, dir: &Path, name: &str, inlet: usize, receiver: &st
         with_oscillator(pd, dir, name, measure)
     } else if name == "ge-lfo" {
         with_lfo(pd, dir, measure)
+    } else if name.starts_with("ge-pitch-") {
+        with_pitch(pd, dir, name, |pd| {
+            set(pd, &[("octave", 1.0), ("semi", 3.0), ("mod", 0.0), ("time", 150.0)]);
+            measure(pd)
+        })
     } else if name.starts_with("ge-filter-") {
         with_filter_named(pd, dir, name, measure)
     } else {
@@ -1613,6 +1720,9 @@ fn setting_inputs(pd: &mut Pd, dir: &Path) {
         ("ge-fx-cavern", 2, "mix", 0.8, 0.5),
         ("ge-fx-room", 4, "mix", 0.8, 0.5),
         ("ge-fx-hall", 4, "mix", 0.8, 0.5),
+        ("ge-pitch-transpose", 1, "octave", 2.0, 0.5),
+        ("ge-pitch-transpose", 2, "semi", 3.0, 4.0),
+        ("ge-pitch-glide", 1, "time", 400.0, 0.5),
     ];
     let mut worst = 0.0f32;
     for &(name, inlet, receiver, knob, input) in cases {
@@ -1718,6 +1828,7 @@ fn modules_do_what_they_are_designed_to() {
     pd_reverbs(&mut pd, &dir);
     sample_and_hold(&mut pd, &dir);
     follower(&mut pd, &dir);
+    pitch_modules(&mut pd, &dir);
     setting_inputs(&mut pd, &dir);
     amp_and_output(&mut pd, &dir);
 

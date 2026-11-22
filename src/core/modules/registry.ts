@@ -152,6 +152,21 @@ const driven = (
     ...extra,
   ]);
 
+/** A module that turns one pitch into another. Its Pitch input follows the played note. */
+const pitchModule = (type: string, name: string, inputs: PortDef[], params: ParamDef[]): ModuleDef => ({
+  type,
+  name,
+  category: "pitch",
+  width: 2,
+  height: rowsHeight([pitchInput, ...inputs]),
+  layout: "rows",
+  inputs: [pitchInput, ...inputs],
+  outputs: [{ id: "out", label: "Out", hint: "pitch" }],
+  params,
+  pd: `ge-${type}`,
+  scope: "voice",
+});
+
 /** A left and a right output. The first is `out`, as on every module with one output. */
 const stereoOutputs: PortDef[] = [
   { id: "out", label: "L", hint: "audio" },
@@ -222,6 +237,26 @@ const DEFS: ModuleDef[] = [
     params: [],
     pd: "ge-audio-in",
     scope: "global",
+  },
+  {
+    // The note being played, as signals to patch from: its pitch, its gate, how hard the
+    // key was hit, and where it is on the keyboard (0 at the bottom, 1 at note 127).
+    type: "keys",
+    name: "Keys",
+    category: "io",
+    width: 2,
+    height: 2,
+    inputs: [],
+    voiceInlets: ["pitch", "gate", "velocity"],
+    outputs: [
+      { id: "pitch", label: "Pitch", hint: "pitch" },
+      { id: "gate", label: "Gate", hint: "gate" },
+      { id: "velocity", label: "Velocity", hint: "mod" },
+      { id: "key", label: "Key", hint: "mod" },
+    ],
+    params: [],
+    pd: "ge-keys",
+    scope: "voice",
   },
   {
     type: "voice-sum",
@@ -354,6 +389,25 @@ const DEFS: ModuleDef[] = [
     pd: "ge-lfo-random",
     scope: "voice",
   },
+  // The pitch modules take and give a pitch as the oscillators do: a note number.
+  pitchModule("pitch-transpose", "Transpose", [settingInput("octave", "Octave"), settingInput("semi", "Semi"), modInput("mod")], [
+    { id: "octave", label: "Octave", min: -4, max: 4, default: 0, curve: "lin", step: 1, unit: "oct" },
+    { id: "semi", label: "Semi", min: -12, max: 12, default: 0, curve: "lin", step: 1, unit: "st" },
+    // Semitones per unit of the mod input: an LFO here is vibrato.
+    { id: "mod", label: "Mod", min: -24, max: 24, default: 1, curve: "lin", unit: "st" },
+  ]),
+  // Slides to each new pitch instead of jumping. Time is how long 95 % of the way takes.
+  pitchModule("pitch-glide", "Glide", [settingInput("time", "Time")], [
+    { id: "time", label: "Time", min: 1, max: 5000, default: 80, curve: "exp", unit: "ms" },
+  ]),
+  // Snaps a pitch to the nearest note of a scale. What comes in at Mod is added first,
+  // Range semitones for a signal of 1, so an LFO or Random plays notes of the scale.
+  pitchModule("pitch-quantize", "Quantizer", [modInput("mod")], [
+    { id: "mod", label: "Range", min: -48, max: 48, default: 12, curve: "lin", unit: "st" },
+    choice("root", "Root", ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]),
+    // In the order of the tables in `ge-pitch-quantize`.
+    choice("scale", "Scale", ["Chromatic", "Major", "Minor", "Major pentatonic", "Minor pentatonic", "Dorian", "Blues", "Whole tone"], 1),
+  ]),
   filter("filter-lp", "Low-pass"),
   filter("filter-hp", "High-pass"),
   filter("filter-bp", "Band-pass"),

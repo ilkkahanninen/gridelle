@@ -109,12 +109,18 @@ export function analyze(doc: PatchDocument): Analysis {
   const wires: Wire[] = [];
   const fed = new Set<string>();
   const inputKey = (module: ModuleId, inlet: number) => `${module}:${inlet}`;
+  // The inlets of a module's inputs come after those it takes voice signals at.
+  const firstInlet = (def: ModuleDef) => def.voiceInlets?.length ?? 0;
+  const inletOf = (def: ModuleDef, port: string) => {
+    const index = def.inputs.findIndex((p) => p.id === port);
+    return index < 0 ? -1 : firstInlet(def) + index;
+  };
 
   for (const cable of doc.cables) {
     const from = byId.get(cable.from.module);
     const to = byId.get(cable.to.module);
     const outlet = from?.def.outputs.findIndex((p) => p.id === cable.from.port) ?? -1;
-    const inlet = to?.def.inputs.findIndex((p) => p.id === cable.to.port) ?? -1;
+    const inlet = to ? inletOf(to.def, cable.to.port) : -1;
     if (!from || !to || outlet < 0 || inlet < 0) {
       error(
         "bad-cable",
@@ -124,7 +130,11 @@ export function analyze(doc: PatchDocument): Analysis {
     }
     const key = inputKey(to.instance.id, inlet);
     if (fed.has(key)) {
-      error("input-in-use", `${to.def.name} input "${to.def.inputs[inlet].label}" has more than one cable.`, to.instance.id);
+      error(
+        "input-in-use",
+        `${to.def.name} input "${to.def.inputs[inlet - firstInlet(to.def)].label}" has more than one cable.`,
+        to.instance.id,
+      );
       continue;
     }
     fed.add(key);
@@ -134,8 +144,8 @@ export function analyze(doc: PatchDocument): Analysis {
   // Normalled inputs follow their partner's source when left unpatched.
   for (const { instance, def } of byId.values()) {
     for (const [fromPort, toPort] of def.normalled ?? []) {
-      const fromInlet = def.inputs.findIndex((p) => p.id === fromPort);
-      const toInlet = def.inputs.findIndex((p) => p.id === toPort);
+      const fromInlet = inletOf(def, fromPort);
+      const toInlet = inletOf(def, toPort);
       const source = wires.find((w) => w.to === instance.id && w.inlet === fromInlet);
       if (source && !fed.has(inputKey(instance.id, toInlet))) {
         fed.add(inputKey(instance.id, toInlet));
@@ -182,7 +192,9 @@ export function analyze(doc: PatchDocument): Analysis {
   const precords: PrecordWire[] = [];
   for (const { instance, def, scope } of byId.values()) {
     if (scope !== "voice") continue;
-    def.inputs.forEach((port, inlet) => {
+    def.voiceInlets?.forEach((signal, inlet) => precords.push({ signal, to: instance.id, inlet }));
+    def.inputs.forEach((port, index) => {
+      const inlet = firstInlet(def) + index;
       const enabled = instance.precords?.[port.id] ?? true;
       if (port.precord && enabled && !fed.has(inputKey(instance.id, inlet))) {
         precords.push({ signal: port.precord, to: instance.id, inlet });
@@ -192,7 +204,8 @@ export function analyze(doc: PatchDocument): Analysis {
 
   const constants: ConstantFeed[] = [];
   for (const { instance, def } of byId.values()) {
-    def.inputs.forEach((port, inlet) => {
+    def.inputs.forEach((port, index) => {
+      const inlet = firstInlet(def) + index;
       if (port.unpatched !== undefined && !fed.has(inputKey(instance.id, inlet))) {
         constants.push({ value: port.unpatched, to: instance.id, inlet });
       }

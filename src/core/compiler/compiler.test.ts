@@ -285,6 +285,20 @@ describe("compile", () => {
     expect(objectClasses(files["ge-audio-in.pd"])).toContain("r~");
   });
 
+  it("hands the Keys module the played note, at inlets that are not ports", () => {
+    const voice = compile(fixtures.pitches, abstractionLibrary).files["voice.pd"];
+    const names = objectBoxes(voice).map((b) => b.name);
+    const [note, keys, glide, envelope] = ["ge-voice", "ge-keys", "ge-pitch-glide", "ge-env-adsr"].map((name) => names.indexOf(name));
+    // Pitch, gate and velocity from the voice into the module's three inlets.
+    for (const signal of [0, 1, 2]) expect(voice).toContain(`#X connect ${note} ${signal} ${keys} ${signal};`);
+    // Its outputs are ordinary: pitch into the glide, gate and velocity into the envelope.
+    expect(voice).toContain(`#X connect ${keys} 0 ${glide} 0;`);
+    expect(voice).toContain(`#X connect ${keys} 1 ${envelope} 0;`);
+    expect(voice).toContain(`#X connect ${keys} 2 ${envelope} 3;`);
+    // The glide's own pitch input is cabled, so the voice does not feed it as well.
+    expect(voice).not.toContain(`#X connect ${note} 0 ${glide} 0;`);
+  });
+
   it("sends the right channel what the left gets when only left is patched", () => {
     const main = compile(basicSynth, abstractionLibrary).files["main.pd"];
     const boxes = objectBoxes(main).map((b) => b.name);

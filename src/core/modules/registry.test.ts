@@ -42,7 +42,8 @@ describe("module registry", () => {
       const text = abstractionLibrary[def.pd];
       expect(text, `${def.pd}.pd exists in pd-lib/modules`).toBeDefined();
       const actual = abstractionInterface(text);
-      expect(actual.signalInlets).toBe(def.inputs.length);
+      // The inlets for voice signals, which are not ports, come before those of the inputs.
+      expect(actual.signalInlets).toBe((def.voiceInlets?.length ?? 0) + def.inputs.length);
       expect(actual.signalOutlets).toBe(def.outputs.length);
       expect(actual.controlInlets).toBe(0);
       expect(actual.controlOutlets).toBe(0);

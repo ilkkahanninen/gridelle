@@ -87,6 +87,12 @@ export interface ModuleDef {
   pd: string;
   scope: Scope;
   /**
+   * Voice signals the abstraction takes at its first inlets, before those of `inputs`.
+   * They are not ports: the compiler always feeds them (the Keys module, which only has
+   * outputs, gets the played note this way).
+   */
+  voiceInlets?: VoiceSignal[];
+  /**
    * Input pairs where the second is fed from the first's source when it has no
    * cable of its own (Audio Out's right channel follows the left).
    */
