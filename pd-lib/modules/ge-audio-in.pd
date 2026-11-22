@@ -1,0 +1,8 @@
+#N canvas 0 0 360 200 12;
+#X obj 30 40 r~ inL;
+#X obj 30 110 outlet~;
+#X obj 180 40 r~ inR;
+#X obj 180 110 outlet~;
+#X text 30 150 Outlets: left - right.;
+#X connect 0 0 1 0;
+#X connect 2 0 3 0;

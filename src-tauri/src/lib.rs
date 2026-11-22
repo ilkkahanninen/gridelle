@@ -46,12 +46,14 @@ fn engine_status(state: State<EngineState>) -> EngineStatus {
     }
 }
 
+/// Load a patch into the preview. The answer is `null`, or why a patch that uses the audio
+/// input has to do without it.
 #[tauri::command(async)]
 fn engine_load(
     state: State<EngineState>,
     files: HashMap<String, String>,
     entry: String,
-) -> Result<(), String> {
+) -> Result<Option<String>, String> {
     state.get()?.load(&files, &entry)
 }
 

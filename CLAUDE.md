@@ -142,7 +142,7 @@ When a module's tile changes shape, older documents can have tiles on top of eac
 ### Compiler (`src/core/compiler`)
 
 - `analyze.ts` resolves the document against the registry and produces diagnostics (stable `code`s), wires as outlet/inlet indices, normalled connections, pre-cords and knob bindings. Any `error` diagnostic makes `compile` return `ok: false` with no files; warnings still compile.
-- **Scope**: modules are per-voice unless they are `global` (Audio Out, Voice Sum) or downstream of a global module, in which case they run once after the voices are summed. Voice-scope modules go into `voice.pd`, global ones into `main.pd`. A voice output feeding a global module becomes an `outlet~` of `voice.pd`, and `[clone voice N]` in `main.pd` sums it across voices.
+- **Scope**: modules are per-voice unless they are `global` (Audio Out, Voice Sum) or downstream of a global module, in which case they run once after the voices are summed. Voice-scope modules go into `voice.pd`, global ones into `main.pd`. A voice output feeding a global module becomes an `outlet~` of `voice.pd`, and `[clone voice N]` in `main.pd` sums it across voices. Audio In is global too: there is one input for all voices, so it and everything patched after it run once and are heard without a key held.
 - **Voice life**: a voice that is not playing must not be heard, or an oscillator with no Amp behind it would sound for ever, and before its first note at pitch 0, which is 8 Hz (the `bare-oscillator` fixture catches that). `addVoiceLife` in `emit.ts` builds two signals that are 1 or 0, with a fade that is quick on the way up (so attacks keep their edge) and about 5 ms on the way down:
   - `playing`: the key gate is up, or a module with `holdsVoice` (the ADSR) still has its output above 0.001;
   - `heard`: playing, or a module with `tail` (the effects) is still ringing: the level of its first output, rectified and smoothed, is above 0.001.
@@ -182,14 +182,15 @@ The UI reaches Pd only through the `PreviewEngine` interface in `src/bridge/engi
 - `build.rs` compiles libpd's C sources straight from the `vendor/libpd` submodule with `cc`: single precision, and of the `extra` externals only those a module wraps (`EXTRA_SOURCES`, so far `bob~`), so that nothing else can work in the preview by accident.
 - `engine/pd.rs` is the safe wrapper. libpd is global state, so there is one `Pd` behind a mutex and every libpd call holds it. `Pd::init()` returns the event receiver only on its first call in a process, which is why each file in `src-tauri/tests` has a single `#[test]`.
 - `engine/audio.rs` runs Pd inside the cpal callback (`try_lock`, never blocking), applies queued messages from a lock-free ring buffer at the start of each callback, and swaps patches by fading out, taking the lock, closing the old patch and opening the new one from a per-revision temp directory.
+- The audio input is opened only while the loaded patch has `ge-audio-in.pd` among its files (so the microphone is not live otherwise), at the output's sample rate. Its callback writes into a ring buffer that the output callback reads a Pd block at a time, behind a cushion of about 23 ms because the two callbacks do not run in step; `host.pd` passes Pd's `adc~` on as `inL` / `inR`. When it cannot be opened, `Engine::load` returns the reason and the patch plays with silence there. `Pd::process` has silence at the input; `process_with_input` is what the callback and the tests use. The bundled app needs `NSMicrophoneUsageDescription` (`src-tauri/Info.plist`).
 
 ### The Organelle contract
 
 Exported patches must run on the device's stock Pd (0.49 on OS 3.x and 4.x: its core objects and what its own `extra` folder holds, no other externals) under the Organelle's own host patch:
 
-- Input from the host: `notes` (pitch velocity), `knob1`–`knob4` (0–1), `aux`.
+- Input from the host: `notes` (pitch velocity), `knob1`–`knob4` (0–1), `aux`, and its audio input as the signals `inL` / `inR` (read with `r~`; seen in the `mother.pd` of a device with OS 3.2).
 - Output to the host: `throw~ outL` / `throw~ outR`, `screenLine1`–`screenLine5`, `led`.
-- Exports never contain `dac~`. In the preview and in the Rust tests `pd-lib/host.pd` stands in for the host (catch → clip → `dac~`), and `src/ui/organelle/VirtualOrganelle.tsx` sends and displays exactly the messages above.
+- Exports never contain `dac~` or `adc~`. In the preview and in the Rust tests `pd-lib/host.pd` stands in for the host (catch → clip → `dac~`), and `src/ui/organelle/VirtualOrganelle.tsx` sends and displays exactly the messages above.
 - `pd-lib/spike` is a hand-written patch for checking a real device, not compiler output.
 
 ### Sending over Wi-Fi (`src-tauri/src/organelle.rs`)

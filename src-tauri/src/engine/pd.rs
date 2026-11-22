@@ -163,7 +163,8 @@ unsafe impl Send for Binding {}
 
 pub struct Pd {
     channels: usize,
-    _private: (),
+    /// A buffer of zeros to hand libpd as its audio input when there is none.
+    silence: Vec<f32>,
 }
 
 static PD: OnceLock<Mutex<Pd>> = OnceLock::new();
@@ -224,7 +225,7 @@ impl Pd {
                 libpd_add_float(DEVICE_PD_VERSION);
                 libpd_finish_message(cstr("pd").as_ptr(), cstr("compatibility").as_ptr());
             }
-            Mutex::new(Pd { channels: 2, _private: () })
+            Mutex::new(Pd { channels: 2, silence: Vec::new() })
         });
         receiver
     }
@@ -248,10 +249,10 @@ impl Pd {
         unsafe { libpd_blocksize() as usize }
     }
 
-    /// Configure stereo output, no input.
+    /// Configure stereo output and stereo input (the patch's `adc~`).
     pub fn init_audio(&mut self, sample_rate: u32) -> Result<(), String> {
         self.channels = 2;
-        match unsafe { libpd_init_audio(0, 2, sample_rate as c_int) } {
+        match unsafe { libpd_init_audio(2, 2, sample_rate as c_int) } {
             0 => Ok(()),
             code => Err(format!("libpd_init_audio failed ({code})")),
         }
@@ -328,10 +329,22 @@ impl Pd {
         }
     }
 
-    /// Render `out.len() / 2 / block_size` blocks of interleaved stereo into `out`.
+    /// Render `out.len() / 2 / block_size` blocks of interleaved stereo into `out`, with
+    /// silence at the audio input.
     pub fn process(&mut self, out: &mut [f32]) {
+        if self.silence.len() < out.len() {
+            self.silence.resize(out.len(), 0.0);
+        }
         let ticks = out.len() / self.channels / Self::block_size();
         debug_assert_eq!(ticks * self.channels * Self::block_size(), out.len());
-        unsafe { libpd_process_float(ticks as c_int, std::ptr::null(), out.as_mut_ptr()) };
+        unsafe { libpd_process_float(ticks as c_int, self.silence.as_ptr(), out.as_mut_ptr()) };
+    }
+
+    /// The same, with `input` (interleaved stereo, as long as `out`) at the audio input.
+    pub fn process_with_input(&mut self, input: &[f32], out: &mut [f32]) {
+        assert_eq!(input.len(), out.len(), "input and output cover the same blocks");
+        let ticks = out.len() / self.channels / Self::block_size();
+        debug_assert_eq!(ticks * self.channels * Self::block_size(), out.len());
+        unsafe { libpd_process_float(ticks as c_int, input.as_ptr(), out.as_mut_ptr()) };
     }
 }

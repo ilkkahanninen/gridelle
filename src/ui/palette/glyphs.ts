@@ -5,6 +5,7 @@
  */
 export const GLYPHS: Record<string, string> = {
   "audio-out": "M4 8H8L13 4V16L8 12H4Z M17 7Q19.5 10 17 13 M20.5 4Q25 10 20.5 16",
+  "audio-in": "M24 8H20L15 4V16L20 12H24Z M3 10H11 M8 7L11 10L8 13",
   "voice-sum": "M20 4H8L15 10L8 16H20",
   "osc-sine": "M2 10C6 -1 10 -1 14 10S22 21 26 10",
   "osc-tri": "M2 10L8 3L20 17L26 10",

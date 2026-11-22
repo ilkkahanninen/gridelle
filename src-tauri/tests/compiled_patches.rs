@@ -74,6 +74,28 @@ fn golden_patches_play_in_pd() {
         let released = render(&mut pd, 2.0);
         let tail = &released[released.len() - 4096..];
         assert!(peak(tail) < 1e-3, "{name}: releases to silence, tail peak {}", peak(tail));
+        if name == "audio-input" {
+            // The audio input runs once and is heard with no key held. Its left side goes
+            // through a wide-open low-pass at full level, its right side in at half; Audio Out
+            // is at its default level of 0.25.
+            let heard = |pd: &mut Pd, left: f32, right: f32| {
+                let frames = (0.3 * SAMPLE_RATE as f32) as usize / Pd::block_size() * Pd::block_size();
+                let input: Vec<f32> = (0..frames)
+                    .flat_map(|n| {
+                        let sine = (2.0 * std::f32::consts::PI * 440.0 * n as f32 / SAMPLE_RATE as f32).sin();
+                        [sine * left, sine * right]
+                    })
+                    .collect();
+                let mut out = vec![0.0f32; input.len()];
+                pd.process_with_input(&input, &mut out);
+                peak(&out[out.len() / 2..])
+            };
+            let (from_left, from_right, from_nothing) = (heard(&mut pd, 0.5, 0.0), heard(&mut pd, 0.0, 0.5), heard(&mut pd, 0.0, 0.0));
+            assert!((from_left - 0.125).abs() < 0.01, "{name}: the left input is heard at 0.5 x 0.25, got {from_left}");
+            assert!((from_right - 0.0625).abs() < 0.005, "{name}: the right input is heard at 0.5 x 0.5 x 0.25, got {from_right}");
+            assert!(from_nothing < 1e-3, "{name}: silent again without input, got {from_nothing}");
+            println!("{name}: input of 0.5 heard at {from_left:.3} from the left, {from_right:.3} from the right, with no key held");
+        }
         if name == "voice-effects" {
             // The delay and reverb inside the voices ring on after the keys are up: the voice
             // stays audible until they are quiet. (Interleaved stereo: 4410 frames are 100 ms.)

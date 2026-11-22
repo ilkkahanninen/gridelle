@@ -210,6 +210,20 @@ const DEFS: ModuleDef[] = [
     normalled: [["left", "right"]],
   },
   {
+    // The Organelle's audio input. There is one for all voices, so it runs once, and so does
+    // everything patched after it: it is heard without a key being held.
+    type: "audio-in",
+    name: "Audio In",
+    category: "io",
+    width: 1,
+    height: 1,
+    inputs: [],
+    outputs: stereoOutputs,
+    params: [],
+    pd: "ge-audio-in",
+    scope: "global",
+  },
+  {
     type: "voice-sum",
     name: "Voice Sum",
     category: "io",

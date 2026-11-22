@@ -63,4 +63,6 @@ cd src-tauri && ORGANELLE_ADDRESS=<address> cargo test --test organelle_send -- 
 
 Exports target Pd 0.49 so they run on Organelle OS 3.x, 4.x and 5.x. A few modules (Ladder,
 Cavern, Room, Hall) use objects from Pd's own `extra` folder, which the Organelle's Pd
-includes. Patches send audio to `throw~ outL` / `throw~ outR` and never contain `dac~`.
+includes. Patches send audio to `throw~ outL` / `throw~ outR` and never contain `dac~`. The Audio In
+module reads the Organelle's input from `inL` / `inR`; in the editor it plays the computer's
+audio input instead (macOS asks for microphone access the first time).

@@ -269,6 +269,22 @@ describe("compile", () => {
     for (const name of PD_EXTRA_049) expect(VANILLA_049_OBJECTS.has(name), name).toBe(false);
   });
 
+  it("runs the audio input, and what is patched after it, once", () => {
+    const files = compile(fixtures["audio-input"], abstractionLibrary).files;
+    const inVoice = objectBoxes(files["voice.pd"]).map((b) => b.name);
+    const inMain = objectBoxes(files["main.pd"]).map((b) => b.name);
+    for (const name of ["ge-audio-in", "ge-filter-lp", "ge-mixer"]) {
+      expect(inMain, name).toContain(name);
+      expect(inVoice, name).not.toContain(name);
+    }
+    // The synth voice stays a voice, and reaches the mixer through the sum of the voices.
+    expect(inVoice).toContain("ge-osc-saw");
+    expect(inVoice.filter((name) => name === "outlet~")).toHaveLength(1);
+    // The input comes from the host: the patch itself has no adc~.
+    for (const text of Object.values(files)) expect(objectClasses(text)).not.toContain("adc~");
+    expect(objectClasses(files["ge-audio-in.pd"])).toContain("r~");
+  });
+
   it("sends the right channel what the left gets when only left is patched", () => {
     const main = compile(basicSynth, abstractionLibrary).files["main.pd"];
     const boxes = objectBoxes(main).map((b) => b.name);

@@ -24,7 +24,7 @@ fn engine_renders_loaded_patch_to_the_device() {
         ("main.pd".to_string(), include_str!("../../pd-lib/spike/main.pd").to_string()),
         ("voice.pd".to_string(), include_str!("../../pd-lib/spike/voice.pd").to_string()),
     ]);
-    engine.load(&files, "main.pd").expect("patch loads");
+    let _ = engine.load(&files, "main.pd").expect("patch loads");
     sleep(Duration::from_millis(150));
     assert!(engine.peak() < 1e-5, "silent before any note, peak {}", engine.peak());
 
@@ -36,7 +36,7 @@ fn engine_renders_loaded_patch_to_the_device() {
     assert!(playing <= VOLUME * 1.001, "volume caps the output, peak {playing}");
 
     // Reloading while a note sounds must leave a working, silent patch behind.
-    engine.load(&files, "main.pd").expect("patch reloads");
+    let _ = engine.load(&files, "main.pd").expect("patch reloads");
     sleep(Duration::from_millis(200));
     assert!(engine.peak() < 1e-5, "fresh patch is silent, peak {}", engine.peak());
     engine.send("notes", vec![Atom::Float(57.0), Atom::Float(100.0)]).unwrap();

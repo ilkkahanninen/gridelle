@@ -26,6 +26,8 @@ interface PreviewState {
   log: string[];
   /** Set when the engine refused the last patch. */
   loadError: string | null;
+  /** Why the patch's Audio In is silent in the preview, when its input could not be opened. */
+  inputProblem: string | null;
 }
 
 const SCREEN_LINES = 5;
@@ -43,6 +45,7 @@ export const usePreview = create<PreviewState>(() => ({
   revision: 0,
   log: [],
   loadError: null,
+  inputProblem: null,
 }));
 
 /** Structural edits come in bursts (dragging a cable across ports); wait for them to settle. */
@@ -91,12 +94,12 @@ export function startPreviewSync(): () => void {
       if (result.ok && usePreview.getState().engine.kind === "ready") {
         // A patch writes to the screen while it loads, so blank it before the load starts.
         usePreview.setState({ screen: blankScreen(), led: 0 });
-        await engine.load(result.files, result.entry);
+        const inputProblem = await engine.load(result.files, result.entry);
         if (stopped) return;
         loadedKey = key;
         // The patch sets these itself on load.
         sent = new Map(result.params.map((p) => [p.receiver, p.value]));
-        usePreview.setState((s) => ({ revision: s.revision + 1, loadError: null }));
+        usePreview.setState((s) => ({ revision: s.revision + 1, loadError: null, inputProblem }));
         // Values may have moved while the patch was loading.
         const now = useEditor.getState().doc;
         if (structureKey(now) === key) sendChangedParams(now);

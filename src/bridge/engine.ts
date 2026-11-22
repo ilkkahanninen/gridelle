@@ -24,8 +24,12 @@ export type PatchFiles = Record<string, string>;
  */
 export interface PreviewEngine {
   status(): Promise<EngineStatus>;
-  /** Replace the running patch. `entry` is the main patch's file name. */
-  load(files: PatchFiles, entry: string): Promise<void>;
+  /**
+   * Replace the running patch. `entry` is the main patch's file name. A patch with an
+   * Audio In module is fed the computer's audio input; when that cannot be opened the
+   * patch plays without it, and the answer is the reason. Otherwise `null`.
+   */
+  load(files: PatchFiles, entry: string): Promise<string | null>;
   /** Send to a receiver in the patch: a hardware name (`knob1`, `notes`) or a parameter. */
   send(recv: string, ...atoms: Atom[]): Promise<void>;
   setVolume(volume: number): Promise<void>;
@@ -36,7 +40,7 @@ export interface PreviewEngine {
 
 const desktopEngine: PreviewEngine = {
   status: () => invoke<EngineStatus>("engine_status"),
-  load: (files, entry) => invoke("engine_load", { files, entry }),
+  load: (files, entry) => invoke<string | null>("engine_load", { files, entry }),
   send: (recv, ...atoms) => invoke("engine_send", { recv, atoms }),
   setVolume: (volume) => invoke("engine_set_volume", { volume }),
   peak: () => invoke<number>("engine_peak"),
@@ -46,7 +50,7 @@ const desktopEngine: PreviewEngine = {
 /** Stand-in when the UI runs in a plain browser (UI development): editing works, nothing sounds. */
 const silentEngine: PreviewEngine = {
   status: async () => ({ running: false, error: "The audio preview needs the desktop app.", sampleRate: null }),
-  load: async () => {},
+  load: async () => null,
   send: async () => {},
   setVolume: async () => {},
   peak: async () => 0,

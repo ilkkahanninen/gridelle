@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Gridelle plays your audio input through patches that have an Audio In module.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Gridelle sends patches to your Organelle over the local network.</string>
 </dict>

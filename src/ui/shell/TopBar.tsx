@@ -9,6 +9,7 @@ function EngineStatus() {
   const engine = usePreview((s) => s.engine);
   const loadError = usePreview((s) => s.loadError);
   const errors = usePreview((s) => s.diagnostics.filter((d) => d.severity === "error").length);
+  const inputProblem = usePreview((s) => s.inputProblem);
 
   if (engine.kind === "starting") return <span className="status">Starting audio…</span>;
   if (engine.kind === "unavailable") {
@@ -27,6 +28,13 @@ function EngineStatus() {
   }
   if (errors > 0) {
     return <span className="status status-error">Fix {errors === 1 ? "1 problem" : `${errors} problems`} to hear changes</span>;
+  }
+  if (inputProblem) {
+    return (
+      <span className="status status-error" title={`${inputProblem} The patch plays, with silence where its Audio In is.`}>
+        No audio input for Audio In
+      </span>
+    );
   }
   return (
     <span className="status" title="The preview runs the same Pd patch that Export writes.">

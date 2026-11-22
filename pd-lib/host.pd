@@ -1,11 +1,16 @@
-#N canvas 0 0 450 300 12;
+#N canvas 0 0 520 300 12;
 #X obj 30 30 catch~ outL;
 #X obj 150 30 catch~ outR;
 #X obj 30 80 clip~ -1 1;
 #X obj 150 80 clip~ -1 1;
 #X obj 30 130 dac~ 1 2;
-#X text 30 180 Preview stand-in for the Organelle host patch. Never exported.;
+#X obj 300 30 adc~ 1 2;
+#X obj 300 80 s~ inL;
+#X obj 400 80 s~ inR;
+#X text 30 180 Preview stand-in for the Organelle host patch. Never exported. Output comes in on outL and outR \, the audio input goes out as inL and inR.;
 #X connect 0 0 2 0;
 #X connect 1 0 3 0;
 #X connect 2 0 4 0;
 #X connect 3 0 4 1;
+#X connect 5 0 6 0;
+#X connect 5 1 7 0;

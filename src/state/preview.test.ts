@@ -5,7 +5,7 @@ import * as ops from "../core/model/ops";
 vi.mock("../bridge/engine", () => ({
   engine: {
     status: vi.fn(async () => ({ running: true, error: null, sampleRate: 44100 })),
-    load: vi.fn(async () => {}),
+    load: vi.fn(async () => null),
     send: vi.fn(async () => {}),
     setVolume: vi.fn(async () => {}),
     peak: vi.fn(async () => 0),
@@ -74,6 +74,7 @@ describe("preview sync", () => {
       atLoad = { screen, led, revision };
       // The patch writes to the screen while it loads.
       emit({ kind: "message", recv: "screenLine1", atoms: ["New"] });
+      return null;
     });
     useEditor.getState().apply((doc) => ({ ...doc, voices: 2 }));
     await settle();
@@ -123,9 +124,20 @@ describe("preview sync", () => {
     expect(usePreview.getState().revision).toBe(2);
   });
 
+  it("keeps why the audio input is missing, and forgets it at the next load that has it", async () => {
+    load.mockImplementationOnce(async () => "No audio input device was found.");
+    useEditor.getState().apply((doc) => ({ ...doc, voices: 2 }));
+    await settle();
+    expect(usePreview.getState().inputProblem).toBe("No audio input device was found.");
+    expect(usePreview.getState().loadError).toBeNull();
+    useEditor.getState().apply((doc) => ({ ...doc, voices: 3 }));
+    await settle();
+    expect(usePreview.getState().inputProblem).toBeNull();
+  });
+
   it("sends values that changed while the patch was loading", async () => {
     let finish!: () => void;
-    load.mockImplementationOnce(() => new Promise<void>((resolve) => (finish = resolve)));
+    load.mockImplementationOnce(() => new Promise<null>((resolve) => (finish = () => resolve(null))));
     useEditor.getState().apply((doc) => ({ ...doc, voices: 2 }));
     await settle();
     useEditor.getState().apply((doc) => ops.setParam(doc, "ge5", "sustain", 0.9));

@@ -285,6 +285,35 @@ export const flavours: PatchDocument = settle({
   pages: [],
 });
 
+/**
+ * The audio input through a filter, mixed with a synth voice. The input and what follows
+ * it run once, after the voices.
+ */
+export const audioInput: PatchDocument = settle({
+  version: DOCUMENT_VERSION,
+  name: "Audio Input",
+  voices: 2,
+  modules: [
+    { id: "ge1", type: "osc-saw", x: 0, y: 0, params: {} },
+    { id: "ge2", type: "amp", x: 2, y: 0, params: {} },
+    { id: "ge3", type: "env-adsr", x: 0, y: 3, params: { release: 100 } },
+    { id: "ge4", type: "audio-in", x: 3, y: 3, params: {} },
+    { id: "ge5", type: "filter-lp", x: 4, y: 3, params: { cutoff: 8000, res: 0 } },
+    { id: "ge6", type: "mixer", x: 7, y: 0, params: { level3: 0.5 } },
+    { id: "ge7", type: "audio-out", x: 9, y: 0, params: {} },
+  ],
+  cables: [
+    { from: { module: "ge1", port: "out" }, to: { module: "ge2", port: "in" } },
+    { from: { module: "ge3", port: "out" }, to: { module: "ge2", port: "cv" } },
+    { from: { module: "ge2", port: "out" }, to: { module: "ge6", port: "in1" } },
+    { from: { module: "ge4", port: "out" }, to: { module: "ge5", port: "in" } },
+    { from: { module: "ge5", port: "out" }, to: { module: "ge6", port: "in2" } },
+    { from: { module: "ge4", port: "right" }, to: { module: "ge6", port: "in3" } },
+    { from: { module: "ge6", port: "out" }, to: { module: "ge7", port: "left" } },
+  ],
+  pages: [],
+});
+
 export const fixtures = {
   "basic-synth": basicSynth,
   "shared-filter": sharedFilter,
@@ -293,4 +322,5 @@ export const fixtures = {
   "bare-oscillator": bareOscillator,
   "voice-effects": voiceEffects,
   flavours,
+  "audio-input": audioInput,
 } as const;
