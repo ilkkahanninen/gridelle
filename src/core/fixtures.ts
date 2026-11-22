@@ -127,8 +127,56 @@ export const sourcesAndFilters: PatchDocument = {
   ],
 };
 
+/**
+ * A saw through every shaper. The Amp comes first, so the shapers are fed silence between
+ * notes and have to stay silent themselves; the envelope also moves the fold and the order.
+ */
+export const shapers: PatchDocument = {
+  version: DOCUMENT_VERSION,
+  name: "Shapers",
+  voices: 2,
+  modules: [
+    { id: "ge1", type: "osc-saw", x: 0, y: 0, params: {} },
+    { id: "ge2", type: "amp", x: 2, y: 0, params: {} },
+    { id: "ge3", type: "env-adsr", x: 0, y: 2, params: { release: 200 } },
+    { id: "ge4", type: "shaper-fold", x: 3, y: 0, params: { drive: 12, symmetry: 0.4, shape: 1 } },
+    { id: "ge5", type: "shaper-cheby", x: 5, y: 0, params: { order: 3.5, drive: -3 } },
+    { id: "ge6", type: "shaper-soft", x: 7, y: 0, params: { drive: 9, bias: 0.5 } },
+    { id: "ge7", type: "shaper-hard", x: 9, y: 0, params: { drive: 3 } },
+    { id: "ge8", type: "audio-out", x: 15, y: 0, params: {} },
+    { id: "ge9", type: "shaper-rectify", x: 11, y: 0, params: { amount: 0.8 } },
+    { id: "ge10", type: "shaper-crush", x: 13, y: 0, params: { rate: 4000, bits: 5 } },
+  ],
+  cables: [
+    { from: { module: "ge1", port: "out" }, to: { module: "ge2", port: "in" } },
+    { from: { module: "ge3", port: "out" }, to: { module: "ge2", port: "cv" } },
+    { from: { module: "ge2", port: "out" }, to: { module: "ge4", port: "in" } },
+    { from: { module: "ge3", port: "out" }, to: { module: "ge4", port: "mod" } },
+    { from: { module: "ge4", port: "out" }, to: { module: "ge5", port: "in" } },
+    { from: { module: "ge3", port: "out" }, to: { module: "ge5", port: "mod" } },
+    { from: { module: "ge5", port: "out" }, to: { module: "ge6", port: "in" } },
+    { from: { module: "ge6", port: "out" }, to: { module: "ge7", port: "in" } },
+    { from: { module: "ge7", port: "out" }, to: { module: "ge9", port: "in" } },
+    { from: { module: "ge9", port: "out" }, to: { module: "ge10", port: "in" } },
+    { from: { module: "ge3", port: "out" }, to: { module: "ge10", port: "mod" } },
+    { from: { module: "ge10", port: "out" }, to: { module: "ge8", port: "left" } },
+  ],
+  pages: [
+    {
+      name: "Shape",
+      knobs: [
+        { module: "ge4", param: "drive" },
+        { module: "ge4", param: "symmetry" },
+        { module: "ge5", param: "order" },
+        { module: "ge6", param: "drive" },
+      ],
+    },
+  ],
+};
+
 export const fixtures = {
   "basic-synth": basicSynth,
   "shared-filter": sharedFilter,
   "sources-and-filters": sourcesAndFilters,
+  shapers,
 } as const;

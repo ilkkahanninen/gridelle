@@ -1,5 +1,6 @@
 //! Measures what the module abstractions in `pd-lib/modules` actually do, in real Pd:
-//! oscillator pitch, level, aliasing and modulation, filter frequency responses, mixer sums.
+//! oscillator pitch, level, aliasing and modulation, filter frequency responses, the
+//! shapers' curves, mixer sums.
 //!
 //! Each check loads a few-box test patch around one abstraction and analyses the audio
 //! it renders. libpd is a single global instance, so everything runs from one test.
@@ -387,6 +388,272 @@ fn filters(pd: &mut Pd, dir: &Path) {
     });
 }
 
+// --- shapers -------------------------------------------------------------------------------
+
+fn gain_of(decibels: f32) -> f32 {
+    10f32.powf(decibels / 20.0)
+}
+
+/// A 220 Hz sine, its level set through `t-amp`, into the shaper; the shaper's output goes
+/// left and its input right, so the two can be compared sample by sample. The Mod input is
+/// a `[sig~]` set through `t-mod`.
+fn with_shaper<T>(pd: &mut Pd, dir: &Path, name: &str, measure: impl FnOnce(&mut Pd) -> T) -> T {
+    let shaper = format!("{name} t1");
+    let boxes = ["osc~ 220", "r t-amp", "*~ 1", "r t-mod", "sig~ 0", shaper.as_str(), "dac~ 1", "dac~ 2"];
+    let connections = [[0, 0, 2, 0], [1, 0, 2, 1], [3, 0, 4, 0], [2, 0, 5, 0], [4, 0, 5, 1], [5, 0, 6, 0], [2, 0, 7, 0]];
+    with_patch(pd, dir, &boxes, &connections, |pd| {
+        for setting in ["t1-mod", "t1-symmetry", "t1-bias", "t1-shape"] {
+            pd.send_float(setting, 0.0);
+        }
+        measure(pd)
+    })
+}
+
+/// What Pd's `[hip~ 5]` does to a signal, starting from rest.
+fn dc_blocked(signal: &[f32]) -> Vec<f32> {
+    let coefficient = 1.0 - 5.0 * 2.0 * std::f32::consts::PI / SAMPLE_RATE;
+    let normal = 0.5 * (1.0 + coefficient);
+    let mut last = 0.0f32;
+    signal
+        .iter()
+        .map(|x| {
+            let next = x + coefficient * last;
+            let out = normal * (next - last);
+            last = next;
+            out
+        })
+        .collect()
+}
+
+/// Largest difference between the shaper's output and `curve` applied to its input. With
+/// `blocks_dc` the curve's result goes through the same DC blocker as the module ends in,
+/// and only the second half is compared, when both have settled the same way.
+fn curve_error(pd: &mut Pd, blocks_dc: bool, curve: impl Fn(f32) -> f32) -> f32 {
+    let (output, input) = settled(pd, 1.0);
+    let mut expected: Vec<f32> = input.iter().map(|x| curve(*x)).collect();
+    if blocks_dc {
+        expected = dc_blocked(&expected);
+    }
+    let from = output.len() / 2;
+    output[from..].iter().zip(&expected[from..]).fold(0.0, |worst, (o, e)| worst.max((o - e).abs()))
+}
+
+fn fold(x: f32) -> f32 {
+    1.0 - 4.0 * ((x / 4.0 + 0.25).rem_euclid(1.0) - 0.5).abs()
+}
+
+fn sine_fold(x: f32) -> f32 {
+    (x * std::f32::consts::FRAC_PI_2).sin()
+}
+
+fn clips_and_folder(pd: &mut Pd, dir: &Path) {
+    type Curve = fn(f32) -> f32;
+    // Module, its curve, the setting that shifts the signal before the curve (if any),
+    // and the Shape to select (the folder's).
+    let cases: [(&str, &str, Curve, Option<&str>, f32); 4] = [
+        ("ge-shaper-soft", "tanh", f32::tanh, Some("bias"), 0.0),
+        ("ge-shaper-hard", "clip", |x| x.clamp(-1.0, 1.0), None, 0.0),
+        ("ge-shaper-fold", "triangle fold", fold, Some("symmetry"), 0.0),
+        ("ge-shaper-fold", "sine fold", sine_fold, Some("symmetry"), 1.0),
+    ];
+    for (name, what, curve, shift, shape) in cases {
+        with_shaper(pd, dir, name, |pd| {
+            pd.send_float("t1-shape", shape);
+            let blocks_dc = shift.is_some();
+            let mut worst = 0.0f32;
+            for (amp, drive) in [(1.0, 0.0), (0.3, 0.0), (1.0, 6.0), (1.0, 12.0), (0.5, 24.0)] {
+                pd.send_float("t-amp", amp);
+                pd.send_float("t1-drive", drive);
+                let error = curve_error(pd, blocks_dc, |x| curve(x * gain_of(drive)));
+                close(error, 0.0, 0.005, &format!("{name} ({what}) at Drive {drive} dB, input level {amp}"));
+                worst = worst.max(error);
+            }
+
+            // Mod: 12 dB per unit of the mod signal, on top of 6 dB of Drive.
+            pd.send_float("t-amp", 1.0);
+            pd.send_float("t1-drive", 6.0);
+            pd.send_float("t1-mod", 12.0);
+            for input in [1.0, -0.5] {
+                pd.send_float("t-mod", input);
+                let gain = gain_of(6.0 + 12.0 * input);
+                let error = curve_error(pd, blocks_dc, |x| curve(x * gain));
+                close(error, 0.0, 0.005, &format!("{name} ({what}) with {input} on Mod"));
+                worst = worst.max(error);
+            }
+            pd.send_float("t-mod", 0.0);
+            println!("{name} ({what}): follows its curve within {worst:.4} at every Drive and Mod setting tried");
+
+            // Bias / Symmetry: the signal is shifted before the curve, which makes the two
+            // halves differ (even harmonics), and silence still has to come out as silence.
+            let Some(shift) = shift else { return };
+            let setting = format!("t1-{shift}");
+            pd.send_float("t1-drive", 12.0);
+            let second_before = amplitude_at(&settled(pd, 1.0).0, 440.0);
+            close(second_before, 0.0, 0.01, &format!("{name} ({what}) has no second harmonic when centred"));
+
+            pd.send_float(&setting, 0.5);
+            let gain = gain_of(12.0);
+            let error = curve_error(pd, true, |x| curve(x * gain + 0.5) - curve(0.5));
+            close(error, 0.0, 0.005, &format!("{name} ({what}) with {shift} 0.5 follows the shifted curve"));
+            let (shifted, _) = settled(pd, 1.0);
+            let second = amplitude_at(&shifted, 440.0);
+            assert!(second > 0.1, "{name} ({what}): {shift} adds even harmonics, second harmonic {second}");
+            close(mean(&shifted), 0.0, 0.01, &format!("{name} ({what}) output has no DC"));
+
+            pd.send_float("t-amp", 0.0);
+            render(pd, 1.0);
+            let silence = peak(&render(pd, 0.5).0);
+            close(silence, 0.0, 1e-4, &format!("{name} ({what}) is silent without input, whatever {shift} is"));
+            println!("{name} ({what}): second harmonic {second_before:.3} centred, {second:.3} at {shift} 0.5; silent without input");
+        });
+    }
+}
+
+fn rectifier(pd: &mut Pd, dir: &Path) {
+    with_shaper(pd, dir, "ge-shaper-rectify", |pd| {
+        pd.send_float("t-amp", 1.0);
+        let rectified = |x: f32, amount: f32| x.max(0.0) + (1.0 - 2.0 * amount) * x.min(0.0);
+        let mut worst = 0.0f32;
+        for amount in [0.0, 0.25, 0.5, 1.0] {
+            pd.send_float("t1-amount", amount);
+            let error = curve_error(pd, true, |x| rectified(x, amount));
+            close(error, 0.0, 0.005, &format!("rectifier at Amount {amount}"));
+            worst = worst.max(error);
+        }
+        // Full-wave: the wave repeats twice as often, so the fundamental is gone.
+        let (full, _) = settled(pd, 1.0);
+        close(amplitude_at(&full, 220.0), 0.0, 0.01, "full-wave has no fundamental left");
+        let octave = amplitude_at(&full, 440.0);
+        close(octave, 4.0 / (3.0 * std::f32::consts::PI), 0.01, "full-wave sine: second harmonic is 4 / 3 pi");
+        close(mean(&full), 0.0, 0.01, "rectifier output has no DC");
+
+        // Mod: from Amount 0, a mod signal of 1 at 0.5 per unit is half-wave.
+        pd.send_float("t1-amount", 0.0);
+        pd.send_float("t1-mod", 0.5);
+        pd.send_float("t-mod", 1.0);
+        let error = curve_error(pd, true, |x| rectified(x, 0.5));
+        close(error, 0.0, 0.005, "rectifier Mod raises the amount");
+        println!("ge-shaper-rectify: follows its curve within {:.4}; full-wave moves the sine up an octave (level {octave:.3})", worst.max(error));
+    });
+}
+
+/// How many times a second the signal changes value.
+fn steps_per_second(signal: &[f32]) -> f32 {
+    signal.windows(2).filter(|w| w[0] != w[1]).count() as f32 * SAMPLE_RATE / signal.len() as f32
+}
+
+fn bitcrusher(pd: &mut Pd, dir: &Path) {
+    with_shaper(pd, dir, "ge-shaper-crush", |pd| {
+        pd.send_float("t-amp", 1.0);
+
+        // Rate, at full resolution: the output moves only when a new sample is taken.
+        pd.send_float("t1-bits", 16.0);
+        let mut rates = Vec::new();
+        for rate in [500.0, 2000.0, 8000.0] {
+            pd.send_float("t1-rate", rate);
+            let steps = steps_per_second(&settled(pd, 1.0).0);
+            close(steps, rate, rate * 0.02, &format!("bitcrusher takes {rate} samples a second"));
+            rates.push(format!("{steps:.0}"));
+        }
+        // Mod: 12 semitones per unit doubles the rate.
+        pd.send_float("t1-rate", 1000.0);
+        pd.send_float("t1-mod", 12.0);
+        pd.send_float("t-mod", 1.0);
+        let doubled = steps_per_second(&settled(pd, 1.0).0);
+        close(doubled, 2000.0, 40.0, "bitcrusher Mod raises the rate an octave");
+        pd.send_float("t-mod", 0.0);
+
+        // Bits, at the highest rate: every output value sits on a step of 1 / 2^(bits - 1).
+        pd.send_float("t1-rate", 18000.0);
+        let mut counts = Vec::new();
+        for bits in [1.0f32, 3.0, 5.0, 8.0] {
+            pd.send_float("t1-bits", bits);
+            let (output, input) = settled(pd, 1.0);
+            let levels = 2f32.powf(bits - 1.0);
+            let off_grid = output.iter().map(|y| (y * levels - (y * levels).round()).abs()).fold(0.0, f32::max);
+            close(off_grid, 0.0, 0.01, &format!("bitcrusher at {bits} bits lands on its steps"));
+            let mut used: Vec<i32> = output.iter().map(|y| (y * levels).round() as i32).collect();
+            used.sort();
+            used.dedup();
+            assert_eq!(used.len() as f32, 2.0 * levels + 1.0, "a full-level sine at {bits} bits uses every step from -1 to 1");
+            // The held sample is at most three samples old, and rounding moves it by half a step.
+            let lag = 3.0 * 2.0 * std::f32::consts::PI * 220.0 / SAMPLE_RATE;
+            let apart = output.iter().zip(&input).map(|(y, x)| (y - x).abs()).fold(0.0, f32::max);
+            assert!(apart <= 0.5 / levels + lag + 0.01, "bitcrusher at {bits} bits stays near its input, off by {apart}");
+            counts.push(format!("{}", used.len()));
+        }
+
+        pd.send_float("t-amp", 0.0);
+        let silence = peak(&settled(pd, 0.5).0);
+        close(silence, 0.0, 1e-6, "bitcrusher is silent without input");
+        println!(
+            "ge-shaper-crush: {} steps a second at Rate 500 / 2000 / 8000, {doubled:.0} with Mod an octave up from 1000; {} levels at 1 / 3 / 5 / 8 bits",
+            rates.join(" / "),
+            counts.join(" / ")
+        );
+    });
+}
+
+/// Polynomial n turns a full-level sine into harmonic n and nothing else.
+fn chebyshev(pd: &mut Pd, dir: &Path) {
+    with_shaper(pd, dir, "ge-shaper-cheby", |pd| {
+        pd.send_float("t-amp", 1.0);
+        pd.send_float("t1-drive", 0.0);
+        let mut levels = Vec::new();
+        for order in 1..=8 {
+            pd.send_float("t1-order", order as f32);
+            let (wave, _) = settled(pd, 1.0);
+            for harmonic in 1..=9 {
+                let expected = if harmonic == order { 1.0 } else { 0.0 };
+                close(
+                    amplitude_at(&wave, 220.0 * harmonic as f32),
+                    expected,
+                    0.03,
+                    &format!("Chebyshev order {order}, harmonic {harmonic}"),
+                );
+            }
+            levels.push(format!("{:.3}", amplitude_at(&wave, 220.0 * order as f32)));
+        }
+        println!("ge-shaper-cheby: level of harmonic n at Order n, n = 1..8: {}", levels.join(" "));
+
+        pd.send_float("t1-order", 2.5);
+        let (between, _) = settled(pd, 1.0);
+        close(amplitude_at(&between, 440.0), 0.5, 0.03, "Order 2.5 is half second harmonic");
+        close(amplitude_at(&between, 660.0), 0.5, 0.03, "Order 2.5 is half third harmonic");
+
+        // Mod: 2 orders per unit of the mod signal, from Order 2.
+        pd.send_float("t1-order", 2.0);
+        pd.send_float("t1-mod", 2.0);
+        pd.send_float("t-mod", 1.0);
+        let (moved, _) = settled(pd, 1.0);
+        close(amplitude_at(&moved, 880.0), 1.0, 0.03, "Mod moves the order from 2 to 4");
+        pd.send_float("t-mod", 0.0);
+
+        // At half level the second polynomial gives 2 * (0.5 cos)^2 = 0.25 + 0.25 cos 2a; the 0.25 is DC and is blocked.
+        pd.send_float("t1-drive", -6.0206);
+        let (half, _) = settled(pd, 1.0);
+        close(amplitude_at(&half, 440.0), 0.25, 0.02, "Order 2 at half level");
+        close(mean(&half), 0.0, 0.01, "Chebyshev output has no DC");
+
+        // Drive past full level only clips the input; the output stays in range.
+        pd.send_float("t1-drive", 12.0);
+        pd.send_float("t1-order", 8.0);
+        let loud = peak(&settled(pd, 0.5).0);
+        assert!(loud <= 2.01, "Chebyshev output stays bounded when overdriven, peak {loud}");
+
+        pd.send_float("t-amp", 0.0);
+        render(pd, 1.0);
+        let mut silence = 0.0f32;
+        for order in [2.0, 3.0, 4.0, 6.5, 8.0] {
+            pd.send_float("t1-order", order);
+            render(pd, 0.5);
+            silence = silence.max(peak(&render(pd, 0.3).0));
+        }
+        close(silence, 0.0, 1e-4, "Chebyshev is silent without input at every order");
+        println!("ge-shaper-cheby: blends neighbours, follows Mod, silent without input");
+    });
+}
+
 // --- mixer ---------------------------------------------------------------------------------
 
 fn mixer(pd: &mut Pd, dir: &Path) {
@@ -417,6 +684,10 @@ fn modules_do_what_they_are_designed_to() {
     saw_aliasing(&mut pd, &dir);
     noise(&mut pd, &dir);
     filters(&mut pd, &dir);
+    clips_and_folder(&mut pd, &dir);
+    rectifier(&mut pd, &dir);
+    bitcrusher(&mut pd, &dir);
+    chebyshev(&mut pd, &dir);
     mixer(&mut pd, &dir);
 
     drop(pd);

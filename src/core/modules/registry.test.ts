@@ -72,4 +72,14 @@ describe("pd-lib", () => {
     );
     expect(unknown).toEqual([]);
   });
+
+  it.each(Object.entries(abstractionLibrary))("%s has no stray semicolon", (_name, text) => {
+    // A bare semicolon ends a box, so one inside a comment turns the rest of the comment
+    // into a message that Pd tries to deliver when the file loads ("no such object").
+    const records = text
+      .split(/(?<!\\);/)
+      .map((record) => record.trim())
+      .filter(Boolean);
+    expect(records.filter((record) => !/^#[NXA] /.test(record))).toEqual([]);
+  });
 });
