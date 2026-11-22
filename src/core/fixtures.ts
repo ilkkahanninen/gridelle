@@ -186,9 +186,26 @@ export const shapers: PatchDocument = settle({
   ],
 });
 
+/**
+ * An oscillator with nothing between it and the output. It must be heard only while a key
+ * is held: before any note the voice's pitch is 0, which would tick at 8 Hz.
+ */
+export const bareOscillator: PatchDocument = {
+  version: DOCUMENT_VERSION,
+  name: "Bare Oscillator",
+  voices: 4,
+  modules: [
+    { id: "ge1", type: "osc-saw", x: 0, y: 0, params: {} },
+    { id: "ge2", type: "audio-out", x: 2, y: 0, params: {} },
+  ],
+  cables: [{ from: { module: "ge1", port: "out" }, to: { module: "ge2", port: "left" } }],
+  pages: [],
+};
+
 export const fixtures = {
   "basic-synth": basicSynth,
   "shared-filter": sharedFilter,
   "sources-and-filters": sourcesAndFilters,
   shapers,
+  "bare-oscillator": bareOscillator,
 } as const;

@@ -92,6 +92,11 @@ export interface ModuleDef {
    */
   normalled?: [from: string, to: string][];
   /**
+   * While this module's first output is above zero, its voice keeps sounding after the
+   * key is let go: an envelope's release. See `emitVoice`.
+   */
+  holdsVoice?: boolean;
+  /**
    * `rows`: the tile lists its inputs as rows, two to a grid cell under a half-cell
    * header with the name, each with its port on the left edge and, where the input has
    * a `param`, that parameter's knob beside it. `height` must be `ceil((rows + 1) / 2)`.

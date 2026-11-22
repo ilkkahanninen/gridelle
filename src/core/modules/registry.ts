@@ -226,6 +226,7 @@ const DEFS: ModuleDef[] = [
     ],
     pd: "ge-env-adsr",
     scope: "voice",
+    holdsVoice: true,
   },
   {
     // A rising edge at Reset starts the wave again. It follows the key gate, so each note's

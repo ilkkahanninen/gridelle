@@ -159,6 +159,41 @@ describe("compile", () => {
     for (const inlet of [1, 2, 3, 4]) expect(files["main.pd"]).toContain(`#X connect ${one} 0 ${envelope} ${inlet};`);
   });
 
+  it("mutes what leaves a voice unless its key is held or one of its envelopes is running", () => {
+    const voice = compile(basicSynth, abstractionLibrary).files["voice.pd"];
+    const names = objectBoxes(voice).map((b) => b.name);
+    const at = (name: string, from = 0) => names.indexOf(name, from);
+    // The key gate (outlet 1 of ge-voice) and both envelopes go through max~ ...
+    const first = at("max~");
+    const second = at("max~", first + 1);
+    const envelopes = [at("ge-env-adsr"), at("ge-env-adsr", at("ge-env-adsr") + 1)];
+    expect(voice).toContain(`#X connect ${at("ge-voice")} 1 ${first} 0;`);
+    expect(voice).toContain(`#X connect ${envelopes[0]} 0 ${first} 1;`);
+    expect(voice).toContain(`#X connect ${first} 0 ${second} 0;`);
+    expect(voice).toContain(`#X connect ${envelopes[1]} 0 ${second} 1;`);
+    // ... into a switch with a short fade (the higher of two low-passes), which multiplies
+    // the voice's one outlet.
+    const fade = names.lastIndexOf("max~");
+    expect(fade).toBeGreaterThan(second);
+    expect(names.filter((name) => name === "lop~")).toHaveLength(2);
+    const outlet = at("outlet~");
+    const heard = names.lastIndexOf("*~");
+    expect(voice).toContain(`#X connect ${at("ge-amp")} 0 ${heard} 0;`);
+    expect(voice).toContain(`#X connect ${fade} 0 ${heard} 1;`);
+    expect(voice).toContain(`#X connect ${heard} 0 ${outlet} 0;`);
+    // Nothing else feeds the outlet.
+    expect(voice.match(new RegExp(`#X connect \\d+ \\d+ ${outlet} 0;`, "g"))).toHaveLength(1);
+  });
+
+  it("uses the key gate alone for a voice without envelopes", () => {
+    const voice = compile(fixtures["bare-oscillator"], abstractionLibrary).files["voice.pd"];
+    const names = objectBoxes(voice).map((b) => b.name);
+    // The only max~ is the one that joins the two fades.
+    expect(names.filter((name) => name === "max~")).toHaveLength(1);
+    expect(voice).toContain(`#X connect ${names.indexOf("ge-voice")} 1 ${names.indexOf("*~")} 0;`);
+    expect(names.filter((name) => name === "outlet~")).toHaveLength(1);
+  });
+
   it("sends the right channel what the left gets when only left is patched", () => {
     const main = compile(basicSynth, abstractionLibrary).files["main.pd"];
     const boxes = objectBoxes(main).map((b) => b.name);

@@ -74,6 +74,12 @@ fn golden_patches_play_in_pd() {
         let released = render(&mut pd, 2.0);
         let tail = &released[released.len() - 4096..];
         assert!(peak(tail) < 1e-3, "{name}: releases to silence, tail peak {}", peak(tail));
+        if name == "bare-oscillator" {
+            // Nothing in this patch ends a note but the voice itself going idle, which is a
+            // fade of a few milliseconds. (Interleaved stereo: 2205 frames are 50 ms.)
+            let soon = &released[2 * 2205..2 * 4410];
+            assert!(peak(soon) < 1e-3, "{name}: silent 50 ms after the keys are let go, peak {}", peak(soon));
+        }
 
         if name == "basic-synth" {
             knob_pages_behave(&mut pd, &events);

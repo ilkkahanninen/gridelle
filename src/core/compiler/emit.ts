@@ -75,7 +75,46 @@ function addConstants(patch: PdPatch, analysis: Analysis, boxes: Map<ModuleId, B
   }
 }
 
-/** One voice: the per-voice modules, fed by `ge-voice`, with an `outlet~` per crossing. */
+/**
+ * A voice is heard only while it is alive: its key is held, or one of its envelopes has not
+ * finished yet. Without this, an oscillator with no Amp behind it would sound for ever, and
+ * before its first note at pitch 0, which is 8 Hz. Returns a signal that is 1 for a living
+ * voice and 0 for an idle one, with a few milliseconds of fade either way.
+ *
+ * "Not finished" is an envelope above 0.001: the last 60 dB down of a release are faded out.
+ */
+function addVoiceLife(patch: PdPatch, voice: Box, modules: ResolvedModule[], boxes: Map<ModuleId, Box>, at: Position): Box {
+  let alive: [box: Box, outlet: number] = [voice, VOICE_OUTLET.gate];
+  modules
+    .filter((m) => m.def.holdsVoice && m.def.outputs.length > 0)
+    .forEach((holder, i) => {
+      const either = patch.obj("max~", { x: at.x + i * 60, y: at.y });
+      patch.connect(alive[0], alive[1], either, 0);
+      patch.connect(boxes.get(holder.instance.id)!, 0, either, 1);
+      alive = [either, 0];
+    });
+  // Anything above 0.001 counts as 1.
+  const scaled = patch.obj("*~ 1000", { x: at.x, y: at.y + 30 });
+  const open = patch.obj("clip~ 0 1", { x: at.x, y: at.y + 60 });
+  patch.connect(alive[0], alive[1], scaled, 0);
+  patch.connect(scaled, 0, open, 0);
+  // Two low-passes turn that switch into a fade, and the higher of them is used: the quick
+  // one on the way up, so that a note's attack is not softened (under a millisecond), the
+  // slow one on the way down, so that a sound cut off in mid-wave does not click (about 5).
+  const quick = patch.obj("lop~ 600", { x: at.x, y: at.y + 90 });
+  const slow = patch.obj("lop~ 200", { x: at.x + 70, y: at.y + 90 });
+  const fade = patch.obj("max~", { x: at.x, y: at.y + 120 });
+  patch.connect(open, 0, quick, 0);
+  patch.connect(open, 0, slow, 0);
+  patch.connect(quick, 0, fade, 0);
+  patch.connect(slow, 0, fade, 1);
+  return fade;
+}
+
+/**
+ * One voice: the per-voice modules, fed by `ge-voice`, with an `outlet~` per crossing.
+ * What leaves the voice is muted while the voice is idle (`addVoiceLife`).
+ */
 export function emitVoice(analysis: Analysis): string {
   const modules = analysis.modules.filter((m) => m.scope === "voice");
   const patch = new PdPatch();
@@ -97,12 +136,20 @@ export function emitVoice(analysis: Analysis): string {
   }
   addConstants(patch, analysis, boxes, { x: MARGIN.x + 2 * CELL.x, y: MARGIN.y + 40 });
 
-  // Pd numbers outlets by horizontal position, so lay them out left to right in order.
-  const outletY = bottom(modules, top) + 40;
-  crossings(analysis).forEach((crossing, i) => {
-    const outlet = patch.obj("outlet~", { x: MARGIN.x + i * CELL.x, y: outletY });
-    patch.connect(boxes.get(crossing.from)!, crossing.outlet, outlet, 0);
-  });
+  const leaving = crossings(analysis);
+  if (leaving.length > 0) {
+    const lifeY = bottom(modules, top) + 40;
+    const alive = addVoiceLife(patch, voice, modules, boxes, { x: MARGIN.x + leaving.length * CELL.x, y: lifeY });
+    // Pd numbers outlets by horizontal position, so lay them out left to right in order.
+    leaving.forEach((crossing, i) => {
+      const x = MARGIN.x + i * CELL.x;
+      const heard = patch.obj("*~", { x, y: lifeY + 150 });
+      const outlet = patch.obj("outlet~", { x, y: lifeY + 190 });
+      patch.connect(boxes.get(crossing.from)!, crossing.outlet, heard, 0);
+      patch.connect(alive, 0, heard, 1);
+      patch.connect(heard, 0, outlet, 0);
+    });
+  }
 
   return patch.toString();
 }
