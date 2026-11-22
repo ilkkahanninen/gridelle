@@ -28,6 +28,9 @@ export const MODULE_DOCS: Record<string, string> = {
   "tape-head":
     "Plays what the Recorder of its sample wrote Delay ago. Patch Out back into that Recorder, through a filter or a shaper if you like, and it is a tape echo whose feedback is yours to shape. Wobble Delay through its input for wow and flutter. One for all voices.",
 
+  "sample-grains":
+    "A cloud of short grains from around Position in its sample. Scatter spreads their starts, Size is how long each lasts, Density how many start a second, and Width how far they spread between Left and Right. Keys play it at pitch. Position can also be counted back from where a Recorder is, for grains of live sound.",
+
   // Oscillators
   "osc-sine":
     "A sine wave. Pitch follows the played note unless something else is patched in; Tune moves it in semitones and Fine tune in cents. A signal in the Modulation input changes the pitch or the level, as Modulation mode says, by the amount on its knob.",

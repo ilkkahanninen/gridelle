@@ -460,6 +460,220 @@ fn tape_head(pd: &mut Pd, dir: &Path) {
     });
 }
 
+/// The Grains module's inlets: pitch, then the inputs of Tune, Position, Scatter, Size,
+/// Density and Width.
+const GRAINS: [f32; 7] = [60.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0];
+
+/// What a test puts in the sample the grains read.
+#[derive(Clone, Copy)]
+enum Fill {
+    Silence,
+    /// Every sample 1: what comes out is then the grains' own shapes.
+    Ones,
+    /// From 0 at the start to 1 at the end: what comes out, over what `Ones` gives, is the place read.
+    Ramp,
+    /// So many cycles of a sine.
+    Sine(usize),
+}
+
+/// A test patch with a tape of a tenth of a second in slot 0 (which gives the grains the
+/// place of a recording to follow, as a real patch does) and a Grains module on it.
+fn with_grains<T>(pd: &mut Pd, dir: &Path, fill: Fill, settings: &[(&str, f32)], measure: impl FnOnce(&mut Pd) -> T) -> T {
+    let mut boxes = vec!["ge-sample-tape 0 0.1".to_string(), "ge-sample-grains t1 0".to_string(), "dac~ 1 2".to_string()];
+    let mut connections = vec![[1, 0, 2, 0], [1, 1, 2, 1]];
+    for (inlet, value) in GRAINS.iter().enumerate() {
+        boxes.push(format!("r t-in{inlet}"));
+        boxes.push(format!("sig~ {value}"));
+        connections.push([boxes.len() - 2, 0, boxes.len() - 1, 0]);
+        connections.push([boxes.len() - 1, 0, 1, inlet]);
+    }
+    with_patch(pd, dir, &boxes, &connections, |pd| {
+        let table: Vec<f32> = (0..TAPE)
+            .map(|i| match fill {
+                Fill::Silence => 0.0,
+                Fill::Ones => 1.0,
+                Fill::Ramp => i as f32 / TAPE as f32,
+                Fill::Sine(cycles) => (2.0 * std::f32::consts::PI * (cycles * i) as f32 / TAPE as f32).sin(),
+            })
+            .collect();
+        assert!(pd.write_array("ge-sample-0", 0, &table));
+        // No scatter and no width unless a test asks: then nothing in it is left to chance.
+        let defaults = [("tune", 0.0), ("position", 0.5), ("scatter", 0.0), ("size", 80.0), ("density", 20.0), ("width", 0.0), ("from", 0.0)];
+        for (name, value) in defaults {
+            let value = settings.iter().find(|(n, _)| *n == name).map_or(value, |(_, v)| *v);
+            pd.send_float(&format!("t1-{name}"), value);
+        }
+        measure(pd)
+    })
+}
+
+/// The usual number of samples from one rise through zero to the next: the length of a
+/// cycle of the sound inside the grains, whatever happens where one grain meets the next.
+fn cycle_length(signal: &[f32]) -> f32 {
+    let rises: Vec<f32> = (1..signal.len())
+        .filter(|&n| signal[n - 1] < 0.0 && signal[n] >= 0.0)
+        .map(|n| n as f32 - signal[n] / (signal[n] - signal[n - 1]))
+        .collect();
+    let mut lengths: Vec<f32> = rises.windows(2).map(|pair| pair[1] - pair[0]).collect();
+    lengths.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    lengths[lengths.len() / 2]
+}
+
+/// Half a second for the first grains of all four streams to have started, then two seconds.
+fn grains_of(pd: &mut Pd) -> (Vec<f32>, Vec<f32>) {
+    render(pd, 22_050);
+    render(pd, 88_200)
+}
+
+/// The place in the sample the grains read at each moment, where they sound: what comes
+/// out of a ramp over what comes out of ones, with everything else the same.
+fn places_read(pd: &mut Pd, dir: &Path, settings: &[(&str, f32)], input: (&str, f32)) -> Vec<f32> {
+    let run = |pd: &mut Pd, fill| {
+        with_grains(pd, dir, fill, settings, |pd| {
+            pd.send_float(input.0, input.1);
+            grains_of(pd).0
+        })
+    };
+    let (ramp, ones) = (run(pd, Fill::Ramp), run(pd, Fill::Ones));
+    ramp.iter().zip(&ones).filter(|(_, shape)| **shape > 0.2).map(|(read, shape)| read / shape).collect()
+}
+
+fn spread(values: &[f32]) -> (f32, f32) {
+    values.iter().fold((f32::MAX, f32::MIN), |(lo, hi), v| (lo.min(*v), hi.max(*v)))
+}
+
+fn grains(pd: &mut Pd, dir: &Path) {
+    let centre = std::f32::consts::FRAC_1_SQRT_2;
+    let nothing_patched = ("t-in2", 1.0);
+
+    // Nothing in the sample, nothing out.
+    with_grains(pd, dir, Fill::Silence, &[], |pd| {
+        let (left, right) = grains_of(pd);
+        assert!(left.iter().chain(&right).all(|v| *v == 0.0), "silent on an empty sample");
+    });
+
+    // Density is grains a second and Size how long each lasts. At 20 a second, four
+    // streams make a grain each every 200 ms; grains of 200 ms then overlap four deep, and
+    // four raised cosines a quarter apart add up to a steady 2, halved, and split equally
+    // between left and right.
+    with_grains(pd, dir, Fill::Ones, &[("size", 200.0)], |pd| {
+        let (left, right) = grains_of(pd);
+        let (low, high) = spread(&left);
+        assert!((low - centre).abs() < 2e-3 && (high - centre).abs() < 2e-3, "full grains overlapping are steady at 0.707: {low}..{high}");
+        assert_eq!(left, right, "with no Width both sides are the same");
+    });
+    // Grains of 25 ms at 20 a second: one starts every 50 ms and lasts half of that.
+    with_grains(pd, dir, Fill::Ones, &[("size", 25.0)], |pd| {
+        let (left, _) = grains_of(pd);
+        let starts = left.windows(2).filter(|w| w[0] <= 1e-4 && w[1] > 1e-4).count();
+        close(starts as f32 / 2.0, 20.0, 0.5, "grains a second");
+        let sounding = left.iter().filter(|v| **v > 1e-4).count() as f32 / left.len() as f32;
+        close(sounding, 0.5, 0.02, "each lasts 25 of its 50 ms");
+        close(spread(&left).1, 0.5 * centre, 2e-3, "and peaks at a half, split between the sides");
+    });
+    // A grain cannot outlast its turn: Size beyond 4 / Density is that long.
+    with_grains(pd, dir, Fill::Ones, &[("size", 1000.0)], |pd| {
+        let (low, high) = spread(&grains_of(pd).0);
+        assert!((low - centre).abs() < 2e-3 && (high - centre).abs() < 2e-3, "Size beyond a stream's turn is a full grain: {low}..{high}");
+    });
+
+    // Pitch: middle C reads the sample as recorded, other notes and Tune faster or slower.
+    // The sample is 16 cycles of a sine in its tenth of a second: 159.8 Hz as recorded.
+    let recorded = 16.0 * SAMPLE_RATE / TAPE as f32;
+    for (pitch, tune, tune_input, speed) in [(60.0, 0.0, 1.0, 1.0), (72.0, 0.0, 1.0, 2.0), (60.0, -14.0, 0.5, 2f32.powf(-7.0 / 12.0)), (67.0, 5.0, 1.0, 2.0)] {
+        // Grains end to end, so that each is heard alone: overlapping, they would add up
+        // or cancel as the pitch moves, which is the sound of grains and no measure of pitch.
+        with_grains(pd, dir, Fill::Sine(16), &[("size", 50.0), ("position", 0.0), ("tune", tune)], |pd| {
+            set(pd, &[("t-in0", pitch), ("t-in1", tune_input)]);
+            let (left, _) = grains_of(pd);
+            close(cycle_length(&left), SAMPLE_RATE / (recorded * speed), 0.5, &format!("the length of a cycle at note {pitch} with Tune {tune} x {tune_input}"));
+        });
+    }
+
+    // Position is where the grains start, 0 to 1 through the sample. A 10 ms grain reads on
+    // through a tenth of this sample, so what it reads lies between Position and that further.
+    for (position, input, from) in [(0.2, 1.0, 0.2), (0.6, 1.0, 0.6), (0.8, 0.5, 0.4)] {
+        let read = places_read(pd, dir, &[("size", 10.0), ("position", position)], ("t-in2", input));
+        let (low, high) = spread(&read);
+        assert!(low > from + 0.01 && high < from + 0.09, "Position {position} x {input}: grains read from {from} on, got {low}..{high}");
+    }
+    // Scatter spreads the starts either side of Position, by half of it each way.
+    let read = places_read(pd, dir, &[("size", 10.0), ("position", 0.5), ("scatter", 0.6)], nothing_patched);
+    let (low, high) = spread(&read);
+    assert!(low < 0.32 && high > 0.78, "Scatter 0.6 around 0.5 reaches towards 0.2 and 0.8 (and a grain's length on): {low}..{high}");
+    assert!(low > 0.19 && high < 0.91, "and no further: {low}..{high}");
+
+    // Width spreads the grains between the sides, each at the same power wherever it lands.
+    with_grains(pd, dir, Fill::Ones, &[("size", 25.0), ("width", 1.0)], |pd| {
+        let (left, right) = grains_of(pd);
+        let tops: Vec<(f32, f32)> = (1..left.len() - 1)
+            .filter(|&n| left[n] + right[n] > 0.3 && left[n] + right[n] >= left[n - 1] + right[n - 1] && left[n] + right[n] > left[n + 1] + right[n + 1])
+            .map(|n| (left[n], right[n]))
+            .collect();
+        assert!(tops.len() > 30, "grains to look at: {}", tops.len());
+        for (l, r) in &tops {
+            close((l * l + r * r).sqrt(), 0.5, 5e-3, "a grain has the same power wherever it is panned");
+        }
+        let (leftmost, rightmost) = spread(&tops.iter().map(|(l, r)| r - l).collect::<Vec<_>>());
+        assert!(leftmost < -0.25 && rightmost > 0.25, "with Width at 1 grains land on both sides: {leftmost}..{rightmost}");
+    });
+}
+
+/// Grains that follow a recording: Position is then how far behind where the Recorder is.
+fn grains_behind_the_recording(pd: &mut Pd, dir: &Path) {
+    // Slot 0 is a tape with a Recorder on it that is not recording, so that the ramp put
+    // on the tape stays, while its place goes round. Slot 1 is all ones, read by a second
+    // Grains with the same settings: what the first reads, over that, is the place it reads.
+    let boxes: Vec<String> = [
+        "ge-sample-tape 0 0.1",
+        "ge-sample-tape 1 0.1",
+        "ge-sample-recorder t2 0",
+        "ge-sample-grains t1 0",
+        "ge-sample-grains t3 1",
+        "dac~ 1 2",
+        "sig~ 60",
+        "sig~ 1",
+        "sig~ 0",
+    ]
+    .iter()
+    .map(|b| b.to_string())
+    .collect();
+    let mut connections = vec![[3, 0, 5, 0], [4, 0, 5, 1], [8, 0, 2, 1], [7, 0, 2, 2]];
+    for grains in [3, 4] {
+        connections.push([6, 0, grains, 0]);
+        connections.extend((1..7).map(|inlet| [7, 0, grains, inlet]));
+    }
+    with_patch(pd, dir, &boxes, &connections, |pd| {
+        let ramp: Vec<f32> = (0..TAPE).map(|i| i as f32 / TAPE as f32).collect();
+        assert!(pd.write_array("ge-sample-0", 0, &ramp) && pd.write_array("ge-sample-1", 0, &vec![1.0; TAPE]));
+        for module in ["t1", "t3"] {
+            set(pd, &[(&format!("{module}-tune"), 0.0), (&format!("{module}-position"), 0.25), (&format!("{module}-scatter"), 0.0)]);
+            set(pd, &[(&format!("{module}-size"), 20.0), (&format!("{module}-density"), 20.0), (&format!("{module}-width"), 0.0)]);
+        }
+        set(pd, &[("t1-from", 1.0), ("t3-from", 0.0), ("t2-record", 0.0), ("t2-overdub", 0.0), ("t2-mode", 0.0)]);
+        let start = 22_080;
+        render(pd, start);
+        let (read, shape) = render(pd, 88_200);
+        assert_eq!(pd.read_array("ge-sample-0").unwrap(), ramp, "the tape was not recorded on");
+        // The Recorder is at place (n - 64) of its lap at sample n. A quarter of the tape
+        // behind that, and reading on at the tape's own speed, a grain stays a quarter behind.
+        let mut worst = 0.0f32;
+        let mut looked_at = 0;
+        for n in 0..read.len() {
+            let recording = ((start + n - BLOCK) % TAPE) as f32 / TAPE as f32;
+            let expected = (recording - 0.25).rem_euclid(1.0);
+            // Where the grain sounds, and away from where the ramp jumps from its end to its start.
+            if shape[n] > 0.2 && expected > 0.06 && expected < 0.94 {
+                worst = worst.max((read[n] / shape[n] - expected).abs());
+                looked_at += 1;
+            }
+        }
+        assert!(looked_at > 10_000, "enough of the grains were looked at: {looked_at}");
+        // The place of the recording reaches the grains up to two blocks late: 128 / 4416.
+        assert!(worst < 0.035, "grains read a quarter of the tape behind the recording, worst difference {worst}");
+    });
+}
+
 /// A 16-bit mono WAV of a ramp, as the editor writes them.
 fn wav(rate: u32, samples: &[i16]) -> Vec<u8> {
     let data = samples.len() as u32 * 2;
@@ -543,6 +757,8 @@ fn sample_modules_do_what_they_are_designed_to() {
     play_head(&mut pd, &dir);
     recorder(&mut pd, &dir);
     tape_head(&mut pd, &dir);
+    grains(&mut pd, &dir);
+    grains_behind_the_recording(&mut pd, &dir);
 
     drop(pd);
     let _ = fs::remove_dir_all(&dir);

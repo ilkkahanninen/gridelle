@@ -406,6 +406,40 @@ const DEFS: ModuleDef[] = [
     sample: "follows",
   },
   {
+    // A cloud of short grains from around a place in its sample: four streams that take
+    // turns, each grain with its own start, speed and place between left and right.
+    type: "sample-grains",
+    name: "Grains",
+    category: "sample",
+    width: 2,
+    height: 4,
+    inputs: [
+      // With its pre-cord off the grains play at the sample's own pitch on every key.
+      { id: "pitch", label: "Pitch", hint: "pitch", precord: "pitch", unpatched: 60 },
+      settingInput("tune", "Tune"),
+      settingInput("position", "Position"),
+      settingInput("scatter", "Scatter"),
+      settingInput("size", "Size"),
+      settingInput("density", "Density"),
+      settingInput("width", "Width"),
+    ],
+    outputs: stereoOutputs,
+    params: [
+      { id: "tune", label: "Tune", min: -36, max: 36, default: 0, curve: "lin", unit: "st", step: 1 },
+      level("position", "Position", 1, 0.5),
+      level("scatter", "Scatter", 1, 0.1),
+      { id: "size", label: "Size", min: 5, max: 1000, default: 80, curve: "exp", unit: "ms" },
+      { id: "density", label: "Density", min: 0.5, max: 100, default: 20, curve: "exp", unit: "/s", decimals: 1 },
+      level("width", "Width", 1, 0.5),
+      sampleChoice,
+      // In the order `ge-grain` takes its last inlet: 0 from the start, 1 behind the recording.
+      choice("from", "Position from", ["Start of sample", "Behind the recording"]),
+    ],
+    pd: "ge-sample-grains",
+    scope: "voice",
+    layout: "rows",
+  },
+  {
     // Draws the signal patched into it, in the editor only. Inside the voices it shows
     // the voice of the latest note. Time and Range say how it is drawn.
     type: "scope",

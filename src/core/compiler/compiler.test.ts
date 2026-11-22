@@ -421,6 +421,18 @@ describe("compile", () => {
       expect(echo.files["voice.pd"]).toContain("ge-osc-saw ge1;");
     });
 
+    it("ships the grain stream that Grains is made of, and builds its sample into both", () => {
+      const cloud = compile(fixtures.grains, abstractionLibrary);
+      expect(cloud.diagnostics).toEqual([]);
+      expect(cloud.files["voice.pd"]).toContain("ge-sample-grains ge1 0;");
+      expect(Object.keys(cloud.files)).toEqual(expect.arrayContaining(["ge-sample-grains.pd", "ge-grain.pd", "ge-sample-file.pd"]));
+      // The module passes its sample on to its four streams.
+      expect(cloud.files["ge-sample-grains.pd"].match(/ge-grain \\\$2 /g)).toHaveLength(4);
+      // Where its Position counts from is a choice like any other: no reload.
+      expect(structureKey(ops.setParam(fixtures.grains, "ge1", "from", 1))).toBe(structureKey(fixtures.grains));
+      expect(cloud.params.map((p) => p.receiver)).toContain("ge1-from");
+    });
+
     it("keeps a voice alive while a Sample Player plays on, by its Playing output", () => {
       // The Player's third outlet joins the key gate in what keeps the voice playing.
       const voice = result.files["voice.pd"].split("\n");

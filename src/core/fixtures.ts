@@ -544,6 +544,30 @@ export const tapeEcho: PatchDocument = settle({
   samples: [null, { kind: "tape", seconds: 1 }],
 });
 
+/**
+ * Grains of a sound file played from the keys, in stereo: left and right each through a
+ * Voice Sum of its own. The file is the tone in the fixture's golden folder.
+ */
+export const grains: PatchDocument = settle({
+  version: DOCUMENT_VERSION,
+  name: "Grains",
+  voices: 3,
+  modules: [
+    { id: "ge1", type: "sample-grains", x: 0, y: 0, params: { sample: 0, scatter: 0.4, size: 60, density: 30, width: 1 } },
+    { id: "ge2", type: "voice-sum", x: 2, y: 0, params: {} },
+    { id: "ge3", type: "voice-sum", x: 2, y: 1, params: {} },
+    { id: "ge4", type: "audio-out", x: 3, y: 0, params: { level: 1 } },
+  ],
+  cables: [
+    { from: { module: "ge1", port: "out" }, to: { module: "ge2", port: "in" } },
+    { from: { module: "ge1", port: "right" }, to: { module: "ge3", port: "in" } },
+    { from: { module: "ge2", port: "out" }, to: { module: "ge4", port: "left" } },
+    { from: { module: "ge3", port: "out" }, to: { module: "ge4", port: "right" } },
+  ],
+  pages: [],
+  samples: [{ kind: "file", path: "tests/golden/grains/ge-sample-a.wav", name: "tone.wav", frames: 11025, sampleRate: 44100 }],
+});
+
 export const fixtures = {
   "basic-synth": basicSynth,
   "shared-filter": sharedFilter,
@@ -559,4 +583,5 @@ export const fixtures = {
   sampler,
   looper,
   "tape-echo": tapeEcho,
+  grains,
 } as const;

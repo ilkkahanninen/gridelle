@@ -118,6 +118,11 @@ fn golden_patches_play_in_pd() {
             assert!(part(100, 200) > 0.02, "{name}: the sound plays on after the key, peak {}", part(100, 200));
             assert!(part(300, 500) < 1e-4, "{name}: and ends when the sample does, peak {}", part(300, 500));
         }
+        if name == "grains" {
+            // Grains spread across the sides: left and right are not the same sound.
+            let apart = left.iter().zip(&right).map(|(l, r)| (l - r).abs()).fold(0.0f32, f32::max);
+            assert!(apart > 0.02, "{name}: with Width at 1 the two sides differ, by up to {apart}");
+        }
         if name == "looper" {
             // The chord was recorded while the keys were down, and the tape goes round with
             // no key held: half a second of it (22 080 samples), the same every lap.
