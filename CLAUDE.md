@@ -63,6 +63,8 @@ PatchDocument ──compile()──► { "main.pd", "voice.pd", "ge-*.pd" } ─�
 
 A module dragged from the browser onto a port of another module is cabled in by `ops.addModuleAtPort`. `planPortDrop` decides what that means and is also what the canvas previews, so the two cannot disagree. The new module uses its first input and first output. On a free port it lands beside the port, or as near as there is room. On a cabled port it goes in between (dropped on an output, in front of everything that output feeds); when the spot beside the port is taken it takes that place in the row and `makeRoom(…, "right")` moves the tiles there along. A module with no input or no output to go in between with is cabled to the port alone.
 
+`ops.removeModules` is the reverse: a module taken out of a chain leaves the chain patched. What fed its first input now feeds whatever its first output fed, looking through a run of removed modules; cables on its other ports go with it. Tiles are not moved back.
+
 A new document field touches `types.ts`, the hand-written shape check in `serialize.ts` (plus `DOCUMENT_VERSION` if older builds cannot read the result), and `structureKey` if it changes the emitted patch.
 
 Module ids are `ge<n>` and must match `/^ge[0-9a-z]+$/`. The id is also the module's Pd creation argument and the prefix of its parameter receivers (`ge3-cutoff`); the `ge` prefix keeps them clear of the names the Organelle host uses (`knob1`, `notes`, `aux`, `vol`, …). Generated plumbing uses names with a hyphen straight after `ge` (`ge-page`, `ge-slot-<page>-<knob>` with a 0-based page and 1-based knob, the `ge-*` abstractions), which no module id can produce.

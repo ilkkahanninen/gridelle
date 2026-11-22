@@ -108,13 +108,39 @@ export function moveModules(doc: PatchDocument, ids: ReadonlySet<ModuleId>, delt
   };
 }
 
-/** Remove modules together with their cables and knob assignments. */
+/**
+ * Remove modules together with their cables and knob assignments.
+ *
+ * A module taken out of a chain leaves the chain patched: what fed its first input now
+ * feeds whatever its first output fed. That undoes `addModuleAtPort`, and it looks
+ * through a run of removed modules. Cables on its other ports go with it.
+ */
 export function removeModules(doc: PatchDocument, ids: ReadonlySet<ModuleId>): PatchDocument {
   if (!doc.modules.some((m) => ids.has(m.id))) return doc;
+
+  /** The output that stays and stands in for output `ref` of a removed module, if any. */
+  const standIn = (ref: PortRef, seen = new Set<ModuleId>()): PortRef | null => {
+    if (!ids.has(ref.module)) return ref;
+    // A document read from a file may hold a loop.
+    if (seen.has(ref.module)) return null;
+    seen.add(ref.module);
+    const module = doc.modules.find((m) => m.id === ref.module);
+    const def = module && getModuleDef(module.type);
+    const input = def?.inputs[0];
+    if (!input || def.outputs[0]?.id !== ref.port) return null;
+    const feed = doc.cables.find((c) => c.to.module === ref.module && c.to.port === input.id);
+    return feed ? standIn(feed.from, seen) : null;
+  };
+
   return {
     ...doc,
     modules: doc.modules.filter((m) => !ids.has(m.id)),
-    cables: doc.cables.filter((c) => !ids.has(c.from.module) && !ids.has(c.to.module)),
+    cables: doc.cables.flatMap((cable) => {
+      if (ids.has(cable.to.module)) return [];
+      if (!ids.has(cable.from.module)) return [cable];
+      const from = standIn(cable.from);
+      return from ? [{ from, to: cable.to }] : [];
+    }),
     pages: doc.pages.map((page) => ({
       ...page,
       knobs: page.knobs.map((k) => (k && ids.has(k.module) ? null : k)),

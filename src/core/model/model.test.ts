@@ -113,7 +113,8 @@ describe("cables", () => {
   it("removes a cable, and a module's cables with the module", () => {
     const wired = connect(connect(doc, port("ge1", "out"), port("ge2", "in")), port("ge2", "out"), port("ge3", "in"));
     expect(disconnect(wired, wired.cables[0]).cables).toHaveLength(1);
-    expect(removeModules(wired, new Set(["ge2"])).cables).toEqual([]);
+    expect(removeModules(wired, new Set(["ge1"])).cables).toEqual([wired.cables[1]]);
+    expect(removeModules(wired, new Set(["ge1", "ge3"])).cables).toEqual([]);
   });
 
   it("clears knob assignments of removed modules", () => {
@@ -497,6 +498,83 @@ describe("dropping a new module on a port", () => {
     expect(id).toBe("ge7");
     expect([...useEditor.getState().selection]).toEqual(["ge7"]);
     expect(useEditor.getState().doc.cables).toHaveLength(6);
+    useEditor.getState().undo();
+    expect(useEditor.getState().doc).toBe(basicSynth);
+  });
+});
+
+describe("removing a module from a chain", () => {
+  const cables = (doc: PatchDocument) =>
+    doc.cables.map((c) => `${c.from.module}.${c.from.port}>${c.to.module}.${c.to.port}`).sort();
+  const remove = (doc: PatchDocument, ...ids: string[]) => removeModules(doc, new Set(ids));
+
+  it("patches what fed its first input into what its first output fed", () => {
+    // The default patch without its filter: the saw goes straight into the amp.
+    const doc = remove(basicSynth, "ge2");
+    expect(cables(doc)).toEqual(["ge1.out>ge3.in", "ge3.out>ge4.left", "ge6.out>ge3.cv"]);
+    // The envelope that was on the filter's Mod is left with nothing to feed.
+    expect(doc.modules.map((m) => m.id)).toEqual(["ge1", "ge3", "ge4", "ge5", "ge6"]);
+    expect(doc.pages[0].knobs).toEqual([null, null, null, { module: "ge1", param: "tune" }]);
+  });
+
+  it("keeps the cable where it was in the list, so the patch is otherwise as before", () => {
+    const doc = remove(basicSynth, "ge2");
+    expect(doc.cables[0]).toEqual({ from: port("ge1", "out"), to: port("ge3", "in") });
+  });
+
+  it("undoes a module dropped into a chain", () => {
+    const { doc, id } = addModuleAtPort(basicSynth, "shaper-soft", { module: "ge2", port: "in", side: "in" });
+    expect(cables(remove(doc, id!))).toEqual(cables(basicSynth));
+    // And one dropped on an output that feeds two inputs.
+    let fan = connect(basicSynth, port("ge6", "out"), port("ge1", "mod"));
+    const before = cables(fan);
+    const dropped = addModuleAtPort(fan, "filter-lp", { module: "ge6", port: "out", side: "out" });
+    expect(cables(dropped.doc)).toContain(`${dropped.id}.out>ge1.mod`);
+    fan = remove(dropped.doc, dropped.id!);
+    expect(cables(fan)).toEqual(before);
+  });
+
+  it("looks through several removed modules in a row", () => {
+    const doc = remove(basicSynth, "ge2", "ge3");
+    expect(cables(doc)).toEqual(["ge1.out>ge4.left"]);
+  });
+
+  it("only removes the cables of a module at the end of a chain", () => {
+    expect(cables(remove(basicSynth, "ge1"))).toEqual(["ge2.out>ge3.in", "ge3.out>ge4.left", "ge5.out>ge2.mod", "ge6.out>ge3.cv"]);
+    expect(cables(remove(basicSynth, "ge4"))).toEqual(["ge1.out>ge2.in", "ge2.out>ge3.in", "ge5.out>ge2.mod", "ge6.out>ge3.cv"]);
+  });
+
+  it("does not pass on what was patched into another input", () => {
+    // Without a cable in the filter's In, the envelope on its Mod is not sent on to the amp.
+    const open = disconnect(basicSynth, basicSynth.cables[0]);
+    expect(cables(remove(open, "ge2"))).toEqual(["ge3.out>ge4.left", "ge6.out>ge3.cv"]);
+  });
+
+  it("keeps a mixer's other inputs when one of its sources is taken out of a chain", () => {
+    let doc = build(["osc-saw", 0, 0], ["shaper-hard", 2, 0], ["osc-sine", 0, 2], ["mixer", 5, 0]);
+    doc = connect(doc, port("ge1", "out"), port("ge2", "in"));
+    doc = connect(doc, port("ge2", "out"), port("ge4", "in1"));
+    doc = connect(doc, port("ge3", "out"), port("ge4", "in2"));
+    expect(cables(remove(doc, "ge2"))).toEqual(["ge1.out>ge4.in1", "ge3.out>ge4.in2"]);
+  });
+
+  it("gives up on a loop in a document read from a file", () => {
+    const looped: PatchDocument = {
+      ...build(["filter-lp", 0, 0], ["filter-hp", 2, 0], ["amp", 4, 0]),
+      cables: [
+        { from: port("ge1", "out"), to: port("ge2", "in") },
+        { from: port("ge2", "out"), to: port("ge1", "in") },
+        { from: port("ge2", "out"), to: port("ge3", "in") },
+      ],
+    };
+    expect(remove(looped, "ge1", "ge2").cables).toEqual([]);
+  });
+
+  it("is one undo step from the editor", () => {
+    useEditor.getState().load(basicSynth, null);
+    useEditor.getState().select(["ge2"]);
+    useEditor.getState().deleteSelection();
+    expect(cables(useEditor.getState().doc)).toContain("ge1.out>ge3.in");
     useEditor.getState().undo();
     expect(useEditor.getState().doc).toBe(basicSynth);
   });
