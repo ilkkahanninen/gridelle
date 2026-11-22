@@ -174,6 +174,17 @@
   display: none;
 }
 
+/* A Scope's picture: the tile below its name, right of its input. A drag on it moves the tile. */
+.tile-scope {
+  position: absolute;
+  inset: 26px 8px 8px 30px;
+  width: calc(100% - 38px);
+  height: calc(100% - 34px);
+  border-radius: 3px;
+  background: var(--surface);
+  pointer-events: none;
+}
+
 /* Ports: a ring when free, filled when cabled, a small centre dot when fed automatically. */
 
 .port {

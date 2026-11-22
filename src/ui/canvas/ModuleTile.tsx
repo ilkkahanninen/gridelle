@@ -8,6 +8,7 @@ import { useEditor } from "../../state/store";
 import { shownKnobPage, useUi } from "../../state/ui";
 import { Knob } from "../controls/Knob";
 import { PORT_INSET, portOffset, tileRect } from "./geometry";
+import { ScopeView } from "./ScopeView";
 
 interface TileProps {
   module: ModuleInstance;
@@ -172,6 +173,7 @@ export const ModuleTile = memo(function ModuleTile({
       onPointerDown={(e) => onTilePointerDown(e, module.id)}
     >
       <div className="tile-name">{def.name}</div>
+      {def.tap && <ScopeView module={module} />}
       {def.inputs.map((port, i) => (
         <Port
           key={port.id}

@@ -68,6 +68,12 @@ fn engine_set_volume(state: State<EngineState>, volume: f32) -> Result<(), Strin
     Ok(())
 }
 
+/// What the Scope module on `slot` shows: see `Engine::scope`.
+#[tauri::command]
+fn engine_scope(state: State<EngineState>, slot: usize, length: usize, columns: usize, trigger: bool) -> Result<Vec<f32>, String> {
+    Ok(state.get()?.scope(slot, length, columns.min(4096), trigger))
+}
+
 #[tauri::command]
 fn engine_peak(state: State<EngineState>) -> Result<f32, String> {
     Ok(state.get()?.peak())
@@ -159,6 +165,7 @@ pub fn run() {
             engine_send,
             engine_set_volume,
             engine_peak,
+            engine_scope,
             read_text_file,
             write_text_file,
             export_patch,

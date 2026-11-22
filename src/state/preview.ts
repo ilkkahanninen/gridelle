@@ -28,6 +28,8 @@ interface PreviewState {
   loadError: string | null;
   /** Why the patch's Audio In is silent in the preview, when its input could not be opened. */
   inputProblem: string | null;
+  /** The number of each Scope module in the patch that is loaded, from 1. */
+  scopes: Record<string, number>;
 }
 
 const SCREEN_LINES = 5;
@@ -46,6 +48,7 @@ export const usePreview = create<PreviewState>(() => ({
   log: [],
   loadError: null,
   inputProblem: null,
+  scopes: {},
 }));
 
 /** Structural edits come in bursts (dragging a cable across ports); wait for them to settle. */
@@ -99,7 +102,7 @@ export function startPreviewSync(): () => void {
         loadedKey = key;
         // The patch sets these itself on load.
         sent = new Map(result.params.map((p) => [p.receiver, p.value]));
-        usePreview.setState((s) => ({ revision: s.revision + 1, loadError: null, inputProblem }));
+        usePreview.setState((s) => ({ revision: s.revision + 1, loadError: null, inputProblem, scopes: result.scopes }));
         // Values may have moved while the patch was loading.
         const now = useEditor.getState().doc;
         if (structureKey(now) === key) sendChangedParams(now);

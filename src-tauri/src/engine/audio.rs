@@ -21,6 +21,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, Sample, SampleFormat, SizedSample, StreamConfig};
 
 use super::pd::{Atom, Binding, Patch, Pd, PdEvent};
+use super::scope::{self, ScopeStore};
 
 /// The Organelle runs Pd at this rate; the preview asks the device for the same.
 pub const DEVICE_SAMPLE_RATE: u32 = 44_100;
@@ -45,6 +46,10 @@ const INPUT_CAPACITY: usize = 16_384;
 const INPUT_CUSHION: usize = 2_048;
 /// More than this waiting means the output has fallen behind: skip ahead to the cushion.
 const INPUT_MAX_LAG: usize = 8_192;
+
+/// Output channels Pd renders: left and right for the audio device, then one for each scope.
+/// The host stand-in sends what the Scope modules tap to those.
+const PD_OUTPUTS: usize = 2 + scope::SLOTS;
 
 /// The samples of an open audio input, read by the output callback.
 type InputFeed = rtrb::Consumer<f32>;
@@ -87,6 +92,7 @@ pub struct Engine {
     _stream: Mutex<cpal::Stream>,
     /// The audio input, open only while the loaded patch uses it.
     input: Mutex<Option<cpal::Stream>>,
+    scopes: Arc<ScopeStore>,
     sample_rate: u32,
     revision: AtomicU64,
 }
@@ -133,7 +139,7 @@ impl Engine {
 
         let bindings = {
             let mut pd = Pd::lock();
-            pd.init_audio(sample_rate)?;
+            pd.init_audio_with_outputs(sample_rate, PD_OUTPUTS)?;
             pd.dsp(true);
             HOST_OUTPUTS.iter().map(|name| pd.bind(name)).collect()
         };
@@ -145,11 +151,12 @@ impl Engine {
             input_change: Mutex::new(None),
         });
         let (producer, consumer) = rtrb::RingBuffer::<Message>::new(1024);
+        let scopes = Arc::new(ScopeStore::new());
 
         let stream = match format {
-            SampleFormat::F32 => build::<f32>(&device, config, channels, shared.clone(), consumer),
-            SampleFormat::I16 => build::<i16>(&device, config, channels, shared.clone(), consumer),
-            SampleFormat::I32 => build::<i32>(&device, config, channels, shared.clone(), consumer),
+            SampleFormat::F32 => build::<f32>(&device, config, channels, shared.clone(), scopes.clone(), consumer),
+            SampleFormat::I16 => build::<i16>(&device, config, channels, shared.clone(), scopes.clone(), consumer),
+            SampleFormat::I32 => build::<i32>(&device, config, channels, shared.clone(), scopes.clone(), consumer),
             other => Err(format!("unsupported output sample format {other}")),
         }?;
         stream.play().map_err(|e| e.to_string())?;
@@ -161,6 +168,7 @@ impl Engine {
             _bindings: Mutex::new(bindings),
             _stream: Mutex::new(stream),
             input: Mutex::new(None),
+            scopes,
             sample_rate,
             revision: AtomicU64::new(0),
         })
@@ -173,6 +181,12 @@ impl Engine {
     /// Peak output level of the most recent audio callback.
     pub fn peak(&self) -> f32 {
         load(&self.shared.peak)
+    }
+
+    /// What the Scope module on `slot` (counted from 0) shows: its last `length` samples as
+    /// `columns` pairs of (lowest, highest). See `ScopeStore::picture`.
+    pub fn scope(&self, slot: usize, length: usize, columns: usize, trigger: bool) -> Vec<f32> {
+        self.scopes.picture(slot, length, columns, trigger)
     }
 
     pub fn set_volume(&self, volume: f32) {
@@ -374,14 +388,16 @@ fn build<T>(
     config: StreamConfig,
     channels: usize,
     shared: Arc<Shared>,
+    scopes: Arc<ScopeStore>,
     mut queue: rtrb::Consumer<Message>,
 ) -> Result<cpal::Stream, String>
 where
     T: SizedSample + FromSample<f32>,
 {
-    let block_len = Pd::block_size() * 2;
+    // A block of Pd's output: for each frame, left, right, then the scope channels.
+    let block_len = Pd::block_size() * PD_OUTPUTS;
     let mut block = vec![0.0f32; block_len];
-    let mut input_block = vec![0.0f32; block_len];
+    let mut input_block = vec![0.0f32; Pd::block_size() * 2];
     let mut input = InputReader { feed: None, primed: false };
     // Start "empty" so the first frame renders a fresh block.
     let mut pos = block_len;
@@ -416,7 +432,8 @@ where
             }
             gain += (target - gain).clamp(-step, step);
             let (left, right) = (block[pos] * gain, block[pos + 1] * gain);
-            pos += 2;
+            scopes.write(&block[pos + 2..pos + PD_OUTPUTS]);
+            pos += PD_OUTPUTS;
             peak = peak.max(left.abs()).max(right.abs());
             match frame {
                 [mono] => *mono = T::from_sample((left + right) * 0.5),

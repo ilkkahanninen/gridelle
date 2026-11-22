@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { basicSynth, fixtures, sharedFilter } from "../fixtures";
+import * as ops from "../model/ops";
 import { DOCUMENT_VERSION, type PatchDocument } from "../model/types";
 import { objectBoxes, objectClasses } from "../pd/inspect";
 import { PD_EXTRA_049, VANILLA_049_OBJECTS } from "../pd/vanilla049";
@@ -325,6 +326,40 @@ describe("compile", () => {
     expect(voice).toContain(`#X connect ${keys} 2 ${envelope} 3;`);
     // The glide's own pitch input is cabled, so the voice does not feed it as well.
     expect(voice).not.toContain(`#X connect ${note} 0 ${glide} 0;`);
+  });
+
+  it("numbers the Scopes and tells each which voice it is in", () => {
+    const result = compile(fixtures.scoped, abstractionLibrary);
+    expect(result.scopes).toEqual({ ge6: 1, ge7: 2, ge8: 3 });
+    // Inside the voices the voice number is what [clone] passes as $1; after the Voice Sum it is -1.
+    expect(result.files["voice.pd"]).toContain("ge-scope ge6 1 \\$1;");
+    expect(result.files["voice.pd"]).toContain("ge-scope ge7 2 \\$1;");
+    expect(result.files["main.pd"]).toContain("ge-scope ge8 3 -1;");
+    // The Scopes in the voices are told which voice got the latest note.
+    expect(result.files["main.pd"]).toContain("s ge-scope-voice;");
+    // A patch with none there is not.
+    const after = compile(ops.removeModules(fixtures.scoped, new Set(["ge6", "ge7"])), abstractionLibrary);
+    expect(after.scopes).toEqual({ ge8: 1 });
+    expect(after.files["main.pd"]).not.toContain("ge-scope-voice");
+    expect(compile(fixtures["basic-synth"], abstractionLibrary).files["main.pd"]).not.toContain("ge-scope-voice");
+    // Other modules keep their one argument.
+    expect(result.files["voice.pd"]).toContain("ge-osc-saw ge1;");
+  });
+
+  it("draws the first eight Scopes only, and says so", () => {
+    const many = doc({
+      modules: Array.from({ length: 10 }, (_, i) => ({ id: `ge${i + 1}`, type: "scope", x: i * 3, y: 0, params: {} })),
+    });
+    const result = compile(many, abstractionLibrary);
+    expect(result.ok).toBe(true);
+    expect(result.diagnostics.map((d) => [d.severity, d.code])).toEqual([
+      ["warning", "too-many-scopes"],
+      ["warning", "no-output"],
+    ]);
+    expect(Object.keys(result.scopes)).toHaveLength(8);
+    expect(result.scopes).toMatchObject({ ge1: 1, ge8: 8 });
+    // The ninth and tenth tap a bus nothing listens to.
+    expect(result.files["voice.pd"]).toContain("ge-scope ge9 0 \\$1;");
   });
 
   it("sends the right channel what the left gets when only left is patched", () => {

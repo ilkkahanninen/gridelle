@@ -34,6 +34,13 @@ export interface PreviewEngine {
   send(recv: string, ...atoms: Atom[]): Promise<void>;
   setVolume(volume: number): Promise<void>;
   peak(): Promise<number>;
+  /**
+   * What a Scope module shows. `slot` is the scope's number less one; the answer is the
+   * last `length` samples it tapped as `columns` pairs of lowest and highest, left to
+   * right (fewer while there is less to show). With `trigger` the window starts where the
+   * signal last rose through its middle, so a steady wave stands still.
+   */
+  scope(slot: number, length: number, columns: number, trigger: boolean): Promise<number[]>;
   /** Subscribe to patch output. Resolves to an unsubscribe function. */
   onEvent(handler: (event: PdEvent) => void): Promise<() => void>;
 }
@@ -44,6 +51,7 @@ const desktopEngine: PreviewEngine = {
   send: (recv, ...atoms) => invoke("engine_send", { recv, atoms }),
   setVolume: (volume) => invoke("engine_set_volume", { volume }),
   peak: () => invoke<number>("engine_peak"),
+  scope: (slot, length, columns, trigger) => invoke<number[]>("engine_scope", { slot, length, columns, trigger }),
   onEvent: (handler) => listen<PdEvent>("pd-event", (e) => handler(e.payload)),
 };
 
@@ -54,6 +62,7 @@ const silentEngine: PreviewEngine = {
   send: async () => {},
   setVolume: async () => {},
   peak: async () => 0,
+  scope: async () => [],
   onEvent: async () => () => {},
 };
 

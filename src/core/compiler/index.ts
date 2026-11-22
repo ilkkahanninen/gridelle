@@ -1,4 +1,4 @@
-import type { PatchDocument } from "../model/types";
+import type { ModuleId, PatchDocument } from "../model/types";
 import { VOICE_ABSTRACTION } from "../modules/registry";
 import { objectClasses } from "../pd/inspect";
 import { isPdObject } from "../pd/vanilla049";
@@ -27,6 +27,11 @@ export interface CompileResult {
   params: ParamValue[];
   /** Every assigned knob with the position that matches its parameter's current value. */
   knobSlots: KnobSlotValue[];
+  /**
+   * The number of each Scope module, from 1; those beyond what the editor can draw are
+   * left out. The preview engine has what scope `n` taps under slot `n - 1`.
+   */
+  scopes: Record<ModuleId, number>;
 }
 
 /**
@@ -70,7 +75,7 @@ export function compile(doc: PatchDocument, library: AbstractionLibrary): Compil
   }
 
   if (diagnostics.some((d) => d.severity === "error")) {
-    return { ok: false, diagnostics, files: {}, entry: ENTRY_FILE, params: [], knobSlots: [] };
+    return { ok: false, diagnostics, files: {}, entry: ENTRY_FILE, params: [], knobSlots: [], scopes: {} };
   }
 
   const files: Record<string, string> = {
@@ -86,5 +91,6 @@ export function compile(doc: PatchDocument, library: AbstractionLibrary): Compil
     entry: ENTRY_FILE,
     params: paramValues(analysis),
     knobSlots: knobSlots(analysis),
+    scopes: Object.fromEntries([...analysis.taps].filter(([, slot]) => slot > 0)),
   };
 }

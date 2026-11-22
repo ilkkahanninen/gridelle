@@ -251,11 +251,23 @@ impl Pd {
 
     /// Configure stereo output and stereo input (the patch's `adc~`).
     pub fn init_audio(&mut self, sample_rate: u32) -> Result<(), String> {
-        self.channels = 2;
-        match unsafe { libpd_init_audio(2, 2, sample_rate as c_int) } {
+        self.init_audio_with_outputs(sample_rate, 2)
+    }
+
+    /// The same with more output channels than two. Those after the second do not go to
+    /// the audio device: the preview uses them to take signals out of Pd for the scopes.
+    /// `process` then fills `outputs` interleaved channels.
+    pub fn init_audio_with_outputs(&mut self, sample_rate: u32, outputs: usize) -> Result<(), String> {
+        self.channels = outputs;
+        match unsafe { libpd_init_audio(2, outputs as c_int, sample_rate as c_int) } {
             0 => Ok(()),
             code => Err(format!("libpd_init_audio failed ({code})")),
         }
+    }
+
+    /// Interleaved output channels per frame, as set by the last `init_audio`.
+    pub fn output_channels(&self) -> usize {
+        self.channels
     }
 
     pub fn open(&mut self, file: &Path) -> Result<Patch, String> {
@@ -329,22 +341,24 @@ impl Pd {
         }
     }
 
-    /// Render `out.len() / 2 / block_size` blocks of interleaved stereo into `out`, with
-    /// silence at the audio input.
+    /// Render blocks into `out`, which holds a whole number of blocks of the output
+    /// channels, interleaved (stereo unless set up otherwise), with silence at the audio input.
     pub fn process(&mut self, out: &mut [f32]) {
-        if self.silence.len() < out.len() {
-            self.silence.resize(out.len(), 0.0);
-        }
         let ticks = out.len() / self.channels / Self::block_size();
         debug_assert_eq!(ticks * self.channels * Self::block_size(), out.len());
+        let input_len = ticks * Self::block_size() * 2;
+        if self.silence.len() < input_len {
+            self.silence.resize(input_len, 0.0);
+        }
         unsafe { libpd_process_float(ticks as c_int, self.silence.as_ptr(), out.as_mut_ptr()) };
     }
 
-    /// The same, with `input` (interleaved stereo, as long as `out`) at the audio input.
+    /// The same, with `input` (interleaved stereo, for the same number of blocks) at the
+    /// audio input.
     pub fn process_with_input(&mut self, input: &[f32], out: &mut [f32]) {
-        assert_eq!(input.len(), out.len(), "input and output cover the same blocks");
         let ticks = out.len() / self.channels / Self::block_size();
         debug_assert_eq!(ticks * self.channels * Self::block_size(), out.len());
+        assert_eq!(input.len(), ticks * Self::block_size() * 2, "input covers the same blocks, in stereo");
         unsafe { libpd_process_float(ticks as c_int, input.as_ptr(), out.as_mut_ptr()) };
     }
 }

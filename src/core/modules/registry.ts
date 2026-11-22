@@ -242,6 +242,11 @@ const reverbTone: ParamDef = { id: "tone", label: "Tone", min: 500, max: 12000, 
 /** The rate of an effect's own LFO. */
 const sweepRate = (def: number): ParamDef => ({ id: "rate", label: "Rate", min: 0.02, max: 20, default: def, curve: "exp", unit: "Hz", decimals: 2 });
 
+/** The widths of a Scope's picture, in milliseconds, in the order of its Time choice. */
+export const SCOPE_TIMES = [5, 20, 100, 500, 2000];
+/** The heights of a Scope's picture, either side of zero, after "Auto" in its Range choice. */
+export const SCOPE_RANGES = [0.1, 1, 10, 100];
+
 /** Inputs of the mixer's abstraction; the editor shows only as many as are in use. */
 export const MIXER_INPUTS = 8;
 const mixerChannels = Array.from({ length: MIXER_INPUTS }, (_, i) => i + 1);
@@ -299,6 +304,24 @@ const DEFS: ModuleDef[] = [
     params: [],
     pd: "ge-keys",
     scope: "voice",
+  },
+  {
+    // Draws the signal patched into it, in the editor only. Inside the voices it shows
+    // the voice of the latest note. Time and Range say how it is drawn.
+    type: "scope",
+    name: "Scope",
+    category: "io",
+    width: 3,
+    height: 2,
+    inputs: [anyInput("in", "In")],
+    outputs: [],
+    params: [
+      choice("time", "Time", SCOPE_TIMES.map((ms) => (ms < 1000 ? `${ms} ms` : `${ms / 1000} s`)), 1),
+      choice("range", "Range", ["Auto", ...SCOPE_RANGES.map((range) => `± ${range}`)]),
+    ],
+    pd: "ge-scope",
+    scope: "voice",
+    tap: true,
   },
   {
     type: "voice-sum",
@@ -618,6 +641,9 @@ const DEFS: ModuleDef[] = [
 ];
 
 const BY_TYPE = new Map(DEFS.map((def) => [def.type, def]));
+
+/** Scope modules a patch can show at once: the channels the preview engine has for them. */
+export const SCOPE_SLOTS = 8;
 
 /** Every module the editor offers, in palette order. */
 export const moduleDefs: readonly ModuleDef[] = DEFS;

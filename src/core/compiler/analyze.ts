@@ -7,7 +7,7 @@ import {
   type ModuleInstance,
   type PatchDocument,
 } from "../model/types";
-import { getModuleDef } from "../modules/registry";
+import { getModuleDef, SCOPE_SLOTS } from "../modules/registry";
 import type { ModuleDef, ParamDef, Scope, VoiceSignal } from "../modules/types";
 
 export interface Diagnostic {
@@ -24,6 +24,7 @@ export interface Diagnostic {
     | "no-output"
     | "bad-knob"
     | "page-count"
+    | "too-many-scopes"
     | "missing-abstraction";
   message: string;
   module?: ModuleId;
@@ -77,6 +78,11 @@ export interface Analysis {
   wires: Wire[];
   precords: PrecordWire[];
   constants: ConstantFeed[];
+  /**
+   * The number of each module the editor draws the input of (`ModuleDef.tap`), from 1 in
+   * the order of the document. 0 for those beyond what the editor can show.
+   */
+  taps: Map<ModuleId, number>;
   pages: ResolvedPage[];
 }
 
@@ -212,6 +218,18 @@ export function analyze(doc: PatchDocument): Analysis {
     });
   }
 
+  const taps = new Map<ModuleId, number>();
+  for (const { instance, def } of byId.values()) {
+    if (def.tap) taps.set(instance.id, taps.size < SCOPE_SLOTS ? taps.size + 1 : 0);
+  }
+  if ([...taps.values()].includes(0)) {
+    diagnostics.push({
+      severity: "warning",
+      code: "too-many-scopes",
+      message: `Only the first ${SCOPE_SLOTS} Scopes are drawn; the others stay empty.`,
+    });
+  }
+
   const outputs = [...byId.values()].filter((m) => m.def.type === "audio-out");
   if (!outputs.some((out) => wires.some((w) => w.to === out.instance.id))) {
     diagnostics.push({
@@ -247,5 +265,5 @@ export function analyze(doc: PatchDocument): Analysis {
     }),
   }));
 
-  return { diagnostics, modules: [...byId.values()], wires, precords, constants, pages };
+  return { diagnostics, modules: [...byId.values()], wires, precords, constants, taps, pages };
 }

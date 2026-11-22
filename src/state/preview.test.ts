@@ -6,6 +6,7 @@ vi.mock("../bridge/engine", () => ({
   engine: {
     status: vi.fn(async () => ({ running: true, error: null, sampleRate: 44100 })),
     load: vi.fn(async () => null),
+    scope: vi.fn(async () => []),
     send: vi.fn(async () => {}),
     setVolume: vi.fn(async () => {}),
     peak: vi.fn(async () => 0),

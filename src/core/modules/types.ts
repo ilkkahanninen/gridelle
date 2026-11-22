@@ -111,6 +111,12 @@ export interface ModuleDef {
    */
   tail?: boolean;
   /**
+   * The editor draws what comes in at this module's first input (a Scope). The compiler
+   * numbers such modules and passes the abstraction that number and the voice it is in
+   * (-1 outside the voices), after its id: see `ge-scope`.
+   */
+  tap?: boolean;
+  /**
    * `rows`: the tile lists its inputs as rows, two to a grid cell under a half-cell
    * header with the name, each with its port on the left edge and, where the input has
    * a `param`, that parameter's knob beside it. `height` must be `ceil((rows + 1) / 2)`.

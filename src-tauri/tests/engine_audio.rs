@@ -45,6 +45,34 @@ fn engine_renders_loaded_patch_to_the_device() {
     engine.send("notes", vec![Atom::Float(57.0), Atom::Float(0.0)]).unwrap();
     sleep(Duration::from_millis(200));
 
+    // The Scope modules of a compiled patch: what they tap comes out of the engine, at the
+    // level it has in the patch, whatever the volume.
+    let folder = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../tests/golden/scoped");
+    let scoped: HashMap<String, String> = std::fs::read_dir(&folder)
+        .expect("run `npm test` to generate the fixtures")
+        .map(|entry| entry.unwrap().path())
+        .map(|path| (path.file_name().unwrap().to_string_lossy().into_owned(), std::fs::read_to_string(&path).unwrap()))
+        .collect();
+    let _ = engine.load(&scoped, "main.pd").expect("the scoped patch loads");
+    engine.send("notes", vec![Atom::Float(57.0), Atom::Float(100.0)]).unwrap();
+    sleep(Duration::from_millis(400));
+    let window = engine.sample_rate() as usize / 50;
+    let range = |picture: &[f32]| picture.iter().fold((f32::MAX, f32::MIN), |(lo, hi), v| (lo.min(*v), hi.max(*v)));
+    // Scope 1, on the oscillator: 20 ms of a saw at 220 Hz, held still by its trigger.
+    let saw = engine.scope(0, window, 200, true);
+    assert_eq!(saw.len(), 400, "a lowest and a highest value for each of 200 columns");
+    let (low, high) = range(&saw);
+    assert!(low < -0.8 && high > 0.8 && high < 1.1, "scope 1 has the saw at full level, {low}..{high}");
+    assert!(saw[0].abs() < 0.2, "and starts where it rises through its middle, at {}", saw[0]);
+    // Scope 2, on the envelope: at its sustain. Scope 3, after the Voice Sum: the saw times that.
+    let (low, high) = range(&engine.scope(1, window, 200, false));
+    assert!((low - 0.6).abs() < 0.01 && (high - 0.6).abs() < 0.01, "scope 2 has the envelope, {low}..{high}");
+    let (low, high) = range(&engine.scope(2, window, 200, true));
+    assert!(low < -0.45 && high > 0.45 && high < 0.7, "scope 3 has what is heard, {low}..{high}");
+    assert_eq!(range(&engine.scope(3, window, 200, false)), (0.0, 0.0), "a scope the patch does not have is empty");
+    engine.send("notes", vec![Atom::Float(57.0), Atom::Float(0.0)]).unwrap();
+    sleep(Duration::from_millis(300));
+
     let events = events.lock().unwrap();
     let errors: Vec<_> = events
         .iter()

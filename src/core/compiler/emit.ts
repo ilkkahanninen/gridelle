@@ -52,9 +52,22 @@ function bottom(modules: ResolvedModule[], top: number): number {
   return top + (Math.max(...ys) - Math.min(...ys) + 1) * CELL.y;
 }
 
-function addModules(patch: PdPatch, modules: ResolvedModule[], top: number): Map<ModuleId, Box> {
+/**
+ * A box for each module: its abstraction with the module's id as argument. A module the
+ * editor draws the input of also gets its scope number and `voice`, the number of the
+ * voice it is in: `$1` inside a voice, which is what `[clone]` passes, -1 outside them.
+ */
+/** Where `main.pd` sends the number of the voice that got the latest note, for the Scopes. */
+const SCOPE_VOICE = "ge-scope-voice";
+
+function addModules(patch: PdPatch, analysis: Analysis, modules: ResolvedModule[], top: number, voice: string): Map<ModuleId, Box> {
   const at = layout(modules, top);
-  return new Map(modules.map((m) => [m.instance.id, patch.obj(`${m.def.pd} ${m.instance.id}`, at(m))]));
+  return new Map(
+    modules.map((m) => {
+      const tap = m.def.tap ? ` ${analysis.taps.get(m.instance.id) ?? 0} ${voice}` : "";
+      return [m.instance.id, patch.obj(`${m.def.pd} ${m.instance.id}${tap}`, at(m))];
+    }),
+  );
 }
 
 /**
@@ -159,7 +172,7 @@ export function emitVoice(analysis: Analysis): string {
   patch.connect(inlet, 0, voice, 0);
 
   const top = MARGIN.y + 110;
-  const boxes = addModules(patch, modules, top);
+  const boxes = addModules(patch, analysis, modules, top, "$1");
   const inside = analysis.wires.filter((wire) => boxes.has(wire.from) && boxes.has(wire.to));
   const leaving = crossings(analysis);
 
@@ -266,8 +279,19 @@ export function emitMain(doc: PatchDocument, analysis: Analysis): string {
   patch.connect(poly, 2, pack, 2);
   patch.connect(pack, 0, clone, 0);
 
+  // A Scope inside the voices shows the voice of the latest note: tell them which that is.
+  // [poly] sends the velocity before the voice, so the gate is set when the number comes.
+  if (analysis.modules.some((m) => m.def.tap && m.scope === "voice")) {
+    const beside = (row: number): Position => ({ x: MARGIN.x + CELL.x, y: column(row).y });
+    const noteOn = patch.obj("spigot", beside(4));
+    const latest = patch.obj(`s ${SCOPE_VOICE}`, beside(5));
+    patch.connect(zeroBased, 0, noteOn, 0);
+    patch.connect(poly, 2, noteOn, 1);
+    patch.connect(noteOn, 0, latest, 0);
+  }
+
   const top = column(7).y;
-  const boxes = addModules(patch, modules, top);
+  const boxes = addModules(patch, analysis, modules, top, "-1");
   const voiceOutlets = crossings(analysis);
 
   for (const wire of analysis.wires) {

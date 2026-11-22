@@ -412,6 +412,36 @@ export const mathAndLogic: PatchDocument = settle({
   pages: [],
 });
 
+/**
+ * Three Scopes on a plain synth voice: one on the oscillator and one on the envelope,
+ * inside the voices, and one after the Voice Sum, on what is heard.
+ */
+export const scoped: PatchDocument = settle({
+  version: DOCUMENT_VERSION,
+  name: "Scoped",
+  voices: 3,
+  modules: [
+    { id: "ge1", type: "osc-saw", x: 0, y: 0, params: {} },
+    { id: "ge2", type: "amp", x: 2, y: 0, params: {} },
+    { id: "ge3", type: "env-adsr", x: 0, y: 3, params: { release: 100 } },
+    { id: "ge4", type: "voice-sum", x: 3, y: 0, params: {} },
+    { id: "ge5", type: "audio-out", x: 4, y: 0, params: {} },
+    { id: "ge6", type: "scope", x: 6, y: 0, params: {} },
+    { id: "ge7", type: "scope", x: 6, y: 2, params: { time: 3 } },
+    { id: "ge8", type: "scope", x: 6, y: 4, params: {} },
+  ],
+  cables: [
+    { from: { module: "ge1", port: "out" }, to: { module: "ge2", port: "in" } },
+    { from: { module: "ge3", port: "out" }, to: { module: "ge2", port: "cv" } },
+    { from: { module: "ge2", port: "out" }, to: { module: "ge4", port: "in" } },
+    { from: { module: "ge4", port: "out" }, to: { module: "ge5", port: "left" } },
+    { from: { module: "ge1", port: "out" }, to: { module: "ge6", port: "in" } },
+    { from: { module: "ge3", port: "out" }, to: { module: "ge7", port: "in" } },
+    { from: { module: "ge4", port: "out" }, to: { module: "ge8", port: "in" } },
+  ],
+  pages: [],
+});
+
 export const fixtures = {
   "basic-synth": basicSynth,
   "shared-filter": sharedFilter,
@@ -423,4 +453,5 @@ export const fixtures = {
   "audio-input": audioInput,
   pitches,
   "math-and-logic": mathAndLogic,
+  scoped,
 } as const;

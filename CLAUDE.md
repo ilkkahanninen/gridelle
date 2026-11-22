@@ -27,7 +27,7 @@ Single tests:
 npx vitest run src/core/compiler/compiler.test.ts -t "is deterministic"
 cd src-tauri && cargo test --test compiled_patches
 cd src-tauri && cargo test --test module_dsp -- --nocapture   # prints measured pitch, levels and filter responses
-cd src-tauri && cargo test --test engine_audio -- --ignored   # opt-in: plays through the real audio device at -40 dB
+cd src-tauri && cargo test --test engine_audio -- --ignored   # opt-in: plays through the real audio device at -40 dB; the only test of the audio callback, scopes included
 cd src-tauri && ORGANELLE_ADDRESS=<ip> cargo test --test organelle_send -- --ignored --nocapture   # opt-in: writes the patch Gridelle_Test to a real Organelle and starts it
 cd src-tauri && ORGANELLE_ADDRESS=<ip> ORGANELLE_PATCH=flavours cargo test --test organelle_send -- --ignored   # the same with another fixture, or the path of any patch folder
 ```
@@ -144,6 +144,14 @@ A bare `;` in a Pd comment ends the box, and Pd then tries to deliver the rest a
 - Smooth runs two one-pole low-passes, one at Rise and one at Fall, and takes the higher of them when Rise is the shorter time and the lower when Fall is. That is exact for a step, which is what it is for.
 - Their ports have the `mod` or `gate` hint, but sound patched through one is still sound: `emitVoice` works out which modules may carry sound by following cables from every module with an audio output, and that set, not the port's hint, decides what is muted on its way into a module with a tail.
 
+**Scope.** A Scope module draws the signal at its input on its tile. It is the one module whose point is the editor, and its two settings (Time, Range) say how the picture is drawn: they have receivers in `ge-scope` like any setting, which nothing there uses.
+
+- The route out of Pd is extra output channels. `ge-scope` sends its input to `throw~ ge-scope-<n>`; `host.pd` catches the eight buses into `dac~` 3–10; the engine starts Pd with ten outputs (`PD_OUTPUTS` in `audio.rs`), plays the first two and writes the rest, before volume and fade, into `ScopeStore` (`engine/scope.rs`: atomics, written by the audio callback, read without a lock). The `engine_scope` command gives a window of one slot as a lowest and a highest value for each column of the picture, starting at the last rise through the middle of the signal when asked to trigger. `ScopeView` asks about thirty times a second and triggers up to 100 ms; a longer picture rolls.
+- Nothing that reads a scope may take Pd's lock: the audio callback plays silence whenever it cannot get it. That rules out reading Pd arrays from a command.
+- `def.tap` marks the module. `analyze` numbers the tapped modules from 1 in document order (`analysis.taps`; 0 beyond `SCOPE_SLOTS`, with the `too-many-scopes` warning), `addModules` passes the number and the voice as second and third creation arguments, and `compile` returns `scopes` (module id → number), which `preview.ts` keeps for the tiles from each load.
+- Inside the voices a Scope shows one voice, the one that got the latest note: the voices added up would be a picture of none of them, and `poly` gives each note to the voice that has rested longest, so a fixed voice would show every Nth note. `main.pd` sends that voice's number to `ge-scope-voice` at each key down (only when a voice has a Scope), and `ge-scope` passes its input while the number is its own third argument, `$1` of the voice. Outside the voices the argument is -1 and the input always passes. Until the first note it is voice 0.
+- An exported patch keeps its Scopes. No bus is caught on the Organelle, and a `throw~` without a `catch~` is silent and prints nothing.
+
 **Rows layout.** `layout: "rows"` (every module with knobs) lists a module's inputs as rows, two to a grid cell under a half-cell header: the port on the left edge and, where the input has a `param`, that knob beside it. `height` must be `ceil((rows + 1) / 2)`; `registry.test.ts` checks it. `portOffset` in `ui/canvas/geometry.ts` places both the ports and the knobs. A tile one cell wide (Amp, Audio Out) shows the knobs without names. Voice Sum and Noise, with no knobs, keep the plain layout: ports down the edges.
 
 When a module's tile changes shape, older documents can have tiles on top of each other. `ops.settle` pushes them apart, and `actions.openPatch` runs it on every opened patch.
@@ -194,7 +202,7 @@ The UI reaches Pd only through the `PreviewEngine` interface in `src/bridge/engi
 
 - `build.rs` compiles libpd's C sources straight from the `vendor/libpd` submodule with `cc`: single precision, and of the `extra` externals only those a module wraps (`EXTRA_SOURCES`, so far `bob~`), so that nothing else can work in the preview by accident.
 - `engine/pd.rs` is the safe wrapper. libpd is global state, so there is one `Pd` behind a mutex and every libpd call holds it. `Pd::init()` returns the event receiver only on its first call in a process, which is why each file in `src-tauri/tests` has a single `#[test]`.
-- `engine/audio.rs` runs Pd inside the cpal callback (`try_lock`, never blocking), applies queued messages from a lock-free ring buffer at the start of each callback, and swaps patches by fading out, taking the lock, closing the old patch and opening the new one from a per-revision temp directory.
+- `engine/audio.rs` runs Pd inside the cpal callback (`try_lock`, never blocking), with ten output channels of which the device gets two (see Scope), applies queued messages from a lock-free ring buffer at the start of each callback, and swaps patches by fading out, taking the lock, closing the old patch and opening the new one from a per-revision temp directory.
 - The audio input is opened only while the loaded patch has `ge-audio-in.pd` among its files (so the microphone is not live otherwise), at the output's sample rate. Its callback writes into a ring buffer that the output callback reads a Pd block at a time, behind a cushion of about 23 ms because the two callbacks do not run in step; `host.pd` passes Pd's `adc~` on as `inL` / `inR`. When it cannot be opened, `Engine::load` returns the reason and the patch plays with silence there. `Pd::process` has silence at the input; `process_with_input` is what the callback and the tests use. The bundled app needs `NSMicrophoneUsageDescription` (`src-tauri/Info.plist`).
 
 ### The Organelle contract
@@ -203,7 +211,7 @@ Exported patches must run on the device's stock Pd (0.49 on OS 3.x and 4.x: its 
 
 - Input from the host: `notes` (pitch velocity), `knob1`–`knob4` (0–1), `aux`, and its audio input as the signals `inL` / `inR` (read with `r~`; seen in the `mother.pd` of a device with OS 3.2).
 - Output to the host: `throw~ outL` / `throw~ outR`, `screenLine1`–`screenLine5`, `led`.
-- Exports never contain `dac~` or `adc~`. In the preview and in the Rust tests `pd-lib/host.pd` stands in for the host (catch → clip → `dac~`), and `src/ui/organelle/VirtualOrganelle.tsx` sends and displays exactly the messages above.
+- Exports never contain `dac~` or `adc~`. In the preview and in the Rust tests `pd-lib/host.pd` stands in for the host (catch → clip → `dac~`, plus the Scope buses on outputs 3–10), and `src/ui/organelle/VirtualOrganelle.tsx` sends and displays exactly the messages above.
 - `pd-lib/spike` is a hand-written patch for checking a real device, not compiler output.
 
 ### Sending over Wi-Fi (`src-tauri/src/organelle.rs`)
