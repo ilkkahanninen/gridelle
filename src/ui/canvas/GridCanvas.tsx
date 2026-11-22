@@ -258,7 +258,7 @@ export function GridCanvas() {
     );
   };
 
-  // A module dragged in from the palette follows the pointer as a ghost until dropped.
+  // A module dragged in from the module browser follows the pointer as a ghost until dropped.
   useEffect(() => {
     if (!placing) {
       setGhost(null);
@@ -279,8 +279,8 @@ export function GridCanvas() {
       const editor = useEditor.getState();
       if (overCanvas(e)) {
         editor.addModule(placing, landing(e));
-      } else if ((e.target as HTMLElement | null)?.closest(".palette")) {
-        // Clicked in the palette without dragging out: put it near the middle of the view.
+      } else if ((e.target as HTMLElement | null)?.closest(".palette-modules")) {
+        // Clicked in the module browser without dragging out: put it near the middle of the view.
         const { view, viewport } = useUi.getState();
         const centre = {
           x: (viewport.width / 2 - view.panX) / view.zoom,

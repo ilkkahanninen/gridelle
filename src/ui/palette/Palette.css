@@ -1,31 +1,90 @@
 .palette {
-  overflow-y: auto;
-  padding: 10px 8px 16px;
+  display: flex;
+  min-width: 0;
   background: var(--chrome);
+  border-top: 1px solid var(--line);
+}
+
+/* Kinds of module, filled column by column so the strip stays four rows high. */
+
+.palette-categories {
+  flex: none;
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-rows: repeat(4, 22px);
+  grid-auto-columns: 1fr;
+  width: var(--side-width);
+  gap: 1px 4px;
+  padding: 7px 10px;
   border-right: 1px solid var(--line);
 }
 
-.palette-group h2 {
-  margin: 10px 6px 4px;
-  font-size: 12.5px;
-  font-weight: 500;
-  color: var(--text-dim);
-}
-
-.palette-group:first-child h2 {
-  margin-top: 0;
-}
-
-.palette-item {
+.palette-category {
   display: flex;
   align-items: center;
   gap: 8px;
-  width: 100%;
-  padding: 4px 6px;
+  padding: 0 8px;
   border: 0;
   border-radius: 4px;
   background: none;
   text-align: left;
+  font-weight: 500;
+  color: var(--text-dim);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.palette-category:hover {
+  color: var(--text);
+}
+
+.palette-category-selected {
+  background: var(--surface);
+  color: var(--text);
+}
+
+.palette-swatch {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  background: var(--category);
+  opacity: 0.55;
+}
+
+.palette-category:hover .palette-swatch,
+.palette-category-selected .palette-swatch {
+  opacity: 1;
+}
+
+/* The chosen kind's modules, side by side. */
+
+.palette-modules {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 10px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.palette-modules::-webkit-scrollbar {
+  display: none;
+}
+
+.palette-item {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-width: 80px;
+  padding: 8px 7px 5px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
   font-weight: 500;
   cursor: grab;
 }
@@ -35,10 +94,58 @@
   background: var(--surface-raised);
 }
 
-.palette-swatch {
-  flex: none;
-  width: 10px;
-  height: 10px;
-  border-radius: 2px;
-  background: var(--category);
+/* A small copy of the tile the module becomes on the grid. */
+.palette-card {
+  position: relative;
+  width: 66px;
+  height: 46px;
+  display: grid;
+  place-items: center;
+  padding-top: 3px;
+  border-radius: 4px;
+  background: var(--tile);
+  box-shadow:
+    inset 0 3px 0 var(--category),
+    0 0 0 1px var(--line);
+  color: var(--category);
+}
+
+.palette-glyph {
+  width: 32px;
+  height: 23px;
+  overflow: visible;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.palette-ports {
+  position: absolute;
+  top: 3px;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-evenly;
+}
+
+.palette-ports-in {
+  left: 5px;
+}
+
+.palette-ports-out {
+  right: 5px;
+}
+
+.palette-port {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--hint);
+}
+
+.palette-name {
+  font-size: 13px;
+  white-space: nowrap;
 }

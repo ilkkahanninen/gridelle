@@ -65,10 +65,10 @@ function App() {
   return (
     <div className="app">
       <TopBar />
+      <Palette />
       <div className="workspace">
-        <Palette />
-        <GridCanvas />
         <Inspector />
+        <GridCanvas />
       </div>
       <Dock />
     </div>

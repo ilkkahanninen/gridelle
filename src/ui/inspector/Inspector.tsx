@@ -156,10 +156,6 @@ function ModuleInspector({ module, def }: { module: ModuleInstance; def: ModuleD
           })}
         </section>
       )}
-
-      <button className="button button-danger" onClick={() => useEditor.getState().deleteSelection()}>
-        Remove module
-      </button>
     </>
   );
 }
@@ -233,14 +229,9 @@ export function Inspector() {
       {single && def ? (
         <ModuleInspector module={single} def={def} />
       ) : selected.length > 1 ? (
-        <>
-          <header className="inspector-title">
-            <h2>{selected.length} modules selected</h2>
-          </header>
-          <button className="button button-danger" onClick={() => useEditor.getState().deleteSelection()}>
-            Remove {selected.length} modules
-          </button>
-        </>
+        <header className="inspector-title">
+          <h2>{selected.length} modules selected</h2>
+        </header>
       ) : (
         <PatchInspector />
       )}

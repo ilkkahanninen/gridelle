@@ -126,6 +126,7 @@ Hot reload does not survive an edit to these store modules: the UI switches to a
 
 - Components change the document only through `useEditor.getState().apply((doc) => ops.something(doc, …), coalesceKey?)`. Continuous gestures pass a key (`param:<module>:<param>`, `patch-name`, `page-name:<index>`) so the whole gesture is one undo step.
 - `canvas/geometry.ts` is the single source of tile and port positions. Tiles and ports are placed from it and cables are drawn to the same computed points, not measured from the DOM. Dropping a cable finds its target through the ports' `data-port-*` attributes (`portUnder`).
+- `palette/Palette.tsx` is the module browser, a strip above the grid: the categories that have modules on the left, the chosen category's modules as a row of cards on the right. A card is pressed and dragged onto the grid (`useUi.placing`; `GridCanvas` draws the ghost and adds the module) or clicked to land near the centre. Each card's picture is a path in `palette/glyphs.ts`, keyed by module type; `glyphs.test.ts` fails for a module without one.
 - Styling is plain CSS per component. Colour comes from `category-<Category>` and `hint-<SignalHint>` classes that set `--category` / `--hint` in `src/App.css`, so a new category or hint needs an entry there.
 
 ### Bridge and Rust back end
