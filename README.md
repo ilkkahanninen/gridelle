@@ -36,7 +36,8 @@ With the Organelle on the same network and its web server running, **Send to Org
 IP address or host name the first time; it is remembered.
 
 A patch folder Gridelle made earlier is replaced without asking; a same-named folder that
-it did not make asks first. Works with the web servers of Organelle OS 3.x–4.x (tried on a
+it did not make asks first. Module files that the patch no longer uses are removed from the
+folder; any other files in it are left alone. Works with the web servers of Organelle OS 3.x–4.x (tried on a
 device running 3.2) and OS 5 (written from its source, not yet tried on a device).
 
 To try the sending code against a device from the command line (it creates and starts a

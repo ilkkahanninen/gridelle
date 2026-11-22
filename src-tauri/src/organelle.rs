@@ -266,6 +266,11 @@ impl Device {
     }
 }
 
+/// Whether a file name is that of one of Gridelle's module or helper abstractions.
+fn is_own_abstraction(name: &str) -> bool {
+    name.starts_with("ge-") && name.ends_with(".pd")
+}
+
 fn lost(error: reqwest::Error) -> String {
     if error.is_timeout() {
         "The Organelle stopped answering. Check its Wi-Fi connection and try again.".into()
@@ -291,8 +296,9 @@ pub fn osc_message(address: &str, argument: &str) -> Vec<u8> {
 
 /// Put the patch `files` (name → text) in a folder named `folder` on the device at
 /// `address`, then start it. Fails with [`EXISTS`] when a folder of that name is there
-/// and is not a Gridelle patch, unless `replace` is set; replacing swaps same-named
-/// files and leaves anything else in the folder alone.
+/// and is not a Gridelle patch, unless `replace` is set. Replacing swaps same-named files
+/// and removes abstractions of Gridelle's (`ge-*.pd`) that the patch no longer has;
+/// anything else in the folder is left alone.
 pub fn send_patch(
     address: &str,
     folder: &str,
@@ -364,6 +370,14 @@ fn send_on_this_thread(
         let stored = device.download(&format!("{dir}/{name}"))?;
         if stored.as_deref() != Some(files[*name].as_bytes()) {
             return Err(format!("The Organelle did not store {name} correctly. Try sending again."));
+        }
+    }
+
+    // Abstractions an earlier version of the patch used and this one does not. Only files
+    // named like Gridelle's own go: whatever else is in the folder is not ours to remove.
+    for entry in &existing {
+        if !entry.is_folder && is_own_abstraction(&entry.name) && !files.contains_key(&entry.name) {
+            device.delete(&format!("{dir}/{}", entry.name))?;
         }
     }
 

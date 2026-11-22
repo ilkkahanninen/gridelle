@@ -209,5 +209,6 @@ Exported patches must run on the device's stock Pd (0.49 on OS 3.x and 4.x: its 
 - Every operation answers `{"ok":"ok"}` even when it failed, so each file is downloaded and compared after sending.
 - The device plays from `/usbdrive/Patches` when that exists, otherwise `/sdcard/Patches`. It records the running patch as a folder name under `/tmp/curpatchname`, which is how a classic start is confirmed.
 - A folder counts as Gridelle's own, and is replaced without asking, when it contains `ge-voice.pd`.
+- After a send, the `ge-*.pd` files in the folder that the patch no longer has are deleted (modules removed since the last send). Nothing else in the folder is touched: it may hold the user's own files.
 
 `src-tauri/tests/organelle_send.rs` holds a fake device that reproduces both servers and these quirks. The OS 5 path has only ever run against that fake.

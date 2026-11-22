@@ -16,7 +16,7 @@ use std::thread;
 
 use gridelle_lib::organelle::{osc_message, parse_address, send_patch, send_patch_to, SendReport, Target, EXISTS};
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum Generation {
     Classic,
     Os5,
@@ -425,6 +425,33 @@ fn resending_replaces_the_patch_files_and_leaves_other_files_alone() {
     assert_eq!(device.text("/sdcard/Patches/My_Patch/main.pd").as_deref(), Some("second version\n"));
     assert_eq!(device.text("/sdcard/Patches/My_Patch/notes.txt").as_deref(), Some("mine"));
     assert_eq!(device.names("/sdcard/Patches/My_Patch"), ["ge-voice.pd", "main.pd", "notes.txt", "voice.pd"]);
+}
+
+#[test]
+fn resending_removes_the_abstractions_the_patch_no_longer_has() {
+    for generation in [Generation::Classic, Generation::Os5] {
+        let device = FakeOrganelle::start(generation);
+        let dir = "/sdcard/Patches/My_Patch";
+        // The first version has a filter and a delay; the second has neither.
+        let mut first = patch("first version\n");
+        first.insert("ge-filter-lp.pd".to_string(), "a filter\n".to_string());
+        first.insert("ge-fx-delay.pd".to_string(), "a delay\n".to_string());
+        device.send("My_Patch", &first, false).unwrap();
+        // Things in the folder that are not Gridelle's abstractions, whatever they are called.
+        device.put(&format!("{dir}/notes.txt"), Some("mine"));
+        device.put(&format!("{dir}/ge-notes.txt"), Some("also mine"));
+        device.put(&format!("{dir}/sample.pd"), Some("someone's abstraction"));
+
+        device.send("My_Patch", &patch("second version\n"), false).unwrap();
+
+        assert_eq!(
+            device.names(dir),
+            ["ge-notes.txt", "ge-voice.pd", "main.pd", "notes.txt", "sample.pd", "voice.pd"],
+            "{generation:?}: the filter and the delay are gone, nothing else is"
+        );
+        assert_eq!(device.text(&format!("{dir}/main.pd")).as_deref(), Some("second version\n"));
+        assert_eq!(device.state.lock().unwrap().current_patch().as_deref(), Some("My_Patch"));
+    }
 }
 
 #[test]
