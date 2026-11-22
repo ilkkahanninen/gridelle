@@ -74,6 +74,12 @@ fn golden_patches_play_in_pd() {
         let released = render(&mut pd, 2.0);
         let tail = &released[released.len() - 4096..];
         assert!(peak(tail) < 1e-3, "{name}: releases to silence, tail peak {}", peak(tail));
+        if name == "voice-effects" {
+            // The delay and reverb inside the voices ring on after the keys are up: the voice
+            // stays audible until they are quiet. (Interleaved stereo: 4410 frames are 100 ms.)
+            let ringing = &released[2 * 4410..2 * 3 * 4410];
+            assert!(peak(ringing) > 0.003, "{name}: echoes are heard after the keys are let go, peak {}", peak(ringing));
+        }
         if name == "bare-oscillator" {
             // Nothing in this patch ends a note but the voice itself going idle, which is a
             // fade of a few milliseconds. (Interleaved stereo: 2205 frames are 50 ms.)

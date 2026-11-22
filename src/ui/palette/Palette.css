@@ -5,17 +5,17 @@
   border-top: 1px solid var(--line);
 }
 
-/* Kinds of module, filled column by column so the strip stays four rows high. */
+/* Kinds of module, filled column by column: five rows, so that all ten kinds fit in two columns. */
 
 .palette-categories {
   flex: none;
   display: grid;
   grid-auto-flow: column;
-  grid-template-rows: repeat(4, 22px);
+  grid-template-rows: repeat(5, 20px);
   grid-auto-columns: 1fr;
   width: var(--side-width);
   gap: 1px 4px;
-  padding: 7px 10px;
+  padding: 6px 10px;
   border-right: 1px solid var(--line);
 }
 

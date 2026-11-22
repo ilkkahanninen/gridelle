@@ -194,6 +194,69 @@ describe("compile", () => {
     expect(names.filter((name) => name === "outlet~")).toHaveLength(1);
   });
 
+  it("feeds a module with a tail only while the voice plays, and hears the voice until it has rung out", () => {
+    // Saw -> All-pass -> Phaser -> Chorus -> Delay -> Reverb, a Sine beside them into a Mixer after the Reverb.
+    const voice = compile(fixtures["voice-effects"], abstractionLibrary).files["voice.pd"];
+    const names = objectBoxes(voice).map((b) => b.name);
+    const wires = [...voice.matchAll(/#X connect (\d+) (\d+) (\d+) (\d+);/g)].map((m) => m.slice(1).map(Number));
+    const into = (box: number, inlet: number) => wires.filter((w) => w[2] === box && w[3] === inlet).map((w) => w[0]);
+    const one = (name: string) => names.indexOf(name);
+
+    // `playing` is the first fade (the key gate alone: no envelopes here), `heard` the max~ that
+    // joins it with the fade of the four effects' levels.
+    expect(names.filter((name) => name === "abs~")).toHaveLength(4);
+    // A fade is a max~ of two low-passes that both follow the same switch, a clip~.
+    const afterSwitch = (box: number) => names[box] === "lop~" && into(box, 0).every((b) => names[b] === "clip~");
+    const fades = names.flatMap((name, i) => (name === "max~" && [0, 1].every((inlet) => into(i, inlet).every(afterSwitch)) ? [i] : []));
+    expect(fades).toHaveLength(2);
+    const [playing, ringing] = fades;
+    const heard = names.findIndex((name, i) => name === "max~" && into(i, 0).includes(playing) && into(i, 1).includes(ringing));
+    expect(heard).toBeGreaterThan(-1);
+
+    // The all-pass is not part of the ringing part, so its audio enters the phaser through a gate...
+    const [gate] = into(one("ge-fx-phaser"), 0);
+    expect(names[gate]).toBe("*~");
+    expect(into(gate, 0)).toEqual([one("ge-filter-allpass")]);
+    expect(into(gate, 1)).toEqual([playing]);
+    // ... and so does the sine's into the mixer, which is after the reverb.
+    const [sineGate] = into(one("ge-mixer"), 1);
+    expect(names[sineGate]).toBe("*~");
+    expect(into(sineGate, 0)).toEqual([one("ge-osc-sine")]);
+    expect(into(sineGate, 1)).toEqual([playing]);
+    // Between two effects nothing is gated, or the tail of the first would be cut.
+    expect(into(one("ge-fx-chorus"), 0)).toEqual([one("ge-fx-phaser")]);
+
+    // Both things that leave the voice come from the ringing part: they are heard until it is quiet.
+    const outlets = names.flatMap((name, i) => (name === "outlet~" ? [i] : []));
+    expect(outlets).toHaveLength(2);
+    for (const outlet of outlets) {
+      const [audible] = into(outlet, 0);
+      expect(into(audible, 1)).toEqual([heard]);
+    }
+  });
+
+  it("lets a modulation signal into a module with a tail as it is", () => {
+    const wobble = doc({
+      modules: [
+        { id: "ge1", type: "osc-saw", x: 0, y: 0, params: {} },
+        { id: "ge2", type: "lfo", x: 0, y: 3, params: {} },
+        { id: "ge3", type: "fx-delay", x: 2, y: 0, params: {} },
+        { id: "ge4", type: "audio-out", x: 4, y: 0, params: {} },
+      ],
+      cables: [
+        { from: { module: "ge1", port: "out" }, to: { module: "ge3", port: "in" } },
+        { from: { module: "ge2", port: "uni" }, to: { module: "ge3", port: "time" } },
+        { from: { module: "ge3", port: "out" }, to: { module: "ge4", port: "left" } },
+      ],
+    });
+    const voice = compile(wobble, abstractionLibrary).files["voice.pd"];
+    const names = objectBoxes(voice).map((b) => b.name);
+    const [lfo, delay, saw] = ["ge-lfo", "ge-fx-delay", "ge-osc-saw"].map((name) => names.indexOf(name));
+    // The LFO's second outlet goes straight into the delay's Time input; the saw does not go straight in.
+    expect(voice).toContain(`#X connect ${lfo} 1 ${delay} 1;`);
+    expect(voice).not.toContain(`#X connect ${saw} 0 ${delay} 0;`);
+  });
+
   it("sends the right channel what the left gets when only left is patched", () => {
     const main = compile(basicSynth, abstractionLibrary).files["main.pd"];
     const boxes = objectBoxes(main).map((b) => b.name);

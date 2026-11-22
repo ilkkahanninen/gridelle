@@ -61,6 +61,8 @@ export const sharedFilter: PatchDocument = settle({
     { id: "ge7", type: "voice-sum", x: 5, y: 2, params: {} },
     { id: "ge8", type: "filter-lp", x: 6, y: 0, params: { cutoff: 2500 } },
     { id: "ge9", type: "audio-out", x: 8, y: 0, params: {} },
+    // After the voice sum, so there is one delay for all voices.
+    { id: "ge10", type: "fx-delay", x: 10, y: 0, params: { time: 150, feedback: 0.2 } },
   ],
   cables: [
     { from: { module: "ge1", port: "out" }, to: { module: "ge4", port: "in" } },
@@ -70,7 +72,8 @@ export const sharedFilter: PatchDocument = settle({
     { from: { module: "ge4", port: "out" }, to: { module: "ge6", port: "in" } },
     { from: { module: "ge5", port: "out" }, to: { module: "ge7", port: "in" } },
     { from: { module: "ge6", port: "out" }, to: { module: "ge8", port: "in" } },
-    { from: { module: "ge8", port: "out" }, to: { module: "ge9", port: "left" } },
+    { from: { module: "ge8", port: "out" }, to: { module: "ge10", port: "in" } },
+    { from: { module: "ge10", port: "out" }, to: { module: "ge9", port: "left" } },
     { from: { module: "ge7", port: "out" }, to: { module: "ge9", port: "right" } },
   ],
   pages: [],
@@ -202,10 +205,46 @@ export const bareOscillator: PatchDocument = {
   pages: [],
 };
 
+/**
+ * Every effect inside the voices, behind an oscillator with no Amp. The voices have to be
+ * silent before the first note, and after the last one once the echoes have rung out: the
+ * oscillators never stop, so they must not go on feeding the effects.
+ */
+export const voiceEffects: PatchDocument = settle({
+  version: DOCUMENT_VERSION,
+  name: "Voice Effects",
+  voices: 4,
+  modules: [
+    { id: "ge1", type: "osc-saw", x: 0, y: 0, params: {} },
+    { id: "ge2", type: "filter-allpass", x: 2, y: 0, params: { cutoff: 900 } },
+    { id: "ge3", type: "fx-phaser", x: 4, y: 0, params: {} },
+    { id: "ge4", type: "fx-chorus", x: 6, y: 0, params: {} },
+    { id: "ge5", type: "fx-delay", x: 8, y: 0, params: { time: 120, feedback: 0.4, mix: 0.4 } },
+    { id: "ge6", type: "fx-reverb", x: 10, y: 0, params: { decay: 0.4 } },
+    { id: "ge7", type: "audio-out", x: 12, y: 0, params: { level: 0.15 } },
+    // A second oscillator that reaches the output beside the effects, not through them.
+    { id: "ge8", type: "osc-sine", x: 0, y: 4, params: { tune: 12 } },
+    { id: "ge9", type: "mixer", x: 10, y: 4, params: { level2: 0.3 } },
+  ],
+  cables: [
+    { from: { module: "ge1", port: "out" }, to: { module: "ge2", port: "in" } },
+    { from: { module: "ge2", port: "out" }, to: { module: "ge3", port: "in" } },
+    { from: { module: "ge3", port: "out" }, to: { module: "ge4", port: "in" } },
+    { from: { module: "ge4", port: "out" }, to: { module: "ge5", port: "in" } },
+    { from: { module: "ge5", port: "out" }, to: { module: "ge6", port: "in" } },
+    { from: { module: "ge6", port: "out" }, to: { module: "ge7", port: "left" } },
+    { from: { module: "ge6", port: "right" }, to: { module: "ge9", port: "in1" } },
+    { from: { module: "ge8", port: "out" }, to: { module: "ge9", port: "in2" } },
+    { from: { module: "ge9", port: "out" }, to: { module: "ge7", port: "right" } },
+  ],
+  pages: [],
+});
+
 export const fixtures = {
   "basic-synth": basicSynth,
   "shared-filter": sharedFilter,
   "sources-and-filters": sourcesAndFilters,
   shapers,
   "bare-oscillator": bareOscillator,
+  "voice-effects": voiceEffects,
 } as const;

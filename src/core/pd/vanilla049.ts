@@ -27,7 +27,7 @@ export const VANILLA_049_OBJECTS: ReadonlySet<string> = new Set([
   "sig~", "line~", "vline~", "phasor~", "osc~", "noise~", "tabosc4~", "tabread4~",
   "tabread~", "tabwrite~", "table",
   // filters and delays
-  "vcf~", "lop~", "hip~", "bp~", "biquad~", "rpole~", "rzero~", "cpole~", "czero~",
+  "vcf~", "lop~", "hip~", "bp~", "biquad~", "rpole~", "rzero~", "cpole~", "czero~", "rzero_rev~",
   "delwrite~", "delread~", "vd~", "samphold~",
   // analysis and routing
   "threshold~", "env~", "snapshot~", "throw~", "catch~", "send~", "s~", "receive~", "r~",

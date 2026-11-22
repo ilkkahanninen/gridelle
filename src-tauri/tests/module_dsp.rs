@@ -1,7 +1,7 @@
 //! Measures what the module abstractions in `pd-lib/modules` actually do, in real Pd:
 //! oscillator pitch, level, aliasing and modulation, filter frequency responses, the
-//! shapers' curves, mixer sums, the envelope's stages, the LFOs, and that every setting's input
-//! multiplies its knob.
+//! shapers' curves, mixer sums, the envelope's stages, the LFOs, the effects, and that every
+//! setting's input multiplies its knob.
 //!
 //! Each check loads a few-box test patch around one abstraction and analyses the audio
 //! it renders. libpd is a single global instance, so everything runs from one test.
@@ -64,7 +64,8 @@ fn inlets_of(name: &str) -> &'static [Inlet] {
     match name {
         "ge-osc-sine" | "ge-osc-tri" | "ge-osc-saw" => &[Main, Setting, Setting, Mod],
         "ge-osc-pulse" => &[Main, Setting, Setting, Setting, Pwm, Mod],
-        "ge-filter-lp" | "ge-filter-hp" | "ge-filter-bp" | "ge-filter-notch" => &[Main, Setting, Setting, Mod],
+        "ge-filter-lp" | "ge-filter-hp" | "ge-filter-bp" | "ge-filter-notch" | "ge-filter-allpass" => &[Main, Setting, Setting, Mod],
+        "ge-fx-delay" | "ge-fx-chorus" | "ge-fx-phaser" | "ge-fx-reverb" => &[Main, Setting, Setting, Setting, Setting],
         "ge-shaper-soft" | "ge-shaper-fold" | "ge-shaper-cheby" => &[Main, Setting, Mod, Setting],
         "ge-shaper-hard" | "ge-shaper-rectify" => &[Main, Setting, Mod],
         "ge-shaper-crush" => &[Main, Setting, Setting, Mod],
@@ -985,6 +986,242 @@ fn random(pd: &mut Pd, dir: &Path) {
     println!("ge-lfo-random: a new value at every tick, gliding for the Smooth part of it; each copy its own");
 }
 
+// --- all-pass and effects ------------------------------------------------------------------
+
+/// Rms of the stretch from `from` to `to` milliseconds.
+fn rms_between(signal: &[f32], from: f32, to: f32) -> f32 {
+    let at = |ms: f32| ((ms / 1000.0 * SAMPLE_RATE) as usize).min(signal.len());
+    rms(&signal[at(from)..at(to)])
+}
+
+fn set(pd: &mut Pd, settings: &[(&str, f32)]) {
+    for (name, value) in settings {
+        pd.send_float(&format!("t1-{name}"), *value);
+    }
+}
+
+/// The All-pass lets every frequency through at full level and turns its phase by half a
+/// cycle at the cutoff, so that added to its input it leaves a notch there.
+fn all_pass(pd: &mut Pd, dir: &Path) {
+    let boxes = ["r t-freq", "osc~ 440", "r t-mod", "sig~ 0"];
+    let connections = [[0, 0, 1, 0], [2, 0, 3, 0]];
+    let mut worst = 0.0f32;
+    with_module(pd, dir, "ge-filter-allpass", &boxes, &connections, [Some(1), Some(3), None], to_left, |pd| {
+        for (cutoff, res) in [(300.0, 0.0), (1200.0, 0.3), (5000.0, 0.8)] {
+            for hz in [60.0, 300.0, 1200.0, 5000.0, 12000.0] {
+                worst = worst.max(measured_db(pd, cutoff, res, hz).abs());
+            }
+        }
+    });
+    assert!(worst < 0.3, "all-pass keeps every frequency at its level, worst {worst} dB off");
+
+    let summed = |module: usize| (vec!["+~", "dac~ 1"], vec![[module, 0, module + 1, 0], [1, 0, module + 1, 1], [module + 1, 0, module + 2, 0]]);
+    let (at_cutoff, below, above) = with_module(pd, dir, "ge-filter-allpass", &boxes, &connections, [Some(1), Some(3), None], summed, |pd| {
+        set(pd, &[("cutoff", 1000.0), ("res", 0.3)]);
+        let mut level = |hz: f32| {
+            pd.send_float("t-freq", hz);
+            rms(&settled(pd, 0.3).0) / std::f32::consts::FRAC_1_SQRT_2
+        };
+        (level(1000.0), level(60.0), level(12000.0))
+    });
+    assert!(at_cutoff < 0.02, "all-pass plus its input cancels at the cutoff, got {at_cutoff}");
+    close(below, 2.0, 0.1, "all-pass far below the cutoff is in phase with its input");
+    close(above, 2.0, 0.1, "all-pass far above the cutoff has gone a whole cycle round");
+    println!("ge-filter-allpass: within {worst:.2} dB of flat; plus its input: {at_cutoff:.3} at the cutoff, {below:.2} / {above:.2} far below / above");
+}
+
+/// A 20 ms burst of a 220 Hz sine into the delay, then what comes out over the next half second.
+fn echoes(pd: &mut Pd) -> Vec<f32> {
+    pd.send_float("t-amp", 0.0);
+    render(pd, 0.7);
+    pd.send_float("t-amp", 1.0);
+    let mut out = render(pd, 0.02).0;
+    pd.send_float("t-amp", 0.0);
+    out.extend(render(pd, 0.5).0);
+    out
+}
+
+fn delay(pd: &mut Pd, dir: &Path) {
+    let full = std::f32::consts::FRAC_1_SQRT_2;
+    with_shaper(pd, dir, "ge-fx-delay", |pd| {
+        // Wet only, bright: the burst comes back after Time, then again at half the level.
+        set(pd, &[("time", 100.0), ("feedback", 0.5), ("tone", 18000.0), ("mix", 1.0)]);
+        let out = echoes(pd);
+        assert!(rms_between(&out, 0.0, 95.0) < 0.001, "delay is silent until the first echo");
+        close(rms_between(&out, 103.0, 117.0), full, 0.03, "delay: first echo at full level after 100 ms");
+        assert!(rms_between(&out, 130.0, 195.0) < 0.001, "delay is silent between echoes");
+        close(rms_between(&out, 203.0, 217.0), full * 0.5, 0.03, "delay: second echo times Feedback");
+        close(rms_between(&out, 303.0, 317.0), full * 0.25, 0.03, "delay: third echo times Feedback again");
+
+        // Tone darkens each pass: a one-pole low-pass at 200 Hz lets 0.672 of a 220 Hz sine through.
+        set(pd, &[("tone", 200.0)]);
+        let out = echoes(pd);
+        close(rms_between(&out, 103.0, 117.0), full, 0.03, "delay: the first echo is not filtered");
+        close(rms_between(&out, 205.0, 217.0), full * 0.5 * 0.672, 0.03, "delay: second echo through the low-pass");
+
+        // The Time input multiplies the time; the Feedback input the feedback.
+        set(pd, &[("tone", 18000.0)]);
+        pd.send_float("t-in1", 0.5);
+        pd.send_float("t-in2", 0.5);
+        let out = echoes(pd);
+        close(rms_between(&out, 53.0, 67.0), full, 0.03, "delay Time input 0.5: first echo after 50 ms");
+        close(rms_between(&out, 103.0, 117.0), full * 0.25, 0.03, "delay Feedback input 0.5: second echo at a quarter");
+        pd.send_float("t-in1", 1.0);
+        pd.send_float("t-in2", 1.0);
+
+        // Dry only: the input, untouched.
+        set(pd, &[("mix", 0.0)]);
+        pd.send_float("t-amp", 0.8);
+        let (out, input) = settled(pd, 0.2);
+        let apart = out.iter().zip(&input).map(|(a, b)| (a - b).abs()).fold(0.0f32, f32::max);
+        assert!(apart < 0.0001, "delay at Mix 0 is its input, off by {apart}");
+        println!("ge-fx-delay: echoes at Time, each times Feedback through the Tone low-pass; dry at Mix 0");
+    });
+}
+
+fn chorus(pd: &mut Pd, dir: &Path) {
+    // Against its input: with no depth the wet signal is the input 2 ms late.
+    with_shaper(pd, dir, "ge-fx-chorus", |pd| {
+        set(pd, &[("rate", 2.0), ("depth", 0.0), ("feedback", 0.0), ("mix", 1.0)]);
+        pd.send_float("t-amp", 0.8);
+        let (out, input) = settled(pd, 0.3);
+        let late = 0.002 * SAMPLE_RATE;
+        let (whole, part) = (late.floor() as usize, late.fract());
+        let apart = (whole + 1..out.len())
+            .map(|n| (out[n] - (input[n - whole] * (1.0 - part) + input[n - whole - 1] * part)).abs())
+            .fold(0.0f32, f32::max);
+        assert!(apart < 0.01, "chorus without depth is its input 2 ms late, off by {apart}");
+
+        // With depth the pitch wobbles: the delay sweeps 10 ms at 2 Hz, about 6 % either way.
+        set(pd, &[("depth", 1.0)]);
+        let wet = settled(pd, 1.0).0;
+        let pitches: Vec<f32> = wet.chunks(2205).map(frequency).collect();
+        let (low, high) = pitches.iter().fold((f32::MAX, f32::MIN), |(lo, hi), v| (lo.min(*v), hi.max(*v)));
+        assert!(low < 215.0 && high > 225.0, "chorus bends the pitch both ways, got {low}..{high} Hz");
+    });
+    // Its two outlets: the same with no depth, moving apart with it.
+    with_module(pd, dir, "ge-fx-chorus", &["osc~ 220", "*~ 0.8"], &[[0, 0, 1, 0]], [Some(1), None, None], both_outlets, |pd| {
+        set(pd, &[("rate", 2.0), ("depth", 0.0), ("feedback", 0.0), ("mix", 1.0)]);
+        let (left, right) = settled(pd, 0.3);
+        let apart = left.iter().zip(&right).map(|(a, b)| (a - b).abs()).fold(0.0f32, f32::max);
+        assert!(apart < 0.0001, "chorus: left and right are the same without depth, off by {apart}");
+        set(pd, &[("depth", 0.5), ("mix", 0.5)]);
+        let (left, right) = settled(pd, 1.0);
+        let difference: Vec<f32> = left.iter().zip(&right).map(|(a, b)| a - b).collect();
+        assert!(rms(&difference) > 0.05, "chorus: left and right move apart with depth, rms {}", rms(&difference));
+        // Fed back hard it must stay in bounds.
+        set(pd, &[("depth", 0.2), ("feedback", 0.9), ("mix", 1.0)]);
+        let loud = peak(&settled(pd, 2.0).0);
+        assert!(loud < 12.0, "chorus with Feedback at its top stays bounded, peak {loud}");
+        println!("ge-fx-chorus: a 2 ms delay swept by Depth, left and right a quarter cycle apart; peak {loud:.1} at full feedback");
+    });
+}
+
+/// Phase turned by one stage of the phaser at `hz`, in radians, for a pole at `c`.
+fn stage_phase(c: f64, hz: f64) -> f64 {
+    let w = 2.0 * std::f64::consts::PI * hz / SAMPLE_RATE as f64;
+    // (z^-1 - c) / (1 - c z^-1) on the unit circle.
+    let (re_n, im_n) = (w.cos() - c, -w.sin());
+    let (re_d, im_d) = (1.0 - c * w.cos(), c * w.sin());
+    im_n.atan2(re_n) - im_d.atan2(re_d)
+}
+
+fn phaser(pd: &mut Pd, dir: &Path) {
+    let full = std::f32::consts::FRAC_1_SQRT_2;
+    // With no depth the stages sit at 784 Hz (note 79): there the four add up to a whole cycle.
+    let centre = 440.0 * 2f64.powf((79.0 - 69.0) / 12.0);
+    let w = std::f64::consts::PI * centre / SAMPLE_RATE as f64;
+    let pole = (1.0 - w) / (1.0 + w);
+    // The first notch is where they add up to half a cycle.
+    let turned = |hz: f64| (4.0 * stage_phase(pole, hz)).rem_euclid(2.0 * std::f64::consts::PI);
+    let notch = (100..700).map(|hz| hz as f64).min_by(|a, b| (turned(*a) - std::f64::consts::PI).abs().total_cmp(&(turned(*b) - std::f64::consts::PI).abs())).unwrap() as f32;
+
+    with_module(pd, dir, "ge-fx-phaser", &["r t-freq", "osc~ 440"], &[[0, 0, 1, 0]], [Some(1), None, None], to_left, |pd| {
+        let level = |pd: &mut Pd, hz: f32| {
+            pd.send_float("t-freq", hz);
+            rms(&settled(pd, 0.3).0)
+        };
+        // Wet only: every frequency at its level.
+        set(pd, &[("rate", 1.0), ("depth", 0.0), ("feedback", 0.0), ("mix", 1.0)]);
+        for hz in [100.0, notch, centre as f32, 3000.0] {
+            close(level(pd, hz), full, 0.02, &format!("phaser wet alone is flat at {hz} Hz"));
+        }
+        // Half and half: a notch where the stages turn the phase half a cycle, nothing lost where it is a whole one.
+        set(pd, &[("mix", 0.5)]);
+        let (in_notch, at_centre) = (level(pd, notch), level(pd, centre as f32));
+        assert!(in_notch < 0.03, "phaser has a notch at {notch} Hz, level {in_notch}");
+        close(at_centre, full, 0.02, "phaser passes its centre frequency");
+
+        // With depth the notch moves: a tone at that frequency comes and goes.
+        set(pd, &[("depth", 0.5), ("rate", 5.0)]);
+        pd.send_float("t-freq", notch);
+        let swept = settled(pd, 1.0).0;
+        let levels: Vec<f32> = swept.chunks(441).map(rms).collect();
+        let (low, high) = levels.iter().fold((f32::MAX, f32::MIN), |(lo, hi), v| (lo.min(*v), hi.max(*v)));
+        assert!(low < 0.15 && high > 0.5, "phaser sweeps its notch across the tone, level {low}..{high}");
+
+        set(pd, &[("depth", 0.3), ("feedback", 0.9), ("mix", 1.0)]);
+        let loud = peak(&settled(pd, 2.0).0);
+        assert!(loud < 12.0, "phaser with Feedback at its top stays bounded, peak {loud}");
+        println!("ge-fx-phaser: flat when wet, notch at {notch:.0} Hz (level {in_notch:.3}) mixed, swept by Depth; peak {loud:.1} at full feedback");
+    });
+}
+
+fn reverb(pd: &mut Pd, dir: &Path) {
+    let boxes = ["noise~", "r t-amp", "*~ 0"];
+    let connections = [[0, 0, 2, 0], [1, 0, 2, 1]];
+    with_module(pd, dir, "ge-fx-reverb", &boxes, &connections, [Some(2), None, None], both_outlets, |pd| {
+        set(pd, &[("size", 0.5), ("decay", 1.0), ("damp", 0.0), ("mix", 1.0)]);
+        assert_eq!(peak(&render(pd, 0.3).0), 0.0, "reverb is silent without input");
+
+        // Noise at 0.5, then nothing: how loud the room is, and how it dies away.
+        let burst = |pd: &mut Pd| {
+            pd.send_float("t-amp", 0.5);
+            let steady = render(pd, 1.5);
+            pd.send_float("t-amp", 0.0);
+            (steady, render(pd, 1.5))
+        };
+        let (steady, tail) = burst(pd);
+        let (left, right) = (rms(&steady.0[22050..]), rms(&steady.1[22050..]));
+        let input = 0.5 / 3f32.sqrt();
+        assert!(left > input * 0.4 && left < input * 2.5, "reverb's wet level is near its input's {input}, got {left}");
+        assert!((db(left / right)).abs() < 3.0, "reverb: left and right are as loud as each other, {left} / {right}");
+        let difference: Vec<f32> = steady.0.iter().zip(&steady.1).map(|(a, b)| a - b).collect();
+        assert!(rms(&difference) > left * 0.5, "reverb: left and right are not the same signal");
+        // Decay is the time to fall 60 dB: from 100 to 600 ms that is 30 dB at 1 s.
+        let fall = db(rms_between(&tail.0, 100.0, 200.0) / rms_between(&tail.0, 600.0, 700.0));
+        close(fall, 30.0, 6.0, "reverb falls 30 dB in half its Decay");
+
+        set(pd, &[("decay", 0.3)]);
+        let (_, tail) = burst(pd);
+        let quick = db(rms_between(&tail.0, 50.0, 100.0) / rms_between(&tail.0, 200.0, 250.0));
+        close(quick, 30.0, 8.0, "reverb at Decay 0.3 s falls 30 dB in 150 ms");
+
+        // Damp takes the highs out of every pass, so a damped room is quieter sooner.
+        set(pd, &[("decay", 1.0), ("damp", 0.9)]);
+        let (_, damped) = burst(pd);
+        set(pd, &[("damp", 0.0)]);
+        let (_, open) = burst(pd);
+        let (dull, bright) = (rms_between(&damped.0, 300.0, 400.0), rms_between(&open.0, 300.0, 400.0));
+        assert!(dull < bright * 0.7, "reverb with Damp up dies away sooner: {dull} against {bright}");
+
+        // The longest, largest room stays in bounds.
+        set(pd, &[("size", 1.0), ("decay", 20.0)]);
+        pd.send_float("t-amp", 0.5);
+        let loud = peak(&render(pd, 4.0).0);
+        assert!(loud < 6.0, "reverb at its longest stays bounded, peak {loud}");
+        println!("ge-fx-reverb: wet level {left:.3} / {right:.3} for an input of {input:.3}; falls {fall:.0} dB in 0.5 s at Decay 1 s, {quick:.0} dB in 0.15 s at 0.3 s; peak {loud:.1} at its longest");
+    });
+    // Dry only: the input, untouched.
+    with_shaper(pd, dir, "ge-fx-reverb", |pd| {
+        set(pd, &[("size", 0.5), ("decay", 1.0), ("damp", 0.3), ("mix", 0.0)]);
+        pd.send_float("t-amp", 0.8);
+        let (out, input) = settled(pd, 0.2);
+        let apart = out.iter().zip(&input).map(|(a, b)| (a - b).abs()).fold(0.0f32, f32::max);
+        assert!(apart < 0.0001, "reverb at Mix 0 is its input, off by {apart}");
+    });
+}
+
 // --- setting inputs ------------------------------------------------------------------------
 
 /// One render of a module with a knob at `knob` and that setting's input at `input`.
@@ -1001,6 +1238,10 @@ fn with_setting(pd: &mut Pd, dir: &Path, name: &str, inlet: usize, receiver: &st
         pd.send_float("t1-bits", 6.0);
         if name == "ge-lfo" {
             pd.send_float("t1-rate", 8.0);
+        }
+        if name.starts_with("ge-fx-") {
+            set(pd, &[("time", 80.0), ("feedback", 0.3), ("tone", 5000.0), ("mix", 0.5), ("rate", 1.0)]);
+            set(pd, &[("depth", 0.5), ("size", 0.5), ("decay", 0.5), ("damp", 0.3)]);
         }
         pd.send_float(&format!("t1-{receiver}"), knob);
         pd.send_float(&format!("t-in{inlet}"), input);
@@ -1054,6 +1295,22 @@ fn setting_inputs(pd: &mut Pd, dir: &Path) {
         ("ge-shaper-crush", 2, "bits", 8.0, 0.5),
         ("ge-lfo", 1, "rate", 16.0, 0.5),
         ("ge-lfo", 2, "level", 0.8, 0.5),
+        ("ge-fx-delay", 1, "time", 160.0, 0.5),
+        ("ge-fx-delay", 2, "feedback", 0.8, 0.5),
+        ("ge-fx-delay", 3, "tone", 800.0, 0.25),
+        ("ge-fx-delay", 4, "mix", 0.8, 0.5),
+        ("ge-fx-chorus", 1, "rate", 4.0, 0.5),
+        ("ge-fx-chorus", 2, "depth", 0.8, 0.5),
+        ("ge-fx-chorus", 3, "feedback", 0.8, 0.5),
+        ("ge-fx-chorus", 4, "mix", 0.8, 0.5),
+        ("ge-fx-phaser", 1, "rate", 4.0, 0.5),
+        ("ge-fx-phaser", 2, "depth", 0.8, 0.5),
+        ("ge-fx-phaser", 3, "feedback", 0.8, 0.5),
+        ("ge-fx-phaser", 4, "mix", 0.8, 0.5),
+        ("ge-fx-reverb", 1, "size", 0.8, 0.5),
+        ("ge-fx-reverb", 2, "decay", 2.0, 0.25),
+        ("ge-fx-reverb", 3, "damp", 0.8, 0.5),
+        ("ge-fx-reverb", 4, "mix", 0.8, 0.5),
     ];
     let mut worst = 0.0f32;
     for &(name, inlet, receiver, knob, input) in cases {
@@ -1148,6 +1405,11 @@ fn modules_do_what_they_are_designed_to() {
     envelope(&mut pd, &dir);
     lfo(&mut pd, &dir);
     random(&mut pd, &dir);
+    all_pass(&mut pd, &dir);
+    delay(&mut pd, &dir);
+    chorus(&mut pd, &dir);
+    phaser(&mut pd, &dir);
+    reverb(&mut pd, &dir);
     setting_inputs(&mut pd, &dir);
     amp_and_output(&mut pd, &dir);
 

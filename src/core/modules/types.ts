@@ -97,6 +97,12 @@ export interface ModuleDef {
    */
   holdsVoice?: boolean;
   /**
+   * The module goes on sounding after its input has stopped: a delay, a reverb. Inside a
+   * voice it is fed only while the voice is playing, and the voice is heard until the
+   * module has rung out. See `emitVoice`.
+   */
+  tail?: boolean;
+  /**
    * `rows`: the tile lists its inputs as rows, two to a grid cell under a half-cell
    * header with the name, each with its port on the left edge and, where the input has
    * a `param`, that parameter's knob beside it. `height` must be `ceil((rows + 1) / 2)`.

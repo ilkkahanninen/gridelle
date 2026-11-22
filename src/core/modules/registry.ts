@@ -144,6 +144,34 @@ const driven = (
     ...extra,
   ]);
 
+/** A left and a right output. The first is `out`, as on every module with one output. */
+const stereoOutputs: PortDef[] = [
+  { id: "out", label: "L", hint: "audio" },
+  { id: "right", label: "R", hint: "audio" },
+];
+
+/** An effect: its settings in the order of their rows, each with an input of its own. */
+const effect = (type: string, name: string, params: ParamDef[], outputs: PortDef[] = [audioOutput]): ModuleDef => {
+  const inputs = [audioInput, ...params.map((p) => settingInput(p.id, p.label))];
+  return {
+    type,
+    name,
+    category: "fx",
+    width: 2,
+    height: rowsHeight(inputs),
+    layout: "rows",
+    inputs,
+    outputs,
+    params,
+    pd: `ge-${type}`,
+    scope: "voice",
+    tail: true,
+  };
+};
+
+/** The rate of an effect's own LFO. */
+const sweepRate = (def: number): ParamDef => ({ id: "rate", label: "Rate", min: 0.02, max: 20, default: def, curve: "exp", unit: "Hz", decimals: 2 });
+
 /** Inputs of the mixer's abstraction; the editor shows only as many as are in use. */
 export const MIXER_INPUTS = 8;
 const mixerChannels = Array.from({ length: MIXER_INPUTS }, (_, i) => i + 1);
@@ -271,6 +299,9 @@ const DEFS: ModuleDef[] = [
   filter("filter-hp", "High-pass"),
   filter("filter-bp", "Band-pass"),
   filter("filter-notch", "Notch"),
+  // Lets every frequency through at full level and only turns its phase, by half a cycle at
+  // Cutoff. Mixed with its input it makes a notch there: the stage a phaser is built from.
+  filter("filter-allpass", "All-pass"),
   // tanh: rounds the peaks off, more and more squarely as it is driven. Bias shifts the
   // signal first, so one side clips sooner: the even harmonics of a tube stage.
   driven("shaper-soft", "Soft Clip", { label: "Drive", max: 36, default: 6 }, [
@@ -303,6 +334,40 @@ const DEFS: ModuleDef[] = [
     { id: "bits", label: "Bits", min: 1, max: 16, default: 8, curve: "lin" },
     // Semitones of Rate per unit of the mod input.
     { id: "mod", label: "Mod", min: -96, max: 96, default: 24, curve: "lin", unit: "st" },
+  ]),
+  // An echo. Each repeat comes back through a low-pass at Tone, times Feedback.
+  effect("fx-delay", "Delay", [
+    { id: "time", label: "Time", min: 2, max: 2000, default: 300, curve: "exp", unit: "ms" },
+    { id: "feedback", label: "Feedback", min: 0, max: 0.95, default: 0.4, curve: "lin" },
+    { id: "tone", label: "Tone", min: 200, max: 18000, default: 6000, curve: "exp", unit: "Hz" },
+    level("mix", "Mix", 1, 0.35),
+  ]),
+  // A room: fed-back delays whose length is Size and whose ring is Decay, darker with Damp.
+  effect(
+    "fx-reverb",
+    "Reverb",
+    [
+      level("size", "Size", 1, 0.5),
+      { id: "decay", label: "Decay", min: 0.1, max: 20, default: 2, curve: "exp", unit: "s" },
+      level("damp", "Damp", 1, 0.4),
+      level("mix", "Mix", 1, 0.3),
+    ],
+    stereoOutputs,
+  ),
+  // Two taps of a short delay, swept by its own LFO a quarter cycle apart. With Depth low
+  // and Feedback up it is a flanger.
+  effect(
+    "fx-chorus",
+    "Chorus",
+    [sweepRate(0.6), level("depth", "Depth", 1, 0.5), level("feedback", "Feedback", 0.9, 0), level("mix", "Mix", 1, 0.5)],
+    stereoOutputs,
+  ),
+  // Four all-pass stages swept by its own LFO, mixed with the input: notches that move.
+  effect("fx-phaser", "Phaser", [
+    sweepRate(0.4),
+    level("depth", "Depth", 1, 0.6),
+    level("feedback", "Feedback", 0.9, 0.3),
+    level("mix", "Mix", 1, 0.5),
   ]),
   {
     type: "amp",
