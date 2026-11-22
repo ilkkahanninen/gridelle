@@ -4,7 +4,7 @@
 //! [`Pd::lock`] / [`Pd::try_lock`]. Every libpd call happens with that lock held.
 
 use std::ffi::{c_char, c_float, c_int, c_void, CStr, CString};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Mutex, MutexGuard, OnceLock, TryLockError};
 
@@ -22,6 +22,9 @@ type MessageHook = extern "C" fn(*const c_char, *const c_char, c_int, *mut TAtom
 
 unsafe extern "C" {
     fn libpd_init() -> c_int;
+    fn libpd_add_to_search_path(path: *const c_char);
+    /// Setup of the `bob~` external from Pd's `extra`, compiled in by `build.rs`.
+    fn bob_tilde_setup();
     fn libpd_init_audio(in_ch: c_int, out_ch: c_int, sample_rate: c_int) -> c_int;
     fn libpd_blocksize() -> c_int;
     fn libpd_openfile(name: *const c_char, dir: *const c_char) -> *mut c_void;
@@ -165,6 +168,29 @@ pub struct Pd {
 
 static PD: OnceLock<Mutex<Pd>> = OnceLock::new();
 
+/// The Pd version on the Organelle (OS 3.x and 4.x), as `pd compatibility` takes it.
+const DEVICE_PD_VERSION: c_float = 0.49;
+
+/// The abstractions from Pd's `extra` folder that modules wrap. On the Organelle they are
+/// part of Pd's installation; here they are written to a folder on Pd's search path. An
+/// exported patch does not contain them.
+const EXTRA_ABSTRACTIONS: &[(&str, &str)] = &[
+    ("rev1~.pd", include_str!("../../vendor/libpd/pure-data/extra/rev1~.pd")),
+    ("rev1-stage.pd", include_str!("../../vendor/libpd/pure-data/extra/rev1-stage.pd")),
+    ("rev1-final.pd", include_str!("../../vendor/libpd/pure-data/extra/rev1-final.pd")),
+    ("rev2~.pd", include_str!("../../vendor/libpd/pure-data/extra/rev2~.pd")),
+    ("rev3~.pd", include_str!("../../vendor/libpd/pure-data/extra/rev3~.pd")),
+];
+
+fn write_extra_abstractions() -> std::io::Result<PathBuf> {
+    let dir = std::env::temp_dir().join("gridelle-pd-extra");
+    std::fs::create_dir_all(&dir)?;
+    for (name, text) in EXTRA_ABSTRACTIONS {
+        std::fs::write(dir.join(name), text)?;
+    }
+    Ok(dir)
+}
+
 fn cstr(s: &str) -> CString {
     CString::new(s.replace('\0', "")).expect("nul bytes removed")
 }
@@ -187,6 +213,16 @@ impl Pd {
                 libpd_set_listhook(on_list);
                 libpd_set_messagehook(on_message);
                 libpd_init();
+                bob_tilde_setup();
+                match write_extra_abstractions() {
+                    Ok(dir) => libpd_add_to_search_path(cstr(&dir.to_string_lossy()).as_ptr()),
+                    Err(e) => eprintln!("could not write Pd's extra abstractions: {e}"),
+                }
+                // Behave as the Organelle's Pd where Pd offers the choice. Of the things that
+                // make sound, that is `bob~`, whose output changed in 0.52.
+                libpd_start_message(1);
+                libpd_add_float(DEVICE_PD_VERSION);
+                libpd_finish_message(cstr("pd").as_ptr(), cstr("compatibility").as_ptr());
             }
             Mutex::new(Pd { channels: 2, _private: () })
         });

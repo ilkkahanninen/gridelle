@@ -54,11 +54,12 @@ cd src-tauri && ORGANELLE_ADDRESS=<address> cargo test --test organelle_send -- 
 | `src/ui` | React UI. |
 | `src/bridge` | The preview engine interface the UI talks to. |
 | `src-tauri` | Rust backend: libpd wrapper, audio output, sending to the Organelle, Tauri commands. |
-| `pd-lib/modules` | Pd abstractions: one per module, plus helpers they share. Vanilla Pd 0.49 only. |
+| `pd-lib/modules` | Pd abstractions: one per module, plus helpers they share. Pd 0.49 only: its core objects, and `bob~` and the `rev` reverbs from its `extra` folder. |
 | `pd-lib/host.pd` | Preview stand-in for the Organelle's host patch. Never exported. |
 | `pd-lib/spike` | Hand-written test patch for checking a device (copy it to `Patches/`). |
 
 ## Organelle target
 
-Exports target Pd 0.49 vanilla so they run on Organelle OS 4.x and 5.x. Patches send
-audio to `throw~ outL` / `throw~ outR` and never contain `dac~`.
+Exports target Pd 0.49 so they run on Organelle OS 3.x, 4.x and 5.x. A few modules (Ladder,
+Cavern, Room, Hall) use objects from Pd's own `extra` folder, which the Organelle's Pd
+includes. Patches send audio to `throw~ outL` / `throw~ outR` and never contain `dac~`.

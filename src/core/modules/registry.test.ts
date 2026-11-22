@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { abstractionLibrary } from "../pdlib";
 import { abstractionInterface, objectClasses } from "../pd/inspect";
-import { VANILLA_049_OBJECTS } from "../pd/vanilla049";
+import { isPdObject } from "../pd/vanilla049";
 import { moduleDefs, VOICE_ABSTRACTION } from "./registry";
 
 describe("module registry", () => {
@@ -115,7 +115,7 @@ describe("pd-lib", () => {
   it.each(Object.entries(abstractionLibrary))("%s only uses objects the Organelle's Pd 0.49 has", (_name, text) => {
     // Abstractions may be built from other abstractions in the library.
     const unknown = objectClasses(text).filter(
-      (name) => !VANILLA_049_OBJECTS.has(name) && !(name in abstractionLibrary),
+      (name) => !isPdObject(name) && !(name in abstractionLibrary),
     );
     expect(unknown).toEqual([]);
   });

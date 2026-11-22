@@ -1,7 +1,7 @@
 import type { PatchDocument } from "../model/types";
 import { VOICE_ABSTRACTION } from "../modules/registry";
 import { objectClasses } from "../pd/inspect";
-import { VANILLA_049_OBJECTS } from "../pd/vanilla049";
+import { isPdObject } from "../pd/vanilla049";
 import { analyze, type Diagnostic } from "./analyze";
 import { emitMain, emitVoice, paramValues, type ParamValue } from "./emit";
 import { KNOB_ABSTRACTION, knobSlots, usesKnobs, type KnobSlotValue } from "./knobPages";
@@ -41,7 +41,7 @@ function withHelpers(roots: string[], library: AbstractionLibrary): string[] {
     if (!(needed[i] in library)) continue;
     for (const name of objectClasses(library[needed[i]])) {
       // Whatever is not one of Pd's own objects has to be an abstraction.
-      if (!VANILLA_049_OBJECTS.has(name) && !needed.includes(name)) needed.push(name);
+      if (!isPdObject(name) && !needed.includes(name)) needed.push(name);
     }
   }
   return needed;

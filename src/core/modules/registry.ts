@@ -84,25 +84,33 @@ const oscillator = (type: string, name: string, own: { inputs: PortDef[]; params
 };
 
 /** The filters differ only in what they let through; they share inputs and settings. */
-const filter = (type: string, name: string): ModuleDef => ({
-  type,
-  name,
-  category: "filter",
-  width: 2,
-  height: 3,
-  layout: "rows",
+const filter = (
+  type: string,
+  name: string,
+  { res = true, outputs = [audioOutput] }: { res?: boolean; outputs?: PortDef[] } = {},
+): ModuleDef => {
+  const resonance: ParamDef = { id: "res", label: "Res", min: 0, max: 1, default: 0.2, curve: "lin" };
   // The Cutoff input multiplies the frequency; Mod adds to it in semitones, by its own knob.
-  inputs: [audioInput, settingInput("cutoff", "Cutoff"), settingInput("res", "Res"), modInput("mod")],
-  outputs: [audioOutput],
-  params: [
-    { id: "cutoff", label: "Cutoff", min: 20, max: 18000, default: 1200, curve: "exp", unit: "Hz" },
-    { id: "res", label: "Res", min: 0, max: 1, default: 0.2, curve: "lin" },
-    // Semitones of cutoff sweep per unit of the mod input.
-    { id: "mod", label: "Mod", min: -96, max: 96, default: 36, curve: "lin", unit: "st" },
-  ],
-  pd: `ge-${type}`,
-  scope: "voice",
-});
+  const inputs = [audioInput, settingInput("cutoff", "Cutoff"), ...(res ? [settingInput("res", "Res")] : []), modInput("mod")];
+  return {
+    type,
+    name,
+    category: "filter",
+    width: 2,
+    height: rowsHeight(inputs),
+    layout: "rows",
+    inputs,
+    outputs,
+    params: [
+      { id: "cutoff", label: "Cutoff", min: 20, max: 18000, default: 1200, curve: "exp", unit: "Hz" },
+      ...(res ? [resonance] : []),
+      // Semitones of cutoff sweep per unit of the mod input.
+      { id: "mod", label: "Mod", min: -96, max: 96, default: 36, curve: "lin", unit: "st" },
+    ],
+    pd: `ge-${type}`,
+    scope: "voice",
+  };
+};
 
 /**
  * A shaper: its settings in the order of their rows. Each has an input of its own, except
@@ -169,6 +177,11 @@ const effect = (type: string, name: string, params: ParamDef[], outputs: PortDef
   };
 };
 
+/** How long Pd's own reverbs ring: the time to fall 60 dB. */
+const reverbDecay: ParamDef = { id: "decay", label: "Decay", min: 0.2, max: 20, default: 2, curve: "exp", unit: "s" };
+/** The frequency above which their Damp works. */
+const reverbTone: ParamDef = { id: "tone", label: "Tone", min: 500, max: 12000, default: 3000, curve: "exp", unit: "Hz" };
+
 /** The rate of an effect's own LFO. */
 const sweepRate = (def: number): ParamDef => ({ id: "rate", label: "Rate", min: 0.02, max: 20, default: def, curve: "exp", unit: "Hz", decimals: 2 });
 
@@ -230,6 +243,23 @@ const DEFS: ModuleDef[] = [
     scope: "voice",
   },
   {
+    // Takes a sample of In each time Trig rises above a half, and holds it. Trig follows the
+    // key gate, so by default it holds one value for each note.
+    type: "sample-hold",
+    name: "Sample & Hold",
+    category: "random",
+    width: 2,
+    height: 1,
+    inputs: [
+      { id: "in", label: "In", hint: "mod" },
+      { id: "trig", label: "Trig", hint: "gate", precord: "gate" },
+    ],
+    outputs: [{ id: "out", label: "Out", hint: "mod" }],
+    params: [],
+    pd: "ge-sample-hold",
+    scope: "voice",
+  },
+  {
     // Each stage has an input that its knob scales: the time or level in use is knob x input,
     // read when the stage starts (A, D and S at key down, R at key up).
     type: "env-adsr",
@@ -255,6 +285,21 @@ const DEFS: ModuleDef[] = [
     pd: "ge-env-adsr",
     scope: "voice",
     holdsVoice: true,
+  },
+  {
+    // How loud its input is, as a modulation signal: the rms level, times Level. Smooth is
+    // how long it takes to reach each new measurement (Pd's `env~` makes 86 a second).
+    type: "follower",
+    name: "Follower",
+    category: "envelope",
+    width: 2,
+    height: 2,
+    layout: "rows",
+    inputs: [audioInput, settingInput("smooth", "Smooth"), settingInput("level", "Level")],
+    outputs: [{ id: "out", label: "Out", hint: "mod" }],
+    params: [{ id: "smooth", label: "Smooth", min: 5, max: 1000, default: 50, curve: "exp", unit: "ms" }, level("level", "Level", 4)],
+    pd: "ge-follower",
+    scope: "voice",
   },
   {
     // A rising edge at Reset starts the wave again. It follows the key gate, so each note's
@@ -302,6 +347,21 @@ const DEFS: ModuleDef[] = [
   // Lets every frequency through at full level and only turns its phase, by half a cycle at
   // Cutoff. Mixed with its input it makes a notch there: the stage a phaser is built from.
   filter("filter-allpass", "All-pass"),
+  // The filters below wrap objects of Pd itself, for other flavours of the same jobs.
+  // Pd's `bob~`, a simulation of the Moog ladder: it saturates, and from a Res of about 0.9
+  // it sings by itself at its cutoff. In Pd before 0.52, which the Organelle has, `bob~`
+  // gives the first of its four stages: 6 dB an octave above the cutoff, not 24.
+  filter("filter-ladder", "Ladder"),
+  // Pd's `vcf~`: a filter that rings at its frequency, with a band-pass and a low-pass output.
+  filter("filter-resonator", "Resonator", {
+    outputs: [
+      { id: "out", label: "Band", hint: "audio" },
+      { id: "low", label: "Low", hint: "audio" },
+    ],
+  }),
+  // The gentle 6 dB an octave of Pd's `lop~` and `hip~`, with no resonance.
+  filter("filter-soft-lp", "Soft Low-pass", { res: false }),
+  filter("filter-soft-hp", "Soft High-pass", { res: false }),
   // tanh: rounds the peaks off, more and more squarely as it is driven. Bias shifts the
   // signal first, so one side clips sooner: the even harmonics of a tube stage.
   driven("shaper-soft", "Soft Clip", { label: "Drive", max: 36, default: 6 }, [
@@ -369,6 +429,13 @@ const DEFS: ModuleDef[] = [
     level("feedback", "Feedback", 0.9, 0.3),
     level("mix", "Mix", 1, 0.5),
   ]),
+  // Pd's own reverbs, from its `extra` folder. Cavern (`rev1~`) is a row of all-pass delays
+  // growing to a second and a half, so it echoes; Room (`rev2~`) is the light one, with four
+  // delays; Hall (`rev3~`) has sixteen and is the densest and the heaviest.
+  // The Cavern cannot ring for less than a couple of seconds: its delays are that long.
+  effect("fx-cavern", "Cavern", [{ ...reverbDecay, min: 2.5, max: 40, default: 5 }, level("mix", "Mix", 1, 0.3)]),
+  effect("fx-room", "Room", [reverbDecay, level("damp", "Damp", 1, 0.3), reverbTone, level("mix", "Mix", 1, 0.3)], stereoOutputs),
+  effect("fx-hall", "Hall", [reverbDecay, level("damp", "Damp", 1, 0.3), reverbTone, level("mix", "Mix", 1, 0.3)], stereoOutputs),
   {
     type: "amp",
     name: "Amp",

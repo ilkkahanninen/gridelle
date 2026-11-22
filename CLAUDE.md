@@ -76,7 +76,7 @@ A module is two things that must agree:
 - a `ModuleDef` in `src/core/modules/registry.ts` (ports, params, tile size, scope);
 - `pd-lib/modules/<def.pd>.pd`, a flat abstraction whose `inlet~`/`outlet~` objects match the def's inputs/outputs left to right, and which has one `[r $1-<paramId>]` per param. No control inlets or outlets.
 
-`registry.test.ts` enforces the match by parsing the `.pd` text (`src/core/pd/inspect.ts`, flat patches only, no subpatches). It also checks that every object class used is in the allowlist in `src/core/pd/vanilla049.ts`. The preview embeds a newer Pd than the device has, so an object missing from that list could work in the editor and fail on the Organelle; extend the list only after checking it exists in Pd 0.49 vanilla.
+`registry.test.ts` enforces the match by parsing the `.pd` text (`src/core/pd/inspect.ts`, flat patches only, no subpatches). It also checks that every object class used is one the device has: the allowlist of Pd 0.49's core in `src/core/pd/vanilla049.ts`, or `PD_EXTRA_049` there, the few objects from Pd's `extra` folder that modules wrap (see below). The preview embeds a newer Pd than the device has, so an object missing from those lists could work in the editor and fail on the Organelle; extend them only after checking the object exists in Pd 0.49.
 
 Params are stored and sent in real units (Hz, ms, semitones). `ParamDef.decimals` fixes how many decimals a value is shown with, in the editor and on the Organelle's screen, where the default (fewer for a wider range) would hide the low end, as with an LFO's 0.02 Hz. `params.ts` maps a 0–1 control position to a value (`lin`/`exp`); `knobPages.ts` emits the same mapping as Pd objects, so the two must stay equivalent.
 
@@ -121,6 +121,14 @@ A bare `;` in a Pd comment ends the box, and Pd then tries to deliver the rest a
 - A delay line that feeds itself cannot be shorter than one block (64 samples, 1.5 ms): the Delay's shortest time, the Chorus's 2 ms base and the Reverb's shortest all-pass (1.7 ms) are all above it. The Phaser needs its feedback sooner than that, so it runs at `block~ 16`.
 - Delay: `vd~`, fed back through a one-pole low-pass (`rpole~` with a signal coefficient) at Tone. Chorus: two `vd~` taps swept a quarter cycle apart by its own LFO, the left one fed back. Phaser: four first-order all-pass stages (`rzero_rev~` then `rpole~` with the same coefficient), swept in pitch around 784 Hz. Reverb: four fed-back delays in parallel, each with the gain that makes it fall 60 dB in Decay seconds and a low-pass at Damp, summed differently for left and right, then two Schroeder all-pass delays a side.
 - All-pass (in the Filter group) is the input minus twice the band-pass, from the same `ge-filter-poles`.
+
+**Wrappers of Pd's own objects.** Some modules are a thin patch around an object of Pd itself, for another flavour of a job Gridelle already does: Ladder (`bob~`), Resonator (`vcf~`), Soft Low-pass and Soft High-pass (`lop~`, `hip~`), Cavern, Room and Hall (`rev1~`, `rev2~`, `rev3~`), Sample & Hold (`samphold~`) and Follower (`env~`).
+
+- `bob~` and the three reverbs live in Pd's `extra` folder. An exported patch names them and does not carry them: the Organelle's Pd has them. The preview's Pd gets them in `Pd::init()` (`engine/pd.rs`): `bob~` is compiled in and set up there, and the reverbs' five `.pd` files are embedded from the vendored Pd, written to a temp folder and put on the search path. A new one needs `PD_EXTRA_049`, and `EXTRA_SOURCES` in `build.rs` or `EXTRA_ABSTRACTIONS` in `pd.rs`.
+- `Pd::init()` also sends `pd compatibility 0.49`, so the preview behaves as the device's Pd where Pd offers the choice. Of the things that make sound that is `bob~`, which before 0.52 gave the first of its four stages: on the Organelle the Ladder falls 6 dB an octave, not 24. The DSP test measures exactly that.
+- Where Pd wants a setting as a number (the Resonator's Q, the reverbs' decay, damping and crossover, the Follower's Smooth), the knob times its input is read with `snapshot~` on a 10 ms `metro` and sent on when it has changed. Those inputs work, but not per sample.
+- The soft filters are not the objects themselves: `lop~` and `hip~` take their cutoff as a number in Pd 0.49. They are rebuilt from `rpole~` and `rzero~` with the same coefficients, and the DSP test compares them with the real objects.
+- Decay is in seconds on all reverbs. For Room and Hall it becomes a liveness percentage through a loop time measured in the DSP test. For the Cavern, `rev1~`'s help is wrong about its own setting: measured, it takes 216 / (100 - dB) seconds to fall 60 dB and never under 2.2 s, so that is the formula used and the range offered.
 
 **Rows layout.** `layout: "rows"` (every module with knobs) lists a module's inputs as rows, two to a grid cell under a half-cell header: the port on the left edge and, where the input has a `param`, that knob beside it. `height` must be `ceil((rows + 1) / 2)`; `registry.test.ts` checks it. `portOffset` in `ui/canvas/geometry.ts` places both the ports and the knobs. A tile one cell wide (Amp, Audio Out) shows the knobs without names. Voice Sum and Noise, with no knobs, keep the plain layout: ports down the edges.
 
@@ -170,13 +178,13 @@ Hot reload does not survive an edit to these store modules: the UI switches to a
 
 The UI reaches Pd only through the `PreviewEngine` interface in `src/bridge/engine.ts` (Tauri commands `engine_*` plus the `pd-event` event); in a plain browser it is replaced by a silent stub. File dialogs and disk access are in `src/bridge/files.ts`. The Tauri commands are in `src-tauri/src/lib.rs`. The capability file grants only `core`, `opener` and `dialog`: reading, saving and exporting go through the custom commands there (`read_text_file`, `write_text_file`, `export_patch`), not a Tauri fs plugin.
 
-- `build.rs` compiles libpd's C sources straight from the `vendor/libpd` submodule with `cc`: single precision, and without the `extra` externals (`bob~`, `sigmund~`, …) on purpose, since they may be missing on the device.
+- `build.rs` compiles libpd's C sources straight from the `vendor/libpd` submodule with `cc`: single precision, and of the `extra` externals only those a module wraps (`EXTRA_SOURCES`, so far `bob~`), so that nothing else can work in the preview by accident.
 - `engine/pd.rs` is the safe wrapper. libpd is global state, so there is one `Pd` behind a mutex and every libpd call holds it. `Pd::init()` returns the event receiver only on its first call in a process, which is why each file in `src-tauri/tests` has a single `#[test]`.
 - `engine/audio.rs` runs Pd inside the cpal callback (`try_lock`, never blocking), applies queued messages from a lock-free ring buffer at the start of each callback, and swaps patches by fading out, taking the lock, closing the old patch and opening the new one from a per-revision temp directory.
 
 ### The Organelle contract
 
-Exported patches must run on the device's stock Pd (0.49 vanilla on OS 4.x, no externals) under the Organelle's own host patch:
+Exported patches must run on the device's stock Pd (0.49 on OS 3.x and 4.x: its core objects and what its own `extra` folder holds, no other externals) under the Organelle's own host patch:
 
 - Input from the host: `notes` (pitch velocity), `knob1`–`knob4` (0–1), `aux`.
 - Output to the host: `throw~ outL` / `throw~ outR`, `screenLine1`–`screenLine5`, `led`.

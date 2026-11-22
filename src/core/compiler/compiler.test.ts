@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { basicSynth, fixtures, sharedFilter } from "../fixtures";
 import { DOCUMENT_VERSION, type PatchDocument } from "../model/types";
 import { objectBoxes, objectClasses } from "../pd/inspect";
-import { VANILLA_049_OBJECTS } from "../pd/vanilla049";
+import { PD_EXTRA_049, VANILLA_049_OBJECTS } from "../pd/vanilla049";
 import { abstractionLibrary } from "../pdlib";
 import { compile } from "./index";
 
@@ -255,6 +255,18 @@ describe("compile", () => {
     // The LFO's second outlet goes straight into the delay's Time input; the saw does not go straight in.
     expect(voice).toContain(`#X connect ${lfo} 1 ${delay} 1;`);
     expect(voice).not.toContain(`#X connect ${saw} 0 ${delay} 0;`);
+  });
+
+  it("names the objects from Pd's extra folder without shipping them", () => {
+    const result = compile(fixtures.flavours, abstractionLibrary);
+    expect(result.diagnostics).toEqual([]);
+    // The wrappers use them ...
+    const used = new Set(Object.values(result.files).flatMap((text) => objectClasses(text)));
+    for (const name of PD_EXTRA_049) expect(used, name).toContain(name);
+    // ... but the folder holds only Gridelle's own files: the device's Pd has the rest.
+    expect(Object.keys(result.files).filter((file) => !/^(main|voice|ge-[a-z-]+)\.pd$/.test(file))).toEqual([]);
+    // Nothing in the core list is also in the extra list.
+    for (const name of PD_EXTRA_049) expect(VANILLA_049_OBJECTS.has(name), name).toBe(false);
   });
 
   it("sends the right channel what the left gets when only left is patched", () => {

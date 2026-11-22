@@ -240,6 +240,51 @@ export const voiceEffects: PatchDocument = settle({
   pages: [],
 });
 
+/**
+ * The modules that wrap objects of Pd itself: the filters in a row, the three reverbs after
+ * the Amp, a Sample & Hold of noise on the Ladder's Mod and a Follower on the Soft Low-pass.
+ * The Cavern is mixed in very low, because it cannot ring for less than two seconds.
+ */
+export const flavours: PatchDocument = settle({
+  version: DOCUMENT_VERSION,
+  name: "Flavours",
+  voices: 2,
+  modules: [
+    { id: "ge1", type: "osc-saw", x: 0, y: 0, params: {} },
+    { id: "ge2", type: "filter-ladder", x: 2, y: 0, params: { cutoff: 2000, res: 0.3, mod: 12 } },
+    { id: "ge3", type: "filter-resonator", x: 4, y: 0, params: { cutoff: 800, res: 0.2 } },
+    { id: "ge4", type: "filter-soft-lp", x: 6, y: 0, params: { cutoff: 6000, mod: 24 } },
+    { id: "ge5", type: "filter-soft-hp", x: 8, y: 0, params: { cutoff: 80 } },
+    { id: "ge6", type: "amp", x: 10, y: 0, params: {} },
+    { id: "ge7", type: "env-adsr", x: 10, y: 3, params: { release: 100 } },
+    { id: "ge8", type: "fx-cavern", x: 11, y: 0, params: { mix: 0.03 } },
+    { id: "ge9", type: "fx-room", x: 13, y: 0, params: { decay: 0.3 } },
+    { id: "ge10", type: "fx-hall", x: 15, y: 0, params: { decay: 0.3 } },
+    { id: "ge11", type: "audio-out", x: 17, y: 0, params: { level: 0.2 } },
+    { id: "ge12", type: "noise", x: 0, y: 4, params: {} },
+    { id: "ge13", type: "sample-hold", x: 1, y: 4, params: {} },
+    { id: "ge14", type: "follower", x: 4, y: 4, params: {} },
+  ],
+  cables: [
+    { from: { module: "ge1", port: "out" }, to: { module: "ge2", port: "in" } },
+    { from: { module: "ge2", port: "out" }, to: { module: "ge3", port: "in" } },
+    { from: { module: "ge3", port: "low" }, to: { module: "ge4", port: "in" } },
+    { from: { module: "ge4", port: "out" }, to: { module: "ge5", port: "in" } },
+    { from: { module: "ge5", port: "out" }, to: { module: "ge6", port: "in" } },
+    { from: { module: "ge7", port: "out" }, to: { module: "ge6", port: "cv" } },
+    { from: { module: "ge6", port: "out" }, to: { module: "ge8", port: "in" } },
+    { from: { module: "ge8", port: "out" }, to: { module: "ge9", port: "in" } },
+    { from: { module: "ge9", port: "out" }, to: { module: "ge10", port: "in" } },
+    { from: { module: "ge10", port: "out" }, to: { module: "ge11", port: "left" } },
+    { from: { module: "ge10", port: "right" }, to: { module: "ge11", port: "right" } },
+    { from: { module: "ge12", port: "out" }, to: { module: "ge13", port: "in" } },
+    { from: { module: "ge13", port: "out" }, to: { module: "ge2", port: "mod" } },
+    { from: { module: "ge1", port: "out" }, to: { module: "ge14", port: "in" } },
+    { from: { module: "ge14", port: "out" }, to: { module: "ge4", port: "mod" } },
+  ],
+  pages: [],
+});
+
 export const fixtures = {
   "basic-synth": basicSynth,
   "shared-filter": sharedFilter,
@@ -247,4 +292,5 @@ export const fixtures = {
   shapers,
   "bare-oscillator": bareOscillator,
   "voice-effects": voiceEffects,
+  flavours,
 } as const;

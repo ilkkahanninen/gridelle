@@ -6,8 +6,8 @@
  * would work in the editor and fail on the device. Everything listed here exists in
  * Pd 0.49 vanilla core; add to it only after checking the Pd release notes.
  *
- * Deliberately absent: `slop~`, `pdcontrol`, `file` (0.50+), the `extra` objects
- * (`bob~`, `sigmund~`, `rev1~`–`rev3~`), which may not be installed on OS 4.x.
+ * Deliberately absent: `slop~`, `pdcontrol`, `file` (0.50+). The objects from Pd's
+ * `extra` folder that modules may use are listed separately, in `PD_EXTRA_049`.
  */
 export const VANILLA_049_OBJECTS: ReadonlySet<string> = new Set([
   // structure
@@ -34,3 +34,15 @@ export const VANILLA_049_OBJECTS: ReadonlySet<string> = new Set([
   // expr family (vanilla since 0.47; confirm on the device before modules rely on it)
   "expr", "expr~",
 ]);
+
+/**
+ * Objects from Pd's `extra` folder that modules wrap: an external (`bob~`) and
+ * abstractions (the reverbs). They are part of Pd's installation on the Organelle and
+ * were in `extra` in Pd 0.49, so an exported patch names them and does not carry them.
+ * The preview's own Pd gets them from `src-tauri`: `build.rs` compiles the external and
+ * `engine/pd.rs` puts the abstractions on the search path. Adding one here needs both.
+ */
+export const PD_EXTRA_049: ReadonlySet<string> = new Set(["bob~", "rev1~", "rev2~", "rev3~"]);
+
+/** Whether an object class is one of Pd's own, in the core or in `extra`. */
+export const isPdObject = (name: string) => VANILLA_049_OBJECTS.has(name) || PD_EXTRA_049.has(name);

@@ -1,7 +1,7 @@
 //! Measures what the module abstractions in `pd-lib/modules` actually do, in real Pd:
 //! oscillator pitch, level, aliasing and modulation, filter frequency responses, the
-//! shapers' curves, mixer sums, the envelope's stages, the LFOs, the effects, and that every
-//! setting's input multiplies its knob.
+//! shapers' curves, mixer sums, the envelope's stages, the LFOs, the effects, the wrappers of
+//! Pd's own filters and reverbs, and that every setting's input multiplies its knob.
 //!
 //! Each check loads a few-box test patch around one abstraction and analyses the audio
 //! it renders. libpd is a single global instance, so everything runs from one test.
@@ -65,7 +65,11 @@ fn inlets_of(name: &str) -> &'static [Inlet] {
         "ge-osc-sine" | "ge-osc-tri" | "ge-osc-saw" => &[Main, Setting, Setting, Mod],
         "ge-osc-pulse" => &[Main, Setting, Setting, Setting, Pwm, Mod],
         "ge-filter-lp" | "ge-filter-hp" | "ge-filter-bp" | "ge-filter-notch" | "ge-filter-allpass" => &[Main, Setting, Setting, Mod],
-        "ge-fx-delay" | "ge-fx-chorus" | "ge-fx-phaser" | "ge-fx-reverb" => &[Main, Setting, Setting, Setting, Setting],
+        "ge-fx-delay" | "ge-fx-chorus" | "ge-fx-phaser" | "ge-fx-reverb" | "ge-fx-room" | "ge-fx-hall" => &[Main, Setting, Setting, Setting, Setting],
+        "ge-filter-ladder" | "ge-filter-resonator" => &[Main, Setting, Setting, Mod],
+        "ge-filter-soft-lp" | "ge-filter-soft-hp" => &[Main, Setting, Mod],
+        "ge-fx-cavern" | "ge-follower" => &[Main, Setting, Setting],
+        "ge-sample-hold" => &[Main, Mod],
         "ge-shaper-soft" | "ge-shaper-fold" | "ge-shaper-cheby" => &[Main, Setting, Mod, Setting],
         "ge-shaper-hard" | "ge-shaper-rectify" => &[Main, Setting, Mod],
         "ge-shaper-crush" => &[Main, Setting, Setting, Mod],
@@ -396,9 +400,14 @@ fn designed_gain(kind: Kind, cutoff: f32, res: f32, hz: f32) -> f32 {
 
 /// `[osc~] → [filter] → left`, with `[sig~]` on the Mod input.
 fn with_filter<T>(pd: &mut Pd, dir: &Path, kind: Kind, measure: impl FnOnce(&mut Pd) -> T) -> T {
+    with_filter_named(pd, dir, kind.abstraction(), measure)
+}
+
+/// The same for any filter abstraction. The sine's frequency is set through `t-freq`.
+fn with_filter_named<T>(pd: &mut Pd, dir: &Path, name: &str, measure: impl FnOnce(&mut Pd) -> T) -> T {
     let boxes = ["r t-freq", "osc~ 440", "r t-mod", "sig~ 0"];
     let connections = [[0, 0, 1, 0], [2, 0, 3, 0]];
-    with_module(pd, dir, kind.abstraction(), &boxes, &connections, [Some(1), Some(3), None], to_left, measure)
+    with_module(pd, dir, name, &boxes, &connections, [Some(1), Some(3), None], to_left, measure)
 }
 
 /// Gain in dB for a sine at `hz` with the filter set as given.
@@ -1222,6 +1231,288 @@ fn reverb(pd: &mut Pd, dir: &Path) {
     });
 }
 
+// --- wrappers of Pd's own filters and reverbs ----------------------------------------------
+
+/// The soft filters are `lop~` and `hip~` rebuilt so that the cutoff can move at audio rate:
+/// with a fixed cutoff they must give what the objects themselves give, here on the right.
+fn soft_filters(pd: &mut Pd, dir: &Path) {
+    let mut worst = 0.0f32;
+    for (name, object) in [("ge-filter-soft-lp", "lop~ 1000"), ("ge-filter-soft-hp", "hip~ 1000")] {
+        let boxes = ["r t-freq", "osc~ 440", "r t-mod", "sig~ 0", "r t-cut", object, "dac~ 2"];
+        let connections = [[0, 0, 1, 0], [2, 0, 3, 0], [4, 0, 5, 1], [1, 0, 5, 0], [5, 0, 6, 0]];
+        with_module(pd, dir, name, &boxes, &connections, [Some(1), Some(3), None], to_left, |pd| {
+            for cutoff in [200.0, 1000.0, 6000.0] {
+                for hz in [80.0, 1000.0, 9000.0] {
+                    pd.send_float("t1-cutoff", cutoff);
+                    pd.send_float("t-cut", cutoff);
+                    pd.send_float("t-freq", hz);
+                    let (ours, theirs) = settled(pd, 0.2);
+                    let apart = ours.iter().zip(&theirs).map(|(a, b)| (a - b).abs()).fold(0.0f32, f32::max);
+                    assert!(apart < 0.002, "{name} at {cutoff} Hz differs from [{object}] by {apart} for a {hz} Hz sine");
+                    assert!(rms(&theirs) > 0.0005, "{object} lets something through to compare with");
+                    worst = worst.max(apart);
+                }
+            }
+        });
+    }
+    println!("ge-filter-soft-lp / -hp: within {worst:.5} of Pd's own lop~ and hip~");
+}
+
+/// Gain in dB of a filter for a quiet sine at `hz` (quiet, because the Ladder saturates).
+fn quiet_db(pd: &mut Pd, hz: f32) -> f32 {
+    pd.send_float("t-freq", hz);
+    db(rms(&settled(pd, 0.3).0) / (0.1 * std::f32::consts::FRAC_1_SQRT_2))
+}
+
+/// A filter abstraction fed a sine of amplitude 0.1; with `both`, its two outlets left and right.
+fn with_quiet_filter<T>(pd: &mut Pd, dir: &Path, name: &str, both: bool, measure: impl FnOnce(&mut Pd) -> T) -> T {
+    let boxes = ["r t-freq", "osc~ 440", "*~ 0.1", "r t-mod", "sig~ 0"];
+    let connections = [[0, 0, 1, 0], [1, 0, 2, 0], [3, 0, 4, 0]];
+    let after = if both { both_outlets } else { to_left };
+    with_module(pd, dir, name, &boxes, &connections, [Some(2), Some(4), None], after, measure)
+}
+
+fn ladder(pd: &mut Pd, dir: &Path) {
+    with_quiet_filter(pd, dir, "ge-filter-ladder", false, |pd| {
+        let curve = |pd: &mut Pd, res: f32| -> Vec<f32> {
+            set(pd, &[("cutoff", 1000.0), ("res", res)]);
+            [125.0, 500.0, 1000.0, 2000.0, 8000.0].iter().map(|hz| quiet_db(pd, *hz)).collect()
+        };
+        let (plain, half, high) = (curve(pd, 0.0), curve(pd, 0.5), curve(pd, 0.8));
+        println!("ge-filter-ladder at 1 kHz, gain in dB at 125 / 500 / 1k / 2k / 8k Hz: Res 0 {plain:.1?}, Res 0.5 {half:.1?}, Res 0.8 {high:.1?}");
+        // A low-pass: lows pass and highs fall away. With Pd 0.49's bob~ that is 6 dB an octave,
+        // the first of its four stages: three octaves up it is 18 dB down.
+        assert!(plain[0].abs() < 1.0, "ladder passes lows at Res 0, {} dB", plain[0]);
+        close(plain[2], -3.0, 1.0, "ladder is 3 dB down at its cutoff at Res 0");
+        close(plain[4], -18.0, 2.0, "ladder falls 6 dB an octave above its cutoff");
+        // Resonance lifts the cutoff and takes from the lows, as on the original.
+        assert!(high[2] > high[0] + 15.0, "ladder has a peak at the cutoff with Res up: {} dB against {} for lows", high[2], high[0]);
+        assert!(half[0] < plain[0] - 6.0, "ladder's resonance takes from the lows: {} dB against {}", half[0], plain[0]);
+
+        // At full Res it sings by itself, at its cutoff: here with next to nothing going in.
+        set(pd, &[("cutoff", 700.0), ("res", 1.0)]);
+        pd.send_float("t-freq", 50.0);
+        let singing = settled(pd, 1.0).0;
+        assert!(rms(&singing) > 0.3, "ladder sings at full Res, rms {}", rms(&singing));
+        close(frequency(&singing), 700.0, 35.0, "ladder sings at its cutoff");
+        // The Cutoff input closes it.
+        set(pd, &[("cutoff", 4000.0), ("res", 0.0)]);
+        let open = quiet_db(pd, 1000.0);
+        pd.send_float("t-in1", 0.0625);
+        let closed = quiet_db(pd, 1000.0);
+        assert!(closed < open - 6.0, "ladder's Cutoff input closes it: {closed} dB against {open}");
+        println!("ge-filter-ladder: sings at {:.0} Hz (rms {:.2}) at full Res with its cutoff at 700 Hz", frequency(&singing), rms(&singing));
+    });
+    // Wide open, full resonance, full level: it must stay in bounds.
+    let loud = with_filter_named(pd, dir, "ge-filter-ladder", |pd| {
+        let mut worst = 0.0f32;
+        for (cutoff, res) in [(18000.0, 1.0), (18000.0, 0.0), (60.0, 1.0), (2000.0, 1.0)] {
+            set(pd, &[("cutoff", cutoff), ("res", res)]);
+            for hz in [50.0, 2000.0, 15000.0] {
+                pd.send_float("t-freq", hz);
+                let out = settled(pd, 0.3).0;
+                assert!(out.iter().all(|v| v.is_finite()), "ladder stays finite at cutoff {cutoff}, res {res}, {hz} Hz");
+                worst = worst.max(peak(&out));
+            }
+        }
+        worst
+    });
+    assert!(loud < 4.0, "ladder stays in bounds, peak {loud}");
+    println!("ge-filter-ladder: peak {loud:.2} at its extremes with a full-level sine");
+}
+
+fn resonator(pd: &mut Pd, dir: &Path) {
+    with_quiet_filter(pd, dir, "ge-filter-resonator", true, |pd| {
+        // (band, low) in dB for a sine at `hz`.
+        let levels = |pd: &mut Pd, hz: f32| {
+            pd.send_float("t-freq", hz);
+            let (band, low) = settled(pd, 0.3);
+            let full = 0.1 * std::f32::consts::FRAC_1_SQRT_2;
+            (db(rms(&band) / full), db(rms(&low) / full))
+        };
+        // Res is read every 10 ms: give it that before measuring.
+        let tuned = |pd: &mut Pd, cutoff: f32, res: f32| {
+            set(pd, &[("cutoff", cutoff), ("res", res)]);
+            render(pd, 0.05);
+        };
+        // It rings at its cutoff: full level there, less either side, and narrower as Res rises.
+        tuned(pd, 1000.0, 0.5);
+        let (at, below, above) = (levels(pd, 1000.0), levels(pd, 500.0), levels(pd, 2000.0));
+        close(at.0, 0.0, 1.5, "resonator's band output is at full level at its cutoff");
+        assert!(below.0 < -12.0 && above.0 < -12.0, "resonator falls away an octave either side: {} and {} dB", below.0, above.0);
+        tuned(pd, 1000.0, 0.9);
+        let narrow = levels(pd, 500.0);
+        assert!(narrow.0 < below.0 - 10.0, "resonator is narrower with Res up: {} dB an octave down against {}", narrow.0, below.0);
+        // The low output keeps what is below the cutoff, and loses the highs faster.
+        tuned(pd, 1000.0, 0.5);
+        let (low_lows, low_highs, band_lows) = (levels(pd, 125.0).1, levels(pd, 8000.0).1, levels(pd, 125.0).0);
+        assert!(low_lows > band_lows + 8.0, "resonator's low output keeps lows the band loses: {low_lows} dB against {band_lows}");
+        assert!(low_highs < low_lows - 25.0, "resonator's low output loses the highs: {low_highs} dB against {low_lows}");
+        // It works all the way up, which a low-pass built on vcf~ once did not.
+        tuned(pd, 18000.0, 0.5);
+        pd.send_float("t-in1", 1.2);
+        let top = levels(pd, 18000.0);
+        assert!(top.0 > -6.0 && top.0 < 6.0 && top.1.is_finite(), "resonator still works at the top of its range: {top:?}");
+        pd.send_float("t-in1", 1.0);
+        // The Res input multiplies Res: 0.8 x 0.5 is as narrow as 0.4.
+        tuned(pd, 1000.0, 0.4);
+        let direct = levels(pd, 500.0).0;
+        set(pd, &[("res", 0.8)]);
+        pd.send_float("t-in2", 0.5);
+        render(pd, 0.05);
+        close(levels(pd, 500.0).0, direct, 0.2, "resonator's Res input multiplies Res");
+        println!("ge-filter-resonator at 1 kHz: band {:.1} dB at the cutoff, {:.1} / {:.1} an octave down at Res 0.5 / 0.9; low output {low_lows:.1} dB at 125 Hz, {low_highs:.1} at 8 kHz", at.0, below.0, narrow.0);
+    });
+}
+
+/// Seconds for the tail to fall 60 dB, from its slope between two windows.
+fn decay_time(tail: &[f32], from: f32, to: f32, window: f32) -> f32 {
+    let fall = db(rms_between(tail, from, from + window) / rms_between(tail, to, to + window));
+    60.0 * (to - from) / 1000.0 / fall
+}
+
+/// Seconds until the tail has fallen 60 dB below `level`, measured in 50 ms windows.
+fn time_to_silence(tail: &[f32], level: f32) -> f32 {
+    tail.chunks(2205).position(|window| rms(window) < level * 0.001).map(|i| i as f32 * 0.05).unwrap_or(f32::INFINITY)
+}
+
+fn pd_reverbs(pd: &mut Pd, dir: &Path) {
+    let boxes = ["noise~", "r t-amp", "*~ 0"];
+    let connections = [[0, 0, 2, 0], [1, 0, 2, 1]];
+    let input = 0.5 / 3f32.sqrt();
+    // The two decay times to measure. The Cavern cannot do short ones: its delays are too long.
+    for (name, stereo, short, long) in [("ge-fx-cavern", false, 3.0, 8.0), ("ge-fx-room", true, 1.0, 4.0), ("ge-fx-hall", true, 1.0, 4.0)] {
+        let after = if stereo { both_outlets } else { to_left };
+        with_module(pd, dir, name, &boxes, &connections, [Some(2), None, None], after, |pd| {
+            // Decay, Damp and Tone are read every 10 ms: give them that before going on.
+            let tuned = |pd: &mut Pd, settings: &[(&str, f32)]| {
+                set(pd, settings);
+                render(pd, 0.05);
+            };
+            // Noise for two seconds, then the tail.
+            let burst = |pd: &mut Pd, tail: f32| {
+                pd.send_float("t-amp", 0.5);
+                let steady = render(pd, 2.0);
+                pd.send_float("t-amp", 0.0);
+                (steady, render(pd, tail))
+            };
+            tuned(pd, &[("decay", short), ("damp", 0.0), ("tone", 3000.0), ("mix", 1.0)]);
+            assert_eq!(peak(&render(pd, 0.3).0), 0.0, "{name} is silent without input");
+
+            let (steady, tail) = burst(pd, short * 2.0);
+            let level = rms(&steady.0[44100..]);
+            assert!(level > input * 0.5 && level < input * 2.0, "{name}'s wet level is near its input's {input}, got {level}");
+            let brief = if stereo { decay_time(&tail.0, 100.0, 500.0, 100.0) } else { time_to_silence(&tail.0, level) };
+            close(brief, short, short * 0.25, &format!("{name} rings for its Decay of {short} s"));
+            if stereo {
+                let right = rms(&steady.1[44100..]);
+                assert!(db(level / right).abs() < 3.0, "{name}: left and right are as loud as each other, {level} / {right}");
+                let difference: Vec<f32> = steady.0.iter().zip(&steady.1).map(|(a, b)| a - b).collect();
+                assert!(rms(&difference) > level * 0.5, "{name}: left and right are not the same signal");
+            }
+
+            tuned(pd, &[("decay", long)]);
+            let (steady, tail) = burst(pd, long * 2.0);
+            let level = rms(&steady.0[44100..]);
+            let lasting = if stereo { decay_time(&tail.0, 200.0, 1700.0, 300.0) } else { time_to_silence(&tail.0, level) };
+            close(lasting, long, long * 0.25, &format!("{name} rings for its Decay of {long} s"));
+
+            // The Decay input multiplies the time.
+            pd.send_float("t-in1", short / long);
+            render(pd, 0.05);
+            let (steady, tail) = burst(pd, short * 2.0);
+            let scaled = if stereo { decay_time(&tail.0, 100.0, 500.0, 100.0) } else { time_to_silence(&tail.0, rms(&steady.0[44100..])) };
+            close(scaled, brief, short * 0.15, &format!("{name}'s Decay input multiplies the time"));
+            pd.send_float("t-in1", 1.0);
+
+            if stereo {
+                // Damp takes the highs above Tone out of every pass, so the room is quiet sooner.
+                tuned(pd, &[("decay", long), ("damp", 0.0)]);
+                let (_, open) = burst(pd, 1.5);
+                tuned(pd, &[("damp", 1.0), ("tone", 1000.0)]);
+                let (_, damped) = burst(pd, 1.5);
+                let (bright, dull) = (rms_between(&open.0, 800.0, 1200.0), rms_between(&damped.0, 800.0, 1200.0));
+                assert!(dull < bright * 0.7, "{name} with Damp up dies away sooner: {dull} against {bright}");
+            }
+
+            // The longest room, fed all the time, stays in bounds.
+            tuned(pd, &[("decay", 40.0), ("damp", 0.0)]);
+            pd.send_float("t-amp", 0.5);
+            let loud = peak(&render(pd, 6.0).0);
+            assert!(loud < 8.0, "{name} at its longest stays bounded, peak {loud}");
+            pd.send_float("t-amp", 0.0);
+            println!("{name}: wet level {level:.3} for an input of {input:.3}; rings {brief:.2} s at {short} s, {lasting:.2} s at {long} s, {scaled:.2} s at {long} s x {:.2}; peak {loud:.1} at its longest", short / long);
+        });
+        // Dry only: the input, untouched.
+        with_shaper(pd, dir, name, |pd| {
+            set(pd, &[("decay", 3.0), ("damp", 0.3), ("tone", 3000.0), ("mix", 0.0)]);
+            pd.send_float("t-amp", 0.8);
+            let (out, dry) = settled(pd, 0.2);
+            let apart = out.iter().zip(&dry).map(|(a, b)| (a - b).abs()).fold(0.0f32, f32::max);
+            assert!(apart < 0.0001, "{name} at Mix 0 is its input, off by {apart}");
+        });
+    }
+}
+
+fn sample_and_hold(pd: &mut Pd, dir: &Path) {
+    // A 50 Hz sine to sample, on the right channel too; the trigger is a [sig~] set through t-trig.
+    let boxes = ["osc~ 50", "r t-trig", "sig~"];
+    let heard = |module: usize| (vec!["dac~ 1", "dac~ 2"], vec![[module, 0, module + 1, 0], [0, 0, module + 2, 0]]);
+    with_module(pd, dir, "ge-sample-hold", &boxes, &[[1, 0, 2, 0]], [Some(0), Some(2), None], heard, |pd| {
+        assert_eq!(peak(&render(pd, 0.1).0), 0.0, "sample & hold gives nothing before its first trigger");
+        let mut held = Vec::new();
+        for _ in 0..3 {
+            pd.send_float("t-trig", 1.0);
+            let (out, input) = render(pd, 0.137);
+            assert!(out.iter().all(|v| *v == input[0]), "sample & hold takes the input as the trigger rises ({}) and keeps it", input[0]);
+            pd.send_float("t-trig", 0.0);
+            let (after, _) = render(pd, 0.05);
+            assert!(after.iter().all(|v| *v == input[0]), "sample & hold keeps its value when the trigger falls");
+            held.push(input[0]);
+        }
+        assert!(held[0] != held[1] && held[1] != held[2], "sample & hold takes a new value each time, got {held:?}");
+        // Half way up is not a trigger; above it is.
+        pd.send_float("t-trig", 0.4);
+        assert!(render(pd, 0.05).0.iter().all(|v| *v == held[2]), "a trigger below a half does nothing");
+        println!("ge-sample-hold: took {held:.3?} at three triggers");
+    });
+}
+
+fn follower(pd: &mut Pd, dir: &Path) {
+    with_shaper(pd, dir, "ge-follower", |pd| {
+        set(pd, &[("smooth", 20.0), ("level", 1.0)]);
+        pd.send_float("t-amp", 0.0);
+        assert!(peak(&settled(pd, 0.3).0) < 0.0001, "follower is at zero for silence");
+        // A sine of amplitude 0.8 has an rms of 0.8 / sqrt(2).
+        pd.send_float("t-amp", 0.8);
+        let expected = 0.8 * std::f32::consts::FRAC_1_SQRT_2;
+        let level = settled(pd, 0.3).0;
+        close(mean(&level), expected, 0.02, "follower gives the rms level of its input");
+        set(pd, &[("level", 2.0)]);
+        close(mean(&settled(pd, 0.3).0), 2.0 * expected, 0.04, "follower times Level");
+        pd.send_float("t-in2", 0.25);
+        close(mean(&settled(pd, 0.3).0), 0.5 * expected, 0.02, "follower's Level input multiplies Level");
+        pd.send_float("t-in2", 1.0);
+        set(pd, &[("level", 1.0)]);
+        // Smooth is how long it takes to get to each new measurement.
+        let rise = |pd: &mut Pd, smooth: f32, input: f32| {
+            set(pd, &[("smooth", smooth)]);
+            pd.send_float("t-in1", input);
+            pd.send_float("t-amp", 0.0);
+            render(pd, 1.5);
+            pd.send_float("t-amp", 0.8);
+            level_at(&render(pd, 0.2).0, 120.0)
+        };
+        let (quick, slow, scaled) = (rise(pd, 20.0, 1.0), rise(pd, 800.0, 1.0), rise(pd, 800.0, 0.025));
+        assert!(quick > expected * 0.9, "follower with Smooth 20 ms is there after 120 ms, at {quick}");
+        assert!(slow < expected * 0.5, "follower with Smooth 800 ms is still on its way after 120 ms, at {slow}");
+        assert!(scaled > expected * 0.9, "follower's Smooth input multiplies Smooth: 800 ms x 0.025 is quick, at {scaled}");
+        pd.send_float("t-amp", 0.0);
+        assert!(peak(&settled(pd, 1.0).0) < 0.0001, "follower returns to zero");
+        println!("ge-follower: {:.3} for a sine of 0.8 (rms {expected:.3}); 120 ms after it starts: {quick:.3} at Smooth 20 ms, {slow:.3} at 800 ms", mean(&level));
+    });
+}
+
 // --- setting inputs ------------------------------------------------------------------------
 
 /// One render of a module with a knob at `knob` and that setting's input at `input`.
@@ -1243,6 +1534,9 @@ fn with_setting(pd: &mut Pd, dir: &Path, name: &str, inlet: usize, receiver: &st
             set(pd, &[("time", 80.0), ("feedback", 0.3), ("tone", 5000.0), ("mix", 0.5), ("rate", 1.0)]);
             set(pd, &[("depth", 0.5), ("size", 0.5), ("decay", 0.5), ("damp", 0.3)]);
         }
+        if ["ge-fx-cavern", "ge-fx-room", "ge-fx-hall"].contains(&name) {
+            set(pd, &[("decay", 3.0), ("tone", 3000.0)]);
+        }
         pd.send_float(&format!("t1-{receiver}"), knob);
         pd.send_float(&format!("t-in{inlet}"), input);
         render(pd, 0.3).0
@@ -1252,8 +1546,7 @@ fn with_setting(pd: &mut Pd, dir: &Path, name: &str, inlet: usize, receiver: &st
     } else if name == "ge-lfo" {
         with_lfo(pd, dir, measure)
     } else if name.starts_with("ge-filter-") {
-        let kind = [Kind::Low, Kind::High, Kind::Band, Kind::Notch].into_iter().find(|k| k.abstraction() == name).unwrap();
-        with_filter(pd, dir, kind, measure)
+        with_filter_named(pd, dir, name, measure)
     } else {
         with_shaper(pd, dir, name, measure)
     }
@@ -1311,6 +1604,15 @@ fn setting_inputs(pd: &mut Pd, dir: &Path) {
         ("ge-fx-reverb", 2, "decay", 2.0, 0.25),
         ("ge-fx-reverb", 3, "damp", 0.8, 0.5),
         ("ge-fx-reverb", 4, "mix", 0.8, 0.5),
+        ("ge-filter-allpass", 1, "cutoff", 4000.0, 0.25),
+        ("ge-filter-ladder", 1, "cutoff", 4000.0, 0.25),
+        ("ge-filter-ladder", 2, "res", 0.8, 0.5),
+        ("ge-filter-resonator", 1, "cutoff", 2000.0, 0.5),
+        ("ge-filter-soft-lp", 1, "cutoff", 4000.0, 0.0625),
+        ("ge-filter-soft-hp", 1, "cutoff", 250.0, 4.0),
+        ("ge-fx-cavern", 2, "mix", 0.8, 0.5),
+        ("ge-fx-room", 4, "mix", 0.8, 0.5),
+        ("ge-fx-hall", 4, "mix", 0.8, 0.5),
     ];
     let mut worst = 0.0f32;
     for &(name, inlet, receiver, knob, input) in cases {
@@ -1410,6 +1712,12 @@ fn modules_do_what_they_are_designed_to() {
     chorus(&mut pd, &dir);
     phaser(&mut pd, &dir);
     reverb(&mut pd, &dir);
+    soft_filters(&mut pd, &dir);
+    ladder(&mut pd, &dir);
+    resonator(&mut pd, &dir);
+    pd_reverbs(&mut pd, &dir);
+    sample_and_hold(&mut pd, &dir);
+    follower(&mut pd, &dir);
     setting_inputs(&mut pd, &dir);
     amp_and_output(&mut pd, &dir);
 

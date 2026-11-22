@@ -1,8 +1,8 @@
 use std::path::Path;
 
 /// Pd core sources, mirroring `PD_FILES` in vendor/libpd/Makefile.
-/// The optional "extra" externals (bob~, sigmund~, ...) are left out on purpose:
-/// they may be missing on the Organelle, so the preview should not have them either.
+/// Of the optional "extra" externals only those a module uses are built (`EXTRA_SOURCES`),
+/// so that nothing can work in the preview by accident.
 const PD_SOURCES: &[&str] = &[
     "d_arithmetic.c", "d_array.c", "d_ctl.c", "d_dac.c", "d_delay.c", "d_fft.c",
     "d_fft_fftsg.c", "d_filter.c", "d_global.c", "d_math.c", "d_misc.c", "d_osc.c",
@@ -19,6 +19,10 @@ const PD_SOURCES: &[&str] = &[
     "x_misc.c", "x_net.c", "x_scalar.c", "x_text.c", "x_time.c", "x_vexp.c", "x_vexp_if.c",
     "x_vexp_fun.c",
 ];
+
+/// Externals from Pd's `extra` folder that modules wrap. The Organelle's Pd has them
+/// installed. Each needs its setup function called in `engine/pd.rs`.
+const EXTRA_SOURCES: &[&str] = &["bob~/bob~.c"];
 
 const WRAPPER_SOURCES: &[&str] = &[
     "s_libpdmidi.c",
@@ -77,6 +81,9 @@ fn build_libpd() {
 
     for file in PD_SOURCES {
         build.file(pd_src.join(file));
+    }
+    for file in EXTRA_SOURCES {
+        build.file(libpd.join("pure-data/extra").join(file));
     }
     for file in WRAPPER_SOURCES {
         build.file(wrapper.join(file));
