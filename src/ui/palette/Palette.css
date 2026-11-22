@@ -5,15 +5,17 @@
   border-top: 1px solid var(--line);
 }
 
-/* Kinds of module, filled column by column: six rows, so that all twelve kinds fit in two columns. */
+/*
+ * Kinds of module, filled column by column: four rows, so that all twelve kinds fit in
+ * three columns and the strip is no taller than its module cards.
+ */
 
 .palette-categories {
   flex: none;
   display: grid;
   grid-auto-flow: column;
-  grid-template-rows: repeat(6, 19px);
-  grid-auto-columns: 1fr;
-  width: var(--side-width);
+  grid-template-rows: repeat(4, minmax(19px, 1fr));
+  grid-auto-columns: auto;
   gap: 1px 4px;
   padding: 5px 10px;
   border-right: 1px solid var(--line);

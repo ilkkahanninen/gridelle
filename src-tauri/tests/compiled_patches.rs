@@ -156,9 +156,9 @@ fn knob_pages_behave(pd: &mut Pd, events: &Receiver<PdEvent>) {
     assert!(page2.contains(&"screenLine5: Amp envelope 2/2".to_string()), "{page2:?}");
     assert!(page2.contains(&"led: 4".to_string()), "{page2:?}");
     assert!(page2.contains(&"screenLine2: -".to_string()), "unused knob blanks its line: {page2:?}");
-    assert!(page2.contains(&"screenLine1: ADSR A 2 ms".to_string()), "{page2:?}");
-    assert!(page2.contains(&"screenLine3: ADSR S 0.8".to_string()), "{page2:?}");
-    assert!(page2.contains(&"screenLine4: ADSR R 150 ms".to_string()), "{page2:?}");
+    assert!(page2.contains(&"screenLine1: ADSR Attack 2 ms".to_string()), "{page2:?}");
+    assert!(page2.contains(&"screenLine3: ADSR Sustain 0.8".to_string()), "{page2:?}");
+    assert!(page2.contains(&"screenLine4: ADSR Release 150 ms".to_string()), "{page2:?}");
 
     pd.send_float("aux", 1.0);
     pd.send_float("aux", 0.0);
@@ -202,7 +202,7 @@ fn knob_pages_behave(pd: &mut Pd, events: &Receiver<PdEvent>) {
     // and coming back shows the values set above.
     pd.send_float("aux", 1.0);
     let page2 = host_output(pd, events);
-    assert!(page2.contains(&"screenLine1: ADSR A 2 ms".to_string()), "{page2:?}");
+    assert!(page2.contains(&"screenLine1: ADSR Attack 2 ms".to_string()), "{page2:?}");
     // Knob 1 sits at 1.0 from the other page; attack is stored near 0.15, so no jump.
     pd.send_float("knob1", 0.95);
     assert_eq!(host_output(pd, events), Vec::<String>::new(), "page switch needs a new takeover");

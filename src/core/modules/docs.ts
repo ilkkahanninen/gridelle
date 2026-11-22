@@ -8,7 +8,7 @@
 export const MODULE_DOCS: Record<string, string> = {
   // In / Out
   "audio-out":
-    "Sends sound to the Organelle's output. With only L patched, both sides get it. Level sets the volume, and a signal patched into its input multiplies it.",
+    "Sends sound to the Organelle's output. With only Left patched, both sides get it. Level sets the volume, and a signal patched into its input multiplies it.",
   "audio-in":
     "The Organelle's audio input, left and right. It is always on, and what comes after it runs once for all voices. In the editor it is the computer's audio input.",
   keys: "The note being played, as signals: Pitch as a note number (60 is middle C), Gate at 1 while the key is down, Velocity from 0 to 1, and Key, the note number over 127: about 0.47 at middle C, for inputs that multiply a knob.",
@@ -19,22 +19,22 @@ export const MODULE_DOCS: Record<string, string> = {
 
   // Oscillators
   "osc-sine":
-    "A sine wave. Pitch follows the played note unless something else is patched in; Tune moves it in semitones and Fine in cents. Mod changes the pitch or the level by Depth, in the way Mod mode says.",
+    "A sine wave. Pitch follows the played note unless something else is patched in; Tune moves it in semitones and Fine tune in cents. A signal in the Modulation input changes the pitch or the level, as Modulation mode says, by the amount on its knob.",
   "osc-tri":
-    "A triangle wave: soft, with only odd harmonics. Pitch follows the played note; Tune moves it in semitones and Fine in cents. Mod changes the pitch or the level by Depth, in the way Mod mode says.",
+    "A triangle wave: soft, with only odd harmonics. Pitch follows the played note; Tune moves it in semitones and Fine tune in cents. A signal in the Modulation input changes the pitch or the level, as Modulation mode says, by the amount on its knob.",
   "osc-saw":
-    "A sawtooth wave: bright, with every harmonic. Pitch follows the played note; Tune moves it in semitones and Fine in cents. Mod changes the pitch or the level by Depth, in the way Mod mode says.",
+    "A sawtooth wave: bright, with every harmonic. Pitch follows the played note; Tune moves it in semitones and Fine tune in cents. A signal in the Modulation input changes the pitch or the level, as Modulation mode says, by the amount on its knob.",
   "osc-pulse":
-    "A pulse wave. Width is the part of each cycle spent high: 50 % is a square, and either end is thin and nasal. PWM adds to Width. Pitch, Tune, Fine and Mod work as on the other oscillators.",
+    "A pulse wave. Width is the part of each cycle spent high: 50 % is a square, and either end is thin and nasal. Width modulation adds to Width. The other settings work as on the other oscillators.",
   noise: "White noise: every frequency at once. Each voice has its own. Filter it for wind and drums, or sample it for random values.",
 
   // Random
   "sample-hold":
-    "Takes the value of In each time Trig goes on, and holds it until the next time. Trig follows the key gate, so on its own it gives one value for each note.",
+    "Takes the value of In each time Trigger goes on, and holds it until the next time. Trigger follows the key gate, so on its own it gives one value for each note.",
 
   // Envelopes
   "env-adsr":
-    "An envelope from 0 to 1 that starts when Gate goes on. A is the attack, the time to rise; D the decay, the time to fall to S, the sustain level; R the release, the time to fall to 0 after the key. A voice sounds until it has ended. The inputs are read when a stage starts.",
+    "An envelope from 0 to 1 that starts when Gate goes on. Attack is the time to rise, Decay the time to fall to Sustain, and Release the time to fall to 0 after the key. A voice keeps sounding until it has ended. The inputs are read when a stage starts.",
   follower:
     "Follows how loud In is and gives that as a signal: about 0.7 for a full-level sine. Smooth is how slowly it follows, and Level scales the result.",
 
@@ -45,27 +45,27 @@ export const MODULE_DOCS: Record<string, string> = {
 
   // Pitch
   "pitch-transpose":
-    "Moves a pitch by Octave and Semi, and by the Mod input times its knob in semitones. Patch Out into an oscillator's Pitch.",
+    "Moves a pitch by Octave and Semitones, and by the Modulation input times its knob in semitones. Patch Out into an oscillator's Pitch.",
   "pitch-glide":
     "Slides from each pitch to the next instead of jumping. Time is how long the slide takes. Patch Out into an oscillator's Pitch.",
   "pitch-quantize":
-    "Moves a pitch to the nearest note of Scale, counted from Root. The Mod input, times Range in semitones, is added first, so an LFO or a random value becomes a melody in key.",
+    "Moves a pitch to the nearest note of Scale, counted from Root. The Modulation input, times Range in semitones, is added first, so an LFO or a random value becomes a melody in key.",
 
   // Filters
   "filter-lp":
-    "Lets through what is below Cutoff and removes what is above, 12 dB an octave. Res raises the frequencies at the cutoff. Mod moves the cutoff, by its knob in semitones for a signal of 1.",
+    "Lets through what is below Cutoff and removes what is above, 12 dB an octave. Resonance raises the frequencies at the cutoff. Modulation moves the cutoff, by its knob in semitones for a signal of 1.",
   "filter-hp":
-    "Lets through what is above Cutoff and removes what is below, 12 dB an octave. Res raises the frequencies at the cutoff. Mod moves the cutoff, by its knob in semitones for a signal of 1.",
+    "Lets through what is above Cutoff and removes what is below, 12 dB an octave. Resonance raises the frequencies at the cutoff. Modulation moves the cutoff, by its knob in semitones for a signal of 1.",
   "filter-bp":
-    "Lets through a band around Cutoff and removes the rest. Res makes the band narrower. Mod moves the cutoff, by its knob in semitones for a signal of 1.",
+    "Lets through a band around Cutoff and removes the rest. Resonance makes the band narrower. Modulation moves the cutoff, by its knob in semitones for a signal of 1.",
   "filter-notch":
-    "Removes a band around Cutoff and lets through the rest. Res makes the band narrower. Mod moves the cutoff, by its knob in semitones for a signal of 1.",
+    "Removes a band around Cutoff and lets through the rest. Resonance makes the band narrower. Modulation moves the cutoff, by its knob in semitones for a signal of 1.",
   "filter-allpass":
     "Changes no levels, only when each frequency arrives: those around Cutoff are delayed most. Mixed with its own input it makes the notches of a phaser, so it is a piece for building effects.",
   "filter-ladder":
-    "Pd's model of the Moog ladder low-pass, which grows thicker when driven and sings at full Res. On the Organelle's version of Pd it is gentle, 6 dB an octave, and the editor plays it the same way.",
+    "Pd's model of the Moog ladder low-pass, which grows thicker when driven and sings at full Resonance. On the Organelle's version of Pd it is gentle, 6 dB an octave, and the editor plays it the same way.",
   "filter-resonator":
-    "A filter that rings at Cutoff: Res makes it ring longer and narrower. Band has what is around the cutoff, and Low what is below it. Res works a little slower here than elsewhere, about a hundred times a second.",
+    "A filter that rings at Cutoff: Resonance makes it ring longer and narrower. Band has what is around the cutoff, and Low what is below it. Resonance works a little slower here than elsewhere, about a hundred times a second.",
   "filter-soft-lp":
     "The gentlest low-pass: 6 dB an octave above Cutoff and no resonance. For taking the edge off a sound, or for smoothing a control signal.",
   "filter-soft-hp":
@@ -73,23 +73,23 @@ export const MODULE_DOCS: Record<string, string> = {
 
   // Shapers
   "shaper-soft":
-    "Rounds off the peaks, the way an overdriven amplifier does. Drive pushes the signal into the curve, Mod adds to Drive from a signal, and Bias shifts the signal first, which makes the result lopsided and brings out even harmonics.",
+    "Rounds off the peaks, the way an overdriven amplifier does. Drive pushes the signal into the curve, Modulation adds to Drive from a signal, and Bias shifts the signal first, which makes the result lopsided and brings out even harmonics.",
   "shaper-hard":
-    "Cuts the peaks off flat: harsher than Soft Clip. Drive pushes the signal into the limit, and Mod adds to Drive from a signal.",
+    "Cuts the peaks off flat: harsher than Soft Clip. Drive pushes the signal into the limit, and Modulation adds to Drive from a signal.",
   "shaper-fold":
     "Folds the peaks back instead of cutting them, again and again as Fold rises, which adds bright, shifting harmonics. Symmetry shifts the signal first, and Shape chooses between sharp and round folds.",
   "shaper-cheby":
-    "Turns a full-level sine into its harmonic number Order: 2 is an octave up, 3 an octave and a fifth. Between whole numbers it fades from one to the next, and Mod moves Order. Other sounds, and other levels, come out as a mix of harmonics. Drive sets the level going in.",
+    "Turns a full-level sine into the harmonic that Harmonic names: 2 is an octave up, 3 an octave and a fifth. Between whole numbers it fades from one to the next, and Modulation moves it. Other sounds, and other levels, come out as a mix of harmonics. Drive sets the level going in.",
   "shaper-rectify":
     "Turns the lower half of the wave upwards. Amount 0 leaves the sound as it is, 0.5 removes the lower half, and 1 flips it up, which sounds an octave higher.",
   "shaper-crush":
-    "Lowers the quality on purpose. Rate is how often the signal is measured: the lower, the more clanging tones that were not in the sound. Bits is how finely: few bits is gritty. Mod moves Rate.",
+    "Lowers the quality on purpose. Rate is how often the signal is measured: the lower, the more clanging tones that were not in the sound. Bits is how finely: few bits is gritty. Modulation moves Rate.",
 
   // Delay & FX
   "fx-delay":
     "Repeats the sound after Time. Feedback is how much of each repeat goes round again, and Tone darkens the repeats. Mix blends the echoes with the sound itself. Inside the voices each note has its own echoes, which ring on after the key.",
   "fx-reverb":
-    "The sound of a space, in stereo. Size is how large, Decay how long it rings, and Damp how quickly the highs die away. Mix blends it with the sound itself.",
+    "The sound of a space, in stereo. Size is how large, Decay how long it rings, and Damping how quickly the highs die away. Mix blends it with the sound itself.",
   "fx-chorus":
     "Thickens a sound with two copies whose pitch drifts, one on each side. Rate is the speed of the drift and Depth its width. Feedback turns it towards a flanger.",
   "fx-phaser":
@@ -97,9 +97,9 @@ export const MODULE_DOCS: Record<string, string> = {
   "fx-cavern":
     "Pd's oldest reverb: a long, echoing tail, like a cave or a tunnel. Decay is never shorter than a couple of seconds. Mix blends it with the sound itself.",
   "fx-room":
-    "Pd's lighter reverb, in stereo. Decay is how long it rings, and Damp how much faster the frequencies above Tone die away. Mix blends it with the sound itself.",
+    "Pd's lighter reverb, in stereo. Decay is how long it rings, and Damping how much faster the frequencies above Tone die away. Mix blends it with the sound itself.",
   "fx-hall":
-    "Pd's richest reverb, in stereo: denser than Room, and heavier for the Organelle to run. Decay is how long it rings, and Damp how much faster the frequencies above Tone die away.",
+    "Pd's richest reverb, in stereo: denser than Room, and heavier for the Organelle to run. Decay is how long it rings, and Damping how much faster the frequencies above Tone die away.",
 
   // Math
   "math-add": "A plus B. Adds two signals: two modulations into one input, or an offset onto a wave.",
@@ -125,6 +125,6 @@ export const MODULE_DOCS: Record<string, string> = {
   "logic-divider": "Lets through the first of every Divide gates and holds back the rest. At 2, every other gate passes.",
 
   // Level & Mix
-  amp: "Sets the level of a signal: In times Level, and times CV when something is patched into it. An envelope into CV is what gives a note its shape.",
+  amp: "Sets the level of a signal: In times Level, and times whatever is patched into the Level input. An envelope there is what gives a note its shape.",
   mixer: "Adds signals together, each at its own level. A new input appears when the last one is taken, up to eight.",
 };

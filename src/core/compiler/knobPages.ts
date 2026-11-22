@@ -70,16 +70,21 @@ function valueWidth(param: ParamDef): number {
   return widest + (decimals > 0 ? decimals + 1 : 0);
 }
 
-/** `Low-pass Cutoff`, shortened so that label, value and unit fit on one screen line. */
+/**
+ * `Low-pass Cutoff`, shortened so that label, value and unit fit on one screen line: with
+ * the parameter's short name if it has one (`Low-pass Res`), then by trimming the module's.
+ */
 function slotLabel(binding: KnobBinding): string {
   const unit = binding.param.unit ? ` ${binding.param.unit}` : "";
   const room = SCREEN_COLUMNS - valueWidth(binding.param) - unit.length - 1;
-  const full = screenText(`${binding.module.def.name} ${binding.param.label}`);
+  const module = screenText(binding.module.def.name);
+  const full = `${module} ${screenText(binding.param.label)}`;
   if (full.length <= room) return full;
+  const label = screenText(binding.param.short ?? binding.param.label);
+  if (module.length + 1 + label.length <= room) return `${module} ${label}`;
   // Keep the parameter name whole and trim the module name.
-  const label = screenText(binding.param.label);
   const moduleRoom = room - label.length - 1;
-  return moduleRoom >= 3 ? `${full.slice(0, moduleRoom).trim()} ${label}` : label.slice(0, room);
+  return moduleRoom >= 3 ? `${module.slice(0, moduleRoom).trim()} ${label}` : label.slice(0, room);
 }
 
 function chain(patch: PdPatch, from: Box, objects: string[], at: Position): Box {

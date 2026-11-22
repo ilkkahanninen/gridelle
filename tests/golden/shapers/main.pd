@@ -46,7 +46,7 @@
 #X obj 500 1040 i;
 #X obj 500 1068 / 10;
 #X obj 500 1096 + 1;
-#X msg 500 1152 Chebyshev Order \$1;
+#X msg 500 1152 Chebyshev Harm \$1;
 #X obj 500 1180 s screenLine3;
 #X obj 600 760 ge-knob 0 4 0.25;
 #X obj 600 788 * 36;

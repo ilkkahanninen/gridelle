@@ -16,15 +16,16 @@ describe("module documentation", () => {
   });
 
   it.each(moduleDefs.map((def) => [def.name, def] as const))("%s: names only ports and settings it has", (_name, def) => {
-    // A capitalised word inside a sentence that is the name of a port or setting of some
-    // module must be one of this module's.
-    const labels = (d: (typeof moduleDefs)[number]) => [...d.inputs, ...d.outputs, ...d.params].map((p) => p.label);
-    const all = new Set(moduleDefs.flatMap(labels));
-    const own = new Set(labels(def));
-    const text = MODULE_DOCS[def.type];
-    const elsewhere = [...text.matchAll(/(?<=[a-z,;:] )[A-Z][A-Za-z]*\b/g)]
+    // A capitalised word inside a sentence is the name of something: one of this module's
+    // ports or settings, or one of the few other names below. Anything else is a name
+    // the module no longer has, or never had.
+    const own = new Set([...def.inputs, ...def.outputs, ...def.params].flatMap((p) => p.label.split(" ")));
+    const strangers = [...MODULE_DOCS[def.type].matchAll(/(?<=[a-z,;:] )[A-Z][A-Za-z]*\b/g)]
       .map((match) => match[0])
-      .filter((word) => all.has(word) && !own.has(word));
-    expect(elsewhere).toEqual([]);
+      .filter((word) => !own.has(word) && !OTHER_NAMES.has(word));
+    expect(strangers).toEqual([]);
   });
 });
+
+/** Names the texts use that are not ports or settings: products, people, other modules. */
+const OTHER_NAMES = new Set(["Organelle", "Pd", "Moog", "LFO", "Soft", "Clip", "Room", "C"]);

@@ -25,7 +25,7 @@ const pitchInput: PortDef = { id: "pitch", label: "Pitch", hint: "pitch", precor
 const audioInput: PortDef = { id: "in", label: "In", hint: "audio" };
 const audioOutput: PortDef = { id: "out", label: "Out", hint: "audio" };
 /** A Mod input, with the knob that says how far it moves what it modulates. It rests at 0. */
-const modInput = (amount: string): PortDef => ({ id: "mod", label: "Mod", hint: "mod", param: amount });
+const modInput = (amount: string): PortDef => ({ id: "mod", label: "Modulation", hint: "mod", param: amount });
 
 /** How tall a rows tile is for this many inputs: two rows to a cell, under a half-cell header. */
 const rowsHeight = (inputs: PortDef[]) => Math.ceil((inputs.length + 1) / 2);
@@ -51,7 +51,7 @@ const lfoRate: ParamDef = { id: "rate", label: "Rate", min: 0.02, max: 50, defau
 /** Tune and Fine, as every pitched oscillator has them. */
 const tuning: ParamDef[] = [
   { id: "tune", label: "Tune", min: -36, max: 36, default: 0, curve: "lin", unit: "st", step: 1 },
-  { id: "fine", label: "Fine", min: -100, max: 100, default: 0, curve: "lin", unit: "ct" },
+  { id: "fine", label: "Fine tune", short: "Fine", min: -100, max: 100, default: 0, curve: "lin", unit: "ct" },
 ];
 
 /**
@@ -61,13 +61,13 @@ const tuning: ParamDef[] = [
  * default, so that a cable patched into Mod is heard straight away.
  */
 const modulation: ParamDef[] = [
-  { id: "depth", label: "Depth", min: 0, max: 1, default: 0.25, curve: "lin" },
-  choice("mode", "Mod mode", ["Linear FM", "Exponential FM", "AM"]),
+  { id: "depth", label: "Modulation", short: "Mod", min: 0, max: 1, default: 0.25, curve: "lin" },
+  choice("mode", "Modulation mode", ["Linear FM", "Exponential FM", "AM"]),
 ];
 
 /** Inputs between Fine and Mod, with their settings, are the oscillator's own (the Pulse's width). */
 const oscillator = (type: string, name: string, own: { inputs: PortDef[]; params: ParamDef[] } = { inputs: [], params: [] }): ModuleDef => {
-  const inputs = [pitchInput, settingInput("tune", "Tune"), settingInput("fine", "Fine"), ...own.inputs, modInput("depth")];
+  const inputs = [pitchInput, settingInput("tune", "Tune"), settingInput("fine", "Fine tune"), ...own.inputs, modInput("depth")];
   return {
     type,
     name,
@@ -89,9 +89,9 @@ const filter = (
   name: string,
   { res = true, outputs = [audioOutput] }: { res?: boolean; outputs?: PortDef[] } = {},
 ): ModuleDef => {
-  const resonance: ParamDef = { id: "res", label: "Res", min: 0, max: 1, default: 0.2, curve: "lin" };
+  const resonance: ParamDef = { id: "res", label: "Resonance", short: "Res", min: 0, max: 1, default: 0.2, curve: "lin" };
   // The Cutoff input multiplies the frequency; Mod adds to it in semitones, by its own knob.
-  const inputs = [audioInput, settingInput("cutoff", "Cutoff"), ...(res ? [settingInput("res", "Res")] : []), modInput("mod")];
+  const inputs = [audioInput, settingInput("cutoff", "Cutoff"), ...(res ? [settingInput("res", "Resonance")] : []), modInput("mod")];
   return {
     type,
     name,
@@ -105,7 +105,7 @@ const filter = (
       { id: "cutoff", label: "Cutoff", min: 20, max: 18000, default: 1200, curve: "exp", unit: "Hz" },
       ...(res ? [resonance] : []),
       // Semitones of cutoff sweep per unit of the mod input.
-      { id: "mod", label: "Mod", min: -96, max: 96, default: 36, curve: "lin", unit: "st" },
+      { id: "mod", label: "Modulation", short: "Mod", min: -96, max: 96, default: 36, curve: "lin", unit: "st" },
     ],
     pd: `ge-${type}`,
     scope: "voice",
@@ -148,7 +148,7 @@ const driven = (
 ): ModuleDef =>
   shaper(type, name, [
     { id: "drive", min: 0, curve: "lin", unit: "dB", ...drive },
-    { id: "mod", label: "Mod", min: -36, max: 36, default: 12, curve: "lin", unit: "dB" },
+    { id: "mod", label: "Modulation", short: "Mod", min: -36, max: 36, default: 12, curve: "lin", unit: "dB" },
     ...extra,
   ]);
 
@@ -211,8 +211,8 @@ const calculator = (
 
 /** A left and a right output. The first is `out`, as on every module with one output. */
 const stereoOutputs: PortDef[] = [
-  { id: "out", label: "L", hint: "audio" },
-  { id: "right", label: "R", hint: "audio" },
+  { id: "out", label: "Left", hint: "audio" },
+  { id: "right", label: "Right", hint: "audio" },
 ];
 
 /** An effect: its settings in the order of their rows, each with an input of its own. */
@@ -237,6 +237,7 @@ const effect = (type: string, name: string, params: ParamDef[], outputs: PortDef
 /** How long Pd's own reverbs ring: the time to fall 60 dB. */
 const reverbDecay: ParamDef = { id: "decay", label: "Decay", min: 0.2, max: 20, default: 2, curve: "exp", unit: "s" };
 /** The frequency above which their Damp works. */
+const reverbDamping: ParamDef = { ...level("damp", "Damping", 1, 0.3), short: "Damp" };
 const reverbTone: ParamDef = { id: "tone", label: "Tone", min: 500, max: 12000, default: 3000, curve: "exp", unit: "Hz" };
 
 /** The rate of an effect's own LFO. */
@@ -260,8 +261,8 @@ const DEFS: ModuleDef[] = [
     height: 2,
     layout: "rows",
     inputs: [
-      { id: "left", label: "L", hint: "audio" },
-      { id: "right", label: "R", hint: "audio" },
+      { id: "left", label: "Left", hint: "audio" },
+      { id: "right", label: "Right", hint: "audio" },
       settingInput("level", "Level"),
     ],
     outputs: [],
@@ -341,7 +342,7 @@ const DEFS: ModuleDef[] = [
   // The output has no DC, so a narrow pulse peaks above 1 (up to 1.9 at the ends of Width).
   // Width is its knob times its input; PWM then adds to it, half a cycle for a signal of 1.
   oscillator("osc-pulse", "Pulse", {
-    inputs: [settingInput("width", "Width"), { id: "pwm", label: "PWM", hint: "mod" }],
+    inputs: [settingInput("width", "Width"), { id: "pwm", label: "Width modulation", hint: "mod" }],
     params: [{ id: "width", label: "Width", min: 5, max: 95, default: 50, curve: "lin", unit: "%" }],
   }),
   {
@@ -366,7 +367,7 @@ const DEFS: ModuleDef[] = [
     height: 1,
     inputs: [
       { id: "in", label: "In", hint: "mod" },
-      { id: "trig", label: "Trig", hint: "gate", precord: "gate" },
+      { id: "trig", label: "Trigger", hint: "gate", precord: "gate" },
     ],
     outputs: [{ id: "out", label: "Out", hint: "mod" }],
     params: [],
@@ -384,17 +385,17 @@ const DEFS: ModuleDef[] = [
     layout: "rows",
     inputs: [
       { id: "gate", label: "Gate", hint: "gate", precord: "gate" },
-      settingInput("attack", "A"),
-      settingInput("decay", "D"),
-      settingInput("sustain", "S"),
-      settingInput("release", "R"),
+      settingInput("attack", "Attack"),
+      settingInput("decay", "Decay"),
+      settingInput("sustain", "Sustain"),
+      settingInput("release", "Release"),
     ],
     outputs: [{ id: "out", label: "Out", hint: "mod" }],
     params: [
-      { id: "attack", label: "A", min: 0.5, max: 5000, default: 5, curve: "exp", unit: "ms" },
-      { id: "decay", label: "D", min: 1, max: 5000, default: 200, curve: "exp", unit: "ms" },
-      { id: "sustain", label: "S", min: 0, max: 1, default: 0.6, curve: "lin" },
-      { id: "release", label: "R", min: 1, max: 10000, default: 300, curve: "exp", unit: "ms" },
+      { id: "attack", label: "Attack", min: 0.5, max: 5000, default: 5, curve: "exp", unit: "ms" },
+      { id: "decay", label: "Decay", min: 1, max: 5000, default: 200, curve: "exp", unit: "ms" },
+      { id: "sustain", label: "Sustain", min: 0, max: 1, default: 0.6, curve: "lin" },
+      { id: "release", label: "Release", min: 1, max: 10000, default: 300, curve: "exp", unit: "ms" },
     ],
     pd: "ge-env-adsr",
     scope: "voice",
@@ -455,11 +456,11 @@ const DEFS: ModuleDef[] = [
     scope: "voice",
   },
   // The pitch modules take and give a pitch as the oscillators do: a note number.
-  pitchModule("pitch-transpose", "Transpose", [settingInput("octave", "Octave"), settingInput("semi", "Semi"), modInput("mod")], [
+  pitchModule("pitch-transpose", "Transpose", [settingInput("octave", "Octave"), settingInput("semi", "Semitones"), modInput("mod")], [
     { id: "octave", label: "Octave", min: -4, max: 4, default: 0, curve: "lin", step: 1, unit: "oct" },
-    { id: "semi", label: "Semi", min: -12, max: 12, default: 0, curve: "lin", step: 1, unit: "st" },
+    { id: "semi", label: "Semitones", short: "Semi", min: -12, max: 12, default: 0, curve: "lin", step: 1, unit: "st" },
     // Semitones per unit of the mod input: an LFO here is vibrato.
-    { id: "mod", label: "Mod", min: -24, max: 24, default: 1, curve: "lin", unit: "st" },
+    { id: "mod", label: "Modulation", short: "Mod", min: -24, max: 24, default: 1, curve: "lin", unit: "st" },
   ]),
   // Slides to each new pitch instead of jumping. Time is how long 95 % of the way takes.
   pitchModule("pitch-glide", "Glide", [settingInput("time", "Time")], [
@@ -510,8 +511,8 @@ const DEFS: ModuleDef[] = [
   // Chebyshev polynomial number Order turns a full-level sine into that harmonic; quieter
   // or richer input gives a mix. Order fades between neighbours, and Mod moves it.
   shaper("shaper-cheby", "Chebyshev", [
-    { id: "order", label: "Order", min: 1, max: 8, default: 2, curve: "lin" },
-    { id: "mod", label: "Mod", min: -7, max: 7, default: 2, curve: "lin" },
+    { id: "order", label: "Harmonic", short: "Harm", min: 1, max: 8, default: 2, curve: "lin" },
+    { id: "mod", label: "Modulation", short: "Mod", min: -7, max: 7, default: 2, curve: "lin" },
     // The input is clipped at ±1 after this gain, as the polynomials run away beyond it.
     { id: "drive", label: "Drive", min: -24, max: 12, default: 0, curve: "lin", unit: "dB" },
   ]),
@@ -519,14 +520,14 @@ const DEFS: ModuleDef[] = [
   // alone, 0.5 is half-wave, 1 full-wave (an octave up for a simple wave).
   shaper("shaper-rectify", "Rectifier", [
     { id: "amount", label: "Amount", min: 0, max: 1, default: 1, curve: "lin" },
-    { id: "mod", label: "Mod", min: -1, max: 1, default: 0.5, curve: "lin" },
+    { id: "mod", label: "Modulation", short: "Mod", min: -1, max: 1, default: 0.5, curve: "lin" },
   ]),
   // Rate is how many samples a second get through, Bits how finely each is measured.
   shaper("shaper-crush", "Bitcrusher", [
     { id: "rate", label: "Rate", min: 100, max: 18000, default: 6000, curve: "exp", unit: "Hz" },
     { id: "bits", label: "Bits", min: 1, max: 16, default: 8, curve: "lin" },
     // Semitones of Rate per unit of the mod input.
-    { id: "mod", label: "Mod", min: -96, max: 96, default: 24, curve: "lin", unit: "st" },
+    { id: "mod", label: "Modulation", short: "Mod", min: -96, max: 96, default: 24, curve: "lin", unit: "st" },
   ]),
   // An echo. Each repeat comes back through a low-pass at Tone, times Feedback.
   effect("fx-delay", "Delay", [
@@ -542,7 +543,7 @@ const DEFS: ModuleDef[] = [
     [
       level("size", "Size", 1, 0.5),
       { id: "decay", label: "Decay", min: 0.1, max: 20, default: 2, curve: "exp", unit: "s" },
-      level("damp", "Damp", 1, 0.4),
+      { ...level("damp", "Damping", 1, 0.4), short: "Damp" },
       level("mix", "Mix", 1, 0.3),
     ],
     stereoOutputs,
@@ -567,8 +568,8 @@ const DEFS: ModuleDef[] = [
   // delays; Hall (`rev3~`) has sixteen and is the densest and the heaviest.
   // The Cavern cannot ring for less than a couple of seconds: its delays are that long.
   effect("fx-cavern", "Cavern", [{ ...reverbDecay, min: 2.5, max: 40, default: 5 }, level("mix", "Mix", 1, 0.3)]),
-  effect("fx-room", "Room", [reverbDecay, level("damp", "Damp", 1, 0.3), reverbTone, level("mix", "Mix", 1, 0.3)], stereoOutputs),
-  effect("fx-hall", "Hall", [reverbDecay, level("damp", "Damp", 1, 0.3), reverbTone, level("mix", "Mix", 1, 0.3)], stereoOutputs),
+  effect("fx-room", "Room", [reverbDecay, reverbDamping, reverbTone, level("mix", "Mix", 1, 0.3)], stereoOutputs),
+  effect("fx-hall", "Hall", [reverbDecay, reverbDamping, reverbTone, level("mix", "Mix", 1, 0.3)], stereoOutputs),
   // Math: sums, products and the like, on any kind of signal.
   operator("math-add", "Add", "math", [anyInput("a", "A"), anyInput("b", "B")], anyOutput),
   // A ring modulator for two sounds, a VCA for a sound and a modulation.
@@ -618,7 +619,7 @@ const DEFS: ModuleDef[] = [
     height: 2,
     layout: "rows",
     // CV is the input of Level: with nothing patched it rests at 1 and the Amp is a volume control.
-    inputs: [audioInput, { id: "cv", label: "CV", hint: "mod", param: "level", unpatched: 1 }],
+    inputs: [audioInput, { id: "cv", label: "Level", hint: "mod", param: "level", unpatched: 1 }],
     outputs: [{ id: "out", label: "Out", hint: "audio" }],
     params: [level()],
     pd: "ge-amp",

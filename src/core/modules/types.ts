@@ -30,6 +30,11 @@ export interface PortDef {
 export interface ParamDef {
   id: string;
   label: string;
+  /**
+   * A shorter name for the Organelle's screen, used where the label does not fit on a line
+   * beside the module's name and the value ("Res" for Resonance).
+   */
+  short?: string;
   min: number;
   max: number;
   default: number;
