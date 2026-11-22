@@ -1,4 +1,4 @@
-import type { ModuleDef, ParamDef } from "./types";
+import type { ModuleDef, ParamDef, PortDef } from "./types";
 
 const level = (id = "level", label = "Level", max = 2, def = 1): ParamDef => ({
   id,
@@ -8,6 +8,55 @@ const level = (id = "level", label = "Level", max = 2, def = 1): ParamDef => ({
   default: def,
   curve: "lin",
 });
+
+const pitchInput: PortDef = { id: "pitch", label: "Pitch", hint: "pitch", precord: "pitch" };
+const audioOutput: PortDef = { id: "out", label: "Out", hint: "audio" };
+
+/** Tune and Fine, as every pitched oscillator has them. */
+const tuning: ParamDef[] = [
+  { id: "tune", label: "Tune", min: -36, max: 36, default: 0, curve: "lin", unit: "st", step: 1 },
+  { id: "fine", label: "Fine", min: -100, max: 100, default: 0, curve: "lin", unit: "ct" },
+];
+
+const oscillator = (type: string, name: string, extra: Partial<ModuleDef> = {}): ModuleDef => ({
+  type,
+  name,
+  category: "oscillator",
+  width: 2,
+  height: 2,
+  inputs: [pitchInput],
+  outputs: [audioOutput],
+  params: tuning,
+  pd: `ge-${type}`,
+  scope: "voice",
+  ...extra,
+});
+
+/** The filters differ only in what they let through; they share inputs and settings. */
+const filter = (type: string, name: string): ModuleDef => ({
+  type,
+  name,
+  category: "filter",
+  width: 2,
+  height: 2,
+  inputs: [
+    { id: "in", label: "In", hint: "audio" },
+    { id: "mod", label: "Mod", hint: "mod" },
+  ],
+  outputs: [audioOutput],
+  params: [
+    { id: "cutoff", label: "Cutoff", min: 20, max: 18000, default: 1200, curve: "exp", unit: "Hz" },
+    { id: "res", label: "Res", min: 0, max: 1, default: 0.2, curve: "lin" },
+    // Semitones of cutoff sweep per unit of the mod input.
+    { id: "mod", label: "Mod", min: -96, max: 96, default: 36, curve: "lin", unit: "st" },
+  ],
+  pd: `ge-${type}`,
+  scope: "voice",
+});
+
+/** Inputs of the mixer's abstraction; the editor shows only as many as are in use. */
+export const MIXER_INPUTS = 8;
+const mixerChannels = Array.from({ length: MIXER_INPUTS }, (_, i) => i + 1);
 
 const DEFS: ModuleDef[] = [
   {
@@ -21,7 +70,8 @@ const DEFS: ModuleDef[] = [
       { id: "right", label: "R", hint: "audio" },
     ],
     outputs: [],
-    params: [level("level", "Level", 1, 0.5)],
+    // Low enough that a four-voice chord of full-level oscillators stays under the host's clip at 1.
+    params: [level("level", "Level", 1, 0.25)],
     pd: "ge-audio-out",
     scope: "global",
     normalled: [["left", "right"]],
@@ -38,19 +88,24 @@ const DEFS: ModuleDef[] = [
     pd: "ge-voice-sum",
     scope: "global",
   },
+  oscillator("osc-sine", "Sine"),
+  oscillator("osc-tri", "Triangle"),
+  oscillator("osc-saw", "Saw"),
+  // The output has no DC, so a narrow pulse peaks above 1 (up to 1.9 at the ends of Width).
+  oscillator("osc-pulse", "Pulse", {
+    inputs: [pitchInput, { id: "pwm", label: "PWM", hint: "mod" }],
+    params: [...tuning, { id: "width", label: "Width", min: 5, max: 95, default: 50, curve: "lin", unit: "%" }],
+  }),
   {
-    type: "osc-saw",
-    name: "Saw",
-    category: "oscillator",
-    width: 2,
-    height: 2,
-    inputs: [{ id: "pitch", label: "Pitch", hint: "pitch", precord: "pitch" }],
-    outputs: [{ id: "out", label: "Out", hint: "audio" }],
-    params: [
-      { id: "tune", label: "Tune", min: -36, max: 36, default: 0, curve: "lin", unit: "st", step: 1 },
-      { id: "fine", label: "Fine", min: -100, max: 100, default: 0, curve: "lin", unit: "ct" },
-    ],
-    pd: "ge-osc-saw",
+    type: "noise",
+    name: "Noise",
+    category: "random",
+    width: 1,
+    height: 1,
+    inputs: [],
+    outputs: [audioOutput],
+    params: [],
+    pd: "ge-noise",
     scope: "voice",
   },
   {
@@ -70,26 +125,10 @@ const DEFS: ModuleDef[] = [
     pd: "ge-env-adsr",
     scope: "voice",
   },
-  {
-    type: "filter-lp",
-    name: "Low-pass",
-    category: "filter",
-    width: 2,
-    height: 2,
-    inputs: [
-      { id: "in", label: "In", hint: "audio" },
-      { id: "mod", label: "Mod", hint: "mod" },
-    ],
-    outputs: [{ id: "out", label: "Out", hint: "audio" }],
-    params: [
-      { id: "cutoff", label: "Cutoff", min: 20, max: 18000, default: 1200, curve: "exp", unit: "Hz" },
-      { id: "res", label: "Res", min: 0, max: 1, default: 0.2, curve: "lin" },
-      // Semitones of cutoff sweep per unit of the mod input.
-      { id: "mod", label: "Mod", min: -96, max: 96, default: 36, curve: "lin", unit: "st" },
-    ],
-    pd: "ge-filter-lp",
-    scope: "voice",
-  },
+  filter("filter-lp", "Low-pass"),
+  filter("filter-hp", "High-pass"),
+  filter("filter-bp", "Band-pass"),
+  filter("filter-notch", "Notch"),
   {
     type: "amp",
     name: "Amp",
@@ -104,6 +143,19 @@ const DEFS: ModuleDef[] = [
     params: [level()],
     pd: "ge-amp",
     scope: "voice",
+  },
+  {
+    type: "mixer",
+    name: "Mixer",
+    category: "level",
+    width: 2,
+    height: 1,
+    inputs: mixerChannels.map((n) => ({ id: `in${n}`, label: `${n}`, hint: "audio" })),
+    outputs: [audioOutput],
+    params: mixerChannels.map((n) => level(`level${n}`, `Level ${n}`)),
+    pd: "ge-mixer",
+    scope: "voice",
+    growsWithInputs: true,
   },
 ];
 

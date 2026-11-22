@@ -18,7 +18,7 @@ npm run build          # tsc typecheck + vite build
 npx tsc --noEmit       # typecheck only (there is no linter)
 
 npm test               # vitest: compiler, Pd file builder, model ops, registry, preview sync
-npm run test:pd        # cargo test in src-tauri: loads tests/golden into real Pd (libpd), headless
+npm run test:pd        # cargo test in src-tauri: real Pd (libpd), headless; plays tests/golden, measures module DSP
 ```
 
 Single tests:
@@ -26,6 +26,7 @@ Single tests:
 ```sh
 npx vitest run src/core/compiler/compiler.test.ts -t "is deterministic"
 cd src-tauri && cargo test --test compiled_patches
+cd src-tauri && cargo test --test module_dsp -- --nocapture   # prints measured pitch, levels and filter responses
 cd src-tauri && cargo test --test engine_audio -- --ignored   # opt-in: plays through the real audio device at -40 dB
 cd src-tauri && ORGANELLE_ADDRESS=<ip> cargo test --test organelle_send -- --ignored --nocapture   # opt-in: writes the patch Gridelle_Test to a real Organelle and starts it
 ```
@@ -74,6 +75,14 @@ A module is two things that must agree:
 `registry.test.ts` enforces the match by parsing the `.pd` text (`src/core/pd/inspect.ts`, flat patches only, no subpatches). It also checks that every object class used is in the allowlist in `src/core/pd/vanilla049.ts`. The preview embeds a newer Pd than the device has, so an object missing from that list could work in the editor and fail on the Organelle; extend the list only after checking it exists in Pd 0.49 vanilla.
 
 Params are stored and sent in real units (Hz, ms, semitones). `params.ts` maps a 0–1 control position to a value (`lin`/`exp`); `knobPages.ts` emits the same mapping as Pd objects, so the two must stay equivalent.
+
+**Helper abstractions.** `pd-lib/modules` also holds abstractions that are not modules (`ge-voice`, `ge-knob`, `ge-blep`, `ge-filter-poles`). `compile()` ships a module's file together with everything it is built from, transitively (`withHelpers` in `compiler/index.ts`): any object class in an abstraction that is not on the Pd 0.49 allowlist is taken to be another abstraction, and is a `missing-abstraction` error if the library lacks it. Parameter receivers (`[r $1-<id>]`) must stay in the module's own file, because that is where the registry test looks for them.
+
+**Measured, not assumed.** `src-tauri/tests/module_dsp.rs` loads each abstraction in real Pd and checks what it does: oscillator pitch, level, DC and aliasing; each filter's gain at several frequencies against the response it is designed to have; the mixer's sum. Change the DSP of a module and this is the test to extend. (It found that the first Low-pass, built on `vcf~`, went silent when opened fully.)
+
+**Filters** are the standard "cookbook" (RBJ) biquads, built so the cutoff can move at audio rate: `ge-filter-poles` makes the pole pair from two `cpole~` with signal-rate coefficients and outputs the gain each filter type needs; the module adds its zeros with `rzero~` (Notch is the input minus the band-pass). Coefficients come from the sine and cosine of *half* the angle, because Pd's cosine table is too coarse to take `1 - cos w` from near zero. `Res` maps to Q 0.7–15, and Low-pass and High-pass are turned down by `sqrt(0.7/Q)`.
+
+**Modules that grow.** A def with `growsWithInputs` (the Mixer) pairs input *i* with param *i*. Its abstraction and registry def always have all eight, so the compiler and saved documents know nothing about growing. Only the editor does: `visibleDef(doc, module)` in `modules/shape.ts` returns the def cut down to the pairs in use plus one free pair, with the matching tile height, and everything about size or visible ports (`ops.ts` placement and moves, the canvas, the inspector) must use it instead of `getModuleDef`. `ops.connect` calls `makeRoom` when such a tile grows, pushing the modules below it down within the same edit. The row layout in `ui/canvas/geometry.ts` (`portOffset`, two rows per cell) has to agree with the height rule in `shape.ts`.
 
 `pd-lib/modules/*.pd` is bundled into the front end with `import.meta.glob(..., "?raw")` in `src/core/pdlib.ts`. `pd-lib/host.pd` is embedded in the Rust binary with `include_str!`.
 

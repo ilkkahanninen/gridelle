@@ -68,4 +68,11 @@ export interface ModuleDef {
    * cable of its own (Audio Out's right channel follows the left).
    */
   normalled?: [from: string, to: string][];
+  /**
+   * Input *i* belongs with parameter *i* (a mixer channel and its level). The editor
+   * shows only the pairs in use plus one free pair, and the tile grows downwards with
+   * them; see `visibleDef`. The definition and the abstraction always have all of them,
+   * and `height` is the tile's height with a single pair.
+   */
+  growsWithInputs?: boolean;
 }

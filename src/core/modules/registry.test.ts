@@ -56,7 +56,10 @@ describe("module registry", () => {
 
 describe("pd-lib", () => {
   it.each(Object.entries(abstractionLibrary))("%s only uses objects the Organelle's Pd 0.49 has", (_name, text) => {
-    const unknown = objectClasses(text).filter((name) => !VANILLA_049_OBJECTS.has(name));
+    // Abstractions may be built from other abstractions in the library.
+    const unknown = objectClasses(text).filter(
+      (name) => !VANILLA_049_OBJECTS.has(name) && !(name in abstractionLibrary),
+    );
     expect(unknown).toEqual([]);
   });
 });

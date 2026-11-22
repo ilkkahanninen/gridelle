@@ -17,7 +17,7 @@ npm run tauri dev
 
 ```sh
 npm test          # compiler, Pd file builder, module registry
-npm run test:pd   # loads the compiled fixtures into real Pd (libpd), headless
+npm run test:pd   # real Pd (libpd), headless: plays the compiled fixtures, measures each module's DSP
 ```
 
 `npm test` writes the compiled example patches to `tests/golden/`; each folder there
@@ -54,7 +54,7 @@ cd src-tauri && ORGANELLE_ADDRESS=<address> cargo test --test organelle_send -- 
 | `src/ui` | React UI. |
 | `src/bridge` | The preview engine interface the UI talks to. |
 | `src-tauri` | Rust backend: libpd wrapper, audio output, sending to the Organelle, Tauri commands. |
-| `pd-lib/modules` | Hand-written Pd abstractions, one per module, vanilla Pd 0.49 only. |
+| `pd-lib/modules` | Pd abstractions: one per module, plus helpers they share. Vanilla Pd 0.49 only. |
 | `pd-lib/host.pd` | Preview stand-in for the Organelle's host patch. Never exported. |
 | `pd-lib/spike` | Hand-written test patch for checking a device (copy it to `Patches/`). |
 

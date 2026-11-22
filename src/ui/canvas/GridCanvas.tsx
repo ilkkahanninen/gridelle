@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as ops from "../../core/model/ops";
 import type { Cable, ModuleId, PortRef } from "../../core/model/types";
 import { getModuleDef } from "../../core/modules/registry";
+import { visibleDef } from "../../core/modules/shape";
 import { useEditor } from "../../state/store";
 import { useUi } from "../../state/ui";
 import { CableLayer } from "./CableLayer";
@@ -241,8 +242,9 @@ export function GridCanvas() {
         const right = Math.max(start.x, current.x);
         const top = Math.min(start.y, current.y);
         const bottom = Math.max(start.y, current.y);
-        const hit = useEditor.getState().doc.modules.filter((m) => {
-          const def = getModuleDef(m.type);
+        const now = useEditor.getState().doc;
+        const hit = now.modules.filter((m) => {
+          const def = visibleDef(now, m);
           if (!def) return false;
           const r = tileRect(m, def);
           return r.left < right && r.left + r.width > left && r.top < bottom && r.top + r.height > top;
@@ -305,7 +307,7 @@ export function GridCanvas() {
   const portPoint = useCallback(
     (ref: PortRef, side: "in" | "out"): Point | null => {
       const module = doc.modules.find((m) => m.id === ref.module);
-      const def = module && getModuleDef(module.type);
+      const def = module && visibleDef(doc, module);
       if (!module || !def) return null;
       const index = (side === "in" ? def.inputs : def.outputs).findIndex((p) => p.id === ref.port);
       if (index < 0) return null;
@@ -314,7 +316,7 @@ export function GridCanvas() {
         ? { x: point.x + dragOffset.x, y: point.y + dragOffset.y }
         : point;
     },
-    [doc.modules, selection, dragOffset?.x, dragOffset?.y],
+    [doc, selection, dragOffset?.x, dragOffset?.y],
   );
 
   const hintOf = useCallback(
@@ -340,7 +342,7 @@ export function GridCanvas() {
     >
       <div className="world" style={{ transform: `translate(${view.panX}px, ${view.panY}px) scale(${view.zoom})` }}>
         {doc.modules.map((module) => {
-          const def = getModuleDef(module.type);
+          const def = visibleDef(doc, module);
           if (!def) return null;
           const selected = selection.has(module.id);
           return (

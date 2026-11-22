@@ -2,6 +2,7 @@ import * as ops from "../../core/model/ops";
 import { MAX_VOICES, MIN_VOICES, type ModuleInstance, type PatchDocument } from "../../core/model/types";
 import { formatParam, fromNormalized, toNormalized } from "../../core/modules/params";
 import { getModuleDef } from "../../core/modules/registry";
+import { visibleDef } from "../../core/modules/shape";
 import type { ModuleDef, ParamDef } from "../../core/modules/types";
 import { usePreview } from "../../state/preview";
 import { useEditor } from "../../state/store";
@@ -194,9 +195,11 @@ function PatchInspector() {
 export function Inspector() {
   const selection = useEditor((s) => s.selection);
   const modules = useEditor((s) => s.doc.modules);
+  const cables = useEditor((s) => s.doc.cables);
   const selected = modules.filter((m) => selection.has(m.id));
   const single = selected.length === 1 ? selected[0] : null;
-  const def = single ? getModuleDef(single.type) : undefined;
+  // A mixer shows the settings of the inputs it currently has.
+  const def = single ? visibleDef({ cables }, single) : undefined;
 
   return (
     <aside className="inspector" aria-label="Inspector">

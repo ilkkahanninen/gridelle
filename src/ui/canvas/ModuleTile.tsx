@@ -5,7 +5,7 @@ import { formatParam, fromNormalized, toNormalized } from "../../core/modules/pa
 import type { ModuleDef, ParamDef, PortDef } from "../../core/modules/types";
 import { useEditor } from "../../state/store";
 import { Knob } from "../controls/Knob";
-import { PORT_GAP, PORT_INSET, PORT_TOP, tileRect } from "./geometry";
+import { PORT_INSET, portOffset, tileRect } from "./geometry";
 
 interface TileProps {
   module: ModuleInstance;
@@ -23,7 +23,7 @@ interface TileProps {
 
 const VOICE_SIGNAL_LABEL = { pitch: "the played note", gate: "the key gate", velocity: "key velocity" } as const;
 
-function ParamKnob({ module, param }: { module: ModuleInstance; param: ParamDef }) {
+function ParamKnob({ module, param, size = 30 }: { module: ModuleInstance; param: ParamDef; size?: number }) {
   const [active, setActive] = useState(false);
   const value = ops.paramValue(module, param.id);
   // Which Organelle knob (1–4) plays this parameter, or 0 for none.
@@ -37,7 +37,7 @@ function ParamKnob({ module, param }: { module: ModuleInstance; param: ParamDef 
       title={`${param.label}: ${formatParam(param, value)}`}
     >
       <Knob
-        size={30}
+        size={size}
         value={toNormalized(param, value)}
         defaultValue={toNormalized(param, param.default)}
         label={active ? formatParam(param, value) : param.label}
@@ -59,6 +59,7 @@ function ParamKnob({ module, param }: { module: ModuleInstance; param: ParamDef 
 
 function Port({
   module,
+  def,
   port,
   side,
   index,
@@ -66,6 +67,7 @@ function Port({
   onPointerDown,
 }: {
   module: ModuleInstance;
+  def: ModuleDef;
   port: PortDef;
   side: "in" | "out";
   index: number;
@@ -79,7 +81,7 @@ function Port({
   return (
     <div
       className={`port port-${side} hint-${port.hint}${cabled ? " port-cabled" : ""}${precord ? " port-precord" : ""}`}
-      style={{ top: PORT_TOP + index * PORT_GAP, [side === "in" ? "left" : "right"]: PORT_INSET }}
+      style={{ top: portOffset(def, index), [side === "in" ? "left" : "right"]: PORT_INSET }}
       data-port-module={module.id}
       data-port-id={port.id}
       data-port-side={side}
@@ -108,6 +110,7 @@ export const ModuleTile = memo(function ModuleTile({
   if (offset) classes.push("tile-dragging");
   if (blocked) classes.push("tile-blocked");
   if (def.width === 1) classes.push("tile-narrow");
+  if (def.growsWithInputs) classes.push("tile-rows");
 
   return (
     <div
@@ -127,6 +130,7 @@ export const ModuleTile = memo(function ModuleTile({
         <Port
           key={port.id}
           module={module}
+          def={def}
           port={port}
           side="in"
           index={i}
@@ -138,6 +142,7 @@ export const ModuleTile = memo(function ModuleTile({
         <Port
           key={port.id}
           module={module}
+          def={def}
           port={port}
           side="out"
           index={i}
@@ -145,13 +150,25 @@ export const ModuleTile = memo(function ModuleTile({
           onPointerDown={onPortPointerDown}
         />
       ))}
-      {def.params.length > 0 && (
-        <div className="tile-knobs" onPointerDown={(e) => e.stopPropagation()}>
-          {def.params.map((param) => (
-            <ParamKnob key={param.id} module={module} param={param} />
-          ))}
-        </div>
-      )}
+      {def.growsWithInputs
+        ? // One row per input: its port on the left and its knob beside it.
+          def.params.map((param, i) => (
+            <div
+              key={param.id}
+              className="tile-row-knob"
+              style={{ top: portOffset(def, i) }}
+              onPointerDown={(e) => e.stopPropagation()}
+            >
+              <ParamKnob module={module} param={param} size={24} />
+            </div>
+          ))
+        : def.params.length > 0 && (
+            <div className="tile-knobs" onPointerDown={(e) => e.stopPropagation()}>
+              {def.params.map((param) => (
+                <ParamKnob key={param.id} module={module} param={param} />
+              ))}
+            </div>
+          )}
     </div>
   );
 });

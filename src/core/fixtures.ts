@@ -72,4 +72,58 @@ export const sharedFilter: PatchDocument = {
   pages: [],
 };
 
-export const fixtures = { "basic-synth": basicSynth, "shared-filter": sharedFilter } as const;
+/**
+ * Every oscillator and noise into a mixer, then through each filter in turn. Not a
+ * patch anyone would play; it puts all the sources and filters in front of real Pd.
+ */
+export const sourcesAndFilters: PatchDocument = {
+  version: DOCUMENT_VERSION,
+  name: "Sources and Filters",
+  voices: 2,
+  modules: [
+    { id: "ge1", type: "osc-sine", x: 0, y: 0, params: {} },
+    { id: "ge2", type: "osc-tri", x: 0, y: 2, params: { tune: 12 } },
+    { id: "ge3", type: "osc-pulse", x: 0, y: 4, params: { width: 30 } },
+    { id: "ge4", type: "noise", x: 0, y: 6, params: {} },
+    { id: "ge5", type: "osc-saw", x: 0, y: 7, params: { fine: 7 } },
+    { id: "ge6", type: "mixer", x: 3, y: 0, params: { level1: 0.5, level2: 0.5, level3: 0.4, level4: 0.1, level5: 0.4 } },
+    { id: "ge7", type: "filter-hp", x: 6, y: 0, params: { cutoff: 60, res: 0 } },
+    { id: "ge8", type: "filter-bp", x: 8, y: 0, params: { cutoff: 700, res: 0 } },
+    { id: "ge9", type: "filter-notch", x: 10, y: 0, params: { cutoff: 3000, res: 0.3 } },
+    { id: "ge10", type: "filter-lp", x: 12, y: 0, params: { cutoff: 5000, res: 0.3 } },
+    { id: "ge11", type: "env-adsr", x: 8, y: 2, params: { release: 200 } },
+    { id: "ge12", type: "amp", x: 14, y: 0, params: {} },
+    { id: "ge13", type: "audio-out", x: 15, y: 0, params: {} },
+  ],
+  cables: [
+    { from: { module: "ge1", port: "out" }, to: { module: "ge6", port: "in1" } },
+    { from: { module: "ge2", port: "out" }, to: { module: "ge6", port: "in2" } },
+    { from: { module: "ge3", port: "out" }, to: { module: "ge6", port: "in3" } },
+    { from: { module: "ge4", port: "out" }, to: { module: "ge6", port: "in4" } },
+    { from: { module: "ge5", port: "out" }, to: { module: "ge6", port: "in5" } },
+    { from: { module: "ge6", port: "out" }, to: { module: "ge7", port: "in" } },
+    { from: { module: "ge7", port: "out" }, to: { module: "ge8", port: "in" } },
+    { from: { module: "ge8", port: "out" }, to: { module: "ge9", port: "in" } },
+    { from: { module: "ge9", port: "out" }, to: { module: "ge10", port: "in" } },
+    { from: { module: "ge10", port: "out" }, to: { module: "ge12", port: "in" } },
+    { from: { module: "ge11", port: "out" }, to: { module: "ge12", port: "cv" } },
+    { from: { module: "ge12", port: "out" }, to: { module: "ge13", port: "left" } },
+  ],
+  pages: [
+    {
+      name: "Mix",
+      knobs: [
+        { module: "ge6", param: "level1" },
+        { module: "ge6", param: "level4" },
+        { module: "ge3", param: "width" },
+        { module: "ge8", param: "cutoff" },
+      ],
+    },
+  ],
+};
+
+export const fixtures = {
+  "basic-synth": basicSynth,
+  "shared-filter": sharedFilter,
+  "sources-and-filters": sourcesAndFilters,
+} as const;

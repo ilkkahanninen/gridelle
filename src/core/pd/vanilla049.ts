@@ -11,7 +11,7 @@
  */
 export const VANILLA_049_OBJECTS: ReadonlySet<string> = new Set([
   // structure
-  "inlet", "outlet", "inlet~", "outlet~", "clone", "loadbang", "switch~", "block~",
+  "inlet", "outlet", "inlet~", "outlet~", "clone", "loadbang", "switch~", "block~", "samplerate~",
   // messages
   "r", "receive", "s", "send", "f", "float", "i", "int", "t", "trigger", "b", "bang",
   "pack", "unpack", "route", "sel", "select", "spigot", "moses", "change", "swap",

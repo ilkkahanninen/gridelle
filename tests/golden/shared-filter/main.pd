@@ -10,7 +10,7 @@
 #X obj 160 275 ge-filter-lp ge8;
 #X obj 420 275 ge-audio-out ge9;
 #X obj 550 30 loadbang;
-#X msg 550 65 \; ge1-tune 0 \; ge1-fine -8 \; ge2-tune 12 \; ge2-fine 8 \; ge3-attack 5 \; ge3-decay 200 \; ge3-sustain 0.6 \; ge3-release 400 \; ge4-level 0.5 \; ge5-level 0.5 \; ge8-cutoff 2500 \; ge8-res 0.2 \; ge8-mod 36 \; ge9-level 0.5;
+#X msg 550 65 \; ge1-tune 0 \; ge1-fine -8 \; ge2-tune 12 \; ge2-fine 8 \; ge3-attack 5 \; ge3-decay 200 \; ge3-sustain 0.6 \; ge3-release 400 \; ge4-level 0.5 \; ge5-level 0.5 \; ge8-cutoff 2500 \; ge8-res 0.2 \; ge8-mod 36 \; ge9-level 0.25;
 #X connect 0 0 1 0;
 #X connect 1 0 2 0;
 #X connect 1 1 2 1;

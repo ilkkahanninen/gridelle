@@ -52,18 +52,34 @@ describe("compile", () => {
     });
   });
 
-  it("ships exactly the abstractions the patch uses", () => {
+  it("ships exactly the abstractions the patch uses, and the helpers those are built from", () => {
     const { files } = compile(basicSynth, abstractionLibrary);
     expect(Object.keys(files).sort()).toEqual([
       "ge-amp.pd",
       "ge-audio-out.pd",
+      // Helper of the saw.
+      "ge-blep.pd",
       "ge-env-adsr.pd",
       "ge-filter-lp.pd",
+      // Helper of the filter.
+      "ge-filter-poles.pd",
       "ge-knob.pd",
       "ge-osc-saw.pd",
       "ge-voice.pd",
       "main.pd",
       "voice.pd",
+    ]);
+    // No oscillator, no anti-aliasing helper.
+    const silent = doc({ modules: [{ id: "ge1", type: "amp", x: 0, y: 0, params: {} }] });
+    expect(Object.keys(compile(silent, abstractionLibrary).files)).not.toContain("ge-blep.pd");
+  });
+
+  it("reports a helper that is missing from the library", () => {
+    const { "ge-blep": _missing, ...partial } = abstractionLibrary;
+    const result = compile(basicSynth, partial);
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics).toEqual([
+      { severity: "error", code: "missing-abstraction", message: "The module library is missing ge-blep.pd." },
     ]);
   });
 

@@ -1,5 +1,7 @@
 import type { PatchDocument } from "../model/types";
 import { VOICE_ABSTRACTION } from "../modules/registry";
+import { objectClasses } from "../pd/inspect";
+import { VANILLA_049_OBJECTS } from "../pd/vanilla049";
 import { analyze, type Diagnostic } from "./analyze";
 import { emitMain, emitVoice, paramValues, type ParamValue } from "./emit";
 import { KNOB_ABSTRACTION, knobSlots, usesKnobs, type KnobSlotValue } from "./knobPages";
@@ -28,6 +30,24 @@ export interface CompileResult {
 }
 
 /**
+ * `roots` plus every abstraction they are built from, directly or through another
+ * abstraction. Module abstractions share DSP through such helpers (`ge-blep`,
+ * `ge-filter-poles`), which must travel with the patch. A name the library does not
+ * have is returned too, for the caller to report.
+ */
+function withHelpers(roots: string[], library: AbstractionLibrary): string[] {
+  const needed = [...new Set(roots)];
+  for (let i = 0; i < needed.length; i++) {
+    if (!(needed[i] in library)) continue;
+    for (const name of objectClasses(library[needed[i]])) {
+      // Whatever is not one of Pd's own objects has to be an abstraction.
+      if (!VANILLA_049_OBJECTS.has(name) && !needed.includes(name)) needed.push(name);
+    }
+  }
+  return needed;
+}
+
+/**
  * Turn a patch document into an Organelle patch folder. Pure: the same document
  * and library always give the same files.
  */
@@ -35,11 +55,10 @@ export function compile(doc: PatchDocument, library: AbstractionLibrary): Compil
   const analysis = analyze(doc);
   const diagnostics = [...analysis.diagnostics];
 
-  const needed = [
-    VOICE_ABSTRACTION,
-    ...new Set(analysis.modules.map((m) => m.def.pd)),
-    ...(usesKnobs(analysis) ? [KNOB_ABSTRACTION] : []),
-  ];
+  const needed = withHelpers(
+    [VOICE_ABSTRACTION, ...analysis.modules.map((m) => m.def.pd), ...(usesKnobs(analysis) ? [KNOB_ABSTRACTION] : [])],
+    library,
+  );
   for (const name of needed) {
     if (!(name in library)) {
       diagnostics.push({

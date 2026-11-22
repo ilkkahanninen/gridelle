@@ -120,6 +120,33 @@
   width: 60px;
 }
 
+/* A module that grows with its inputs: each row is a port with its knob beside it. */
+.tile-row-knob {
+  position: absolute;
+  left: 26px;
+  transform: translateY(-50%);
+}
+
+.tile-row-knob .knob {
+  flex-direction: row;
+  gap: 6px;
+}
+
+.tile-row-knob .knob-label {
+  width: 52px;
+  text-align: left;
+}
+
+.tile-row-knob .tile-knob-badge {
+  top: -4px;
+  left: 15px;
+  right: auto;
+}
+
+.tile-rows .port-label {
+  display: none;
+}
+
 /* Ports: a ring when free, filled when cabled, a small centre dot when fed automatically. */
 
 .port {

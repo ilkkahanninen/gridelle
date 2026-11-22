@@ -7,7 +7,7 @@
 #X obj 30 205 clone voice 4;
 #X obj 30 275 ge-audio-out ge4;
 #X obj 550 30 loadbang;
-#X msg 550 65 \; ge1-tune 0 \; ge1-fine 0 \; ge2-cutoff 400 \; ge2-res 0.5 \; ge2-mod 48 \; ge3-level 1 \; ge4-level 0.5 \; ge5-attack 2 \; ge5-decay 300 \; ge5-sustain 0.2 \; ge5-release 200 \; ge6-attack 2 \; ge6-decay 100 \; ge6-sustain 0.8 \; ge6-release 150;
+#X msg 550 65 \; ge1-tune 0 \; ge1-fine 0 \; ge2-cutoff 400 \; ge2-res 0.5 \; ge2-mod 48 \; ge3-level 1 \; ge4-level 0.25 \; ge5-attack 2 \; ge5-decay 300 \; ge5-sustain 0.2 \; ge5-release 200 \; ge6-attack 2 \; ge6-decay 100 \; ge6-sustain 0.8 \; ge6-release 150;
 #X obj 30 400 loadbang;
 #X msg 30 428 0;
 #X obj 30 596 s ge-page;

@@ -6,6 +6,7 @@
 
 import { getModuleDef } from "../modules/registry";
 import { clampParam } from "../modules/params";
+import { visibleDef } from "../modules/shape";
 import {
   KNOBS_PER_PAGE,
   MAX_PAGES,
@@ -27,8 +28,9 @@ interface Rect extends Cell {
   height: number;
 }
 
-function rectOf(module: ModuleInstance, at: Cell = module): Rect | null {
-  const def = getModuleDef(module.type);
+/** The cells a module covers, at the size it currently shows (a mixer grows with its cables). */
+function rectOf(doc: PatchDocument, module: ModuleInstance, at: Cell = module): Rect | null {
+  const def = visibleDef(doc, module);
   return def ? { x: at.x, y: at.y, width: def.width, height: def.height } : null;
 }
 
@@ -40,7 +42,7 @@ function overlaps(a: Rect, b: Rect): boolean {
 function isFree(doc: PatchDocument, rect: Rect, ignore: ReadonlySet<ModuleId> = new Set()): boolean {
   return doc.modules.every((m) => {
     if (ignore.has(m.id)) return true;
-    const other = rectOf(m);
+    const other = rectOf(doc, m);
     return !other || !overlaps(rect, other);
   });
 }
@@ -89,7 +91,7 @@ export function addModule(doc: PatchDocument, type: string, at: Cell): { doc: Pa
 export function canMove(doc: PatchDocument, ids: ReadonlySet<ModuleId>, delta: Cell): boolean {
   return doc.modules.every((m) => {
     if (!ids.has(m.id)) return true;
-    const rect = rectOf(m, { x: m.x + delta.x, y: m.y + delta.y });
+    const rect = rectOf(doc, m, { x: m.x + delta.x, y: m.y + delta.y });
     return !rect || isFree(doc, rect, ids);
   });
 }
@@ -147,14 +149,47 @@ export function connectionProblem(doc: PatchDocument, from: PortRef, to: PortRef
 }
 
 /**
+ * Move whatever module `id` overlaps to just below it, and whatever those land on in
+ * turn. `id` itself stays where it is. Used when a tile has grown.
+ */
+export function makeRoom(doc: PatchDocument, id: ModuleId): PatchDocument {
+  const rects = new Map<ModuleId, Rect>();
+  for (const module of doc.modules) {
+    const rect = rectOf(doc, module);
+    if (rect) rects.set(module.id, rect);
+  }
+  if (!rects.has(id)) return doc;
+
+  // A pushed module ends up below its pusher and can never push it back, so this ends.
+  const moved = new Set<ModuleId>();
+  const pushers = [id];
+  while (pushers.length > 0) {
+    const pusher = rects.get(pushers.shift()!)!;
+    for (const [otherId, other] of rects) {
+      if (otherId === id || other === pusher || !overlaps(pusher, other)) continue;
+      other.y = pusher.y + pusher.height;
+      moved.add(otherId);
+      pushers.push(otherId);
+    }
+  }
+  if (moved.size === 0) return doc;
+  return { ...doc, modules: doc.modules.map((m) => (moved.has(m.id) ? { ...m, y: rects.get(m.id)!.y } : m)) };
+}
+
+/**
  * Patch a cable from an output to an input. An input holds one cable, so any
  * existing cable into `to` is replaced. Invalid connections leave the document unchanged.
+ *
+ * Cabling the last free input of a module that grows with its inputs makes its tile
+ * taller; modules in the way are pushed down as part of the same edit.
  */
 export function connect(doc: PatchDocument, from: PortRef, to: PortRef): PatchDocument {
   if (connectionProblem(doc, from, to)) return doc;
   const cable = { from, to };
   if (doc.cables.some((c) => sameCable(c, cable))) return doc;
-  return { ...doc, cables: [...doc.cables.filter((c) => !samePort(c.to, to)), cable] };
+  const patched = { ...doc, cables: [...doc.cables.filter((c) => !samePort(c.to, to)), cable] };
+  const target = doc.modules.find((m) => m.id === to.module);
+  return target && getModuleDef(target.type)?.growsWithInputs ? makeRoom(patched, to.module) : patched;
 }
 
 export function disconnect(doc: PatchDocument, cable: Cable): PatchDocument {

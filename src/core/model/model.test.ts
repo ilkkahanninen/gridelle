@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { basicSynth } from "../fixtures";
 import { getModuleDef } from "../modules/registry";
+import { visibleDef } from "../modules/shape";
+import { useEditor } from "../../state/store";
 import { formatParam, fromNormalized, toNormalized } from "../modules/params";
 import {
   addModule,
@@ -17,6 +19,7 @@ import {
   connectionProblem,
   disconnect,
   findFreeCell,
+  makeRoom,
   moveModules,
   nextModuleId,
   removeModules,
@@ -244,5 +247,100 @@ describe("saved files", () => {
     expect(exportFolderName("Basic Synth")).toBe("Basic_Synth");
     expect(exportFolderName("  Säkkijärven polkka #2!  ")).toBe("Sakkijarven_polkka_2");
     expect(exportFolderName("///")).toBe("Gridelle_Patch");
+  });
+});
+
+describe("a mixer grows with its inputs", () => {
+  // Three saws on the left; a mixer (two cells wide) at 3,0 with two amps stacked right below it.
+  const start = build(
+    ["osc-saw", 0, 0],
+    ["osc-saw", 0, 2],
+    ["osc-saw", 0, 4],
+    ["mixer", 3, 0],
+    ["amp", 3, 1],
+    ["amp", 3, 3],
+    ["amp", 5, 1],
+  );
+  const [mixer, below, further, beside] = ["ge4", "ge5", "ge6", "ge7"];
+  const shape = (doc: PatchDocument) => {
+    const def = visibleDef(doc, doc.modules.find((m) => m.id === mixer)!)!;
+    return { inputs: def.inputs.map((p) => p.id), params: def.params.map((p) => p.id), height: def.height };
+  };
+  const cabled = (doc: PatchDocument, source: string, input: string) => connect(doc, port(source, "out"), port(mixer, input));
+  const y = (doc: PatchDocument, id: string) => doc.modules.find((m) => m.id === id)!.y;
+
+  it("starts with one input and one knob", () => {
+    expect(shape(start)).toEqual({ inputs: ["in1"], params: ["level1"], height: 1 });
+  });
+
+  it("gets another input and knob when the last one is cabled", () => {
+    const one = cabled(start, "ge1", "in1");
+    expect(shape(one)).toEqual({ inputs: ["in1", "in2"], params: ["level1", "level2"], height: 2 });
+    const two = cabled(one, "ge2", "in2");
+    expect(shape(two)).toMatchObject({ inputs: ["in1", "in2", "in3"], height: 2 });
+    const three = cabled(two, "ge3", "in3");
+    expect(shape(three)).toMatchObject({ inputs: ["in1", "in2", "in3", "in4"], height: 3 });
+  });
+
+  it("shrinks back when its last cables are removed, and keeps their levels", () => {
+    let doc = cabled(cabled(start, "ge1", "in1"), "ge2", "in2");
+    doc = setParam(doc, mixer, "level2", 0.25);
+    doc = disconnect(doc, { from: port("ge2", "out"), to: port(mixer, "in2") });
+    expect(shape(doc)).toMatchObject({ inputs: ["in1", "in2"], height: 2 });
+    doc = disconnect(doc, { from: port("ge1", "out"), to: port(mixer, "in1") });
+    expect(shape(doc)).toMatchObject({ inputs: ["in1"], height: 1 });
+    expect(doc.modules.find((m) => m.id === mixer)!.params.level2).toBe(0.25);
+  });
+
+  it("keeps the inputs between two cables", () => {
+    // Possible by moving a cable: the gap stays so nothing else changes place.
+    const doc = disconnect(cabled(cabled(cabled(start, "ge1", "in1"), "ge2", "in2"), "ge3", "in3"), {
+      from: port("ge2", "out"),
+      to: port(mixer, "in2"),
+    });
+    expect(shape(doc)).toMatchObject({ inputs: ["in1", "in2", "in3", "in4"] });
+  });
+
+  it("stops at eight inputs", () => {
+    const full = { ...start, cables: [{ from: port("ge1", "out"), to: port(mixer, "in8") }] };
+    expect(shape(full)).toMatchObject({ height: 5 });
+    expect(shape(full).inputs).toHaveLength(8);
+    expect(getModuleDef("mixer")!.inputs).toHaveLength(8);
+  });
+
+  it("pushes the modules below it down as it grows, and those push the next", () => {
+    const grown = cabled(start, "ge1", "in1");
+    // The mixer now covers rows 0–1, so the amp at row 1 moves to row 2 and bumps the amp at row 3.
+    expect([y(grown, mixer), y(grown, below), y(grown, further)]).toEqual([0, 2, 4]);
+    // A module in another column stays put, and so does everything on the left.
+    expect(y(grown, beside)).toBe(1);
+    expect(grown.modules.slice(0, 3)).toEqual(start.modules.slice(0, 3));
+    // Growing within the cell it already has moves nothing.
+    const again = cabled(grown, "ge2", "in2");
+    expect(again.modules).toEqual(grown.modules);
+  });
+
+  it("leaves modules alone when there is room", () => {
+    const roomy = moveModules(start, new Set([below, further]), { x: 0, y: 5 });
+    expect(cabled(roomy, "ge1", "in1").modules).toEqual(roomy.modules);
+    expect(makeRoom(start, mixer)).toBe(start);
+  });
+
+  it("is undone together with the cable that caused it", () => {
+    const editor = useEditor.getState();
+    editor.load(start, null);
+    editor.apply((doc) => cabled(doc, "ge1", "in1"));
+    expect(y(useEditor.getState().doc, below)).toBe(2);
+    useEditor.getState().undo();
+    expect(useEditor.getState().doc).toBe(start);
+  });
+
+  it("takes up its grown size for placing and moving", () => {
+    const grown = cabled(start, "ge1", "in1");
+    expect(canPlace(start, "noise", { x: 4, y: 1 })).toBe(true);
+    expect(canPlace(grown, "noise", { x: 4, y: 1 })).toBe(false);
+    // The amp beside it can no longer slide left into the mixer's second row.
+    expect(canMove(start, new Set([beside]), { x: -1, y: 0 })).toBe(true);
+    expect(canMove(grown, new Set([beside]), { x: -1, y: 0 })).toBe(false);
   });
 });
