@@ -1,8 +1,7 @@
 .palette {
+  flex: 1;
   display: flex;
   min-width: 0;
-  background: var(--chrome);
-  border-top: 1px solid var(--line);
 }
 
 /*

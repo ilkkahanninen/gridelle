@@ -31,6 +31,8 @@ interface UiState {
    * it. See `state/assign.ts`.
    */
   assigning: KnobSlot | null;
+  /** The id of the pane that is open right of the grid (see `ui/shell/SidePanes.tsx`), or `null`. */
+  sidePane: string | null;
   setView(view: View): void;
 }
 
@@ -41,6 +43,7 @@ export const useUi = create<UiState>((set) => ({
   cableDrag: null,
   knobPage: 0,
   assigning: null,
+  sidePane: null,
   setView: (view) => set({ view }),
 }));
 
