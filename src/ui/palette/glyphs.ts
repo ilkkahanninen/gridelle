@@ -69,5 +69,7 @@ export const GLYPHS: Record<string, string> = {
   "shaper-rectify": "M2 16Q8 -6 14 16Q20 -6 26 16",
   "shaper-crush": "M2 17H6V13H11V9H16V6H21V3H26",
   amp: "M8 3L22 10L8 17Z",
+  compressor: "M3 17L14 8L25 5 M14 3V17",
+  limiter: "M3 17L15 5H25 M3 5H9",
   mixer: "M2 4H8L16 10H26 M2 10H16 M2 16H8L16 10",
 };

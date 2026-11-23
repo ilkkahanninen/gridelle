@@ -885,6 +885,63 @@ const DEFS: ModuleDef[] = [
     scope: "voice",
     growsWithInputs: true,
   },
+  {
+    // Turns its input down by what the Sidechain's level is over Threshold, less one part in
+    // Ratio. With nothing patched there the Sidechain is the input itself.
+    type: "compressor",
+    name: "Compressor",
+    category: "level",
+    width: 2,
+    height: 4,
+    layout: "rows",
+    inputs: [
+      audioInput,
+      { id: "side", label: "Sidechain", hint: "audio" },
+      settingInput("threshold", "Threshold"),
+      settingInput("ratio", "Ratio"),
+      settingInput("attack", "Attack"),
+      settingInput("release", "Release"),
+      settingInput("gain", "Gain"),
+    ],
+    outputs: [audioOutput],
+    params: [
+      { id: "threshold", label: "Threshold", short: "Thresh", min: -60, max: 0, default: -18, curve: "lin", unit: "dB" },
+      { id: "ratio", label: "Ratio", min: 1, max: 20, default: 4, curve: "exp" },
+      // Both are the time to go 95 % of the way, as a Glide's is.
+      { id: "attack", label: "Attack", min: 0.1, max: 200, default: 10, curve: "exp", unit: "ms" },
+      { id: "release", label: "Release", min: 10, max: 2000, default: 200, curve: "exp", unit: "ms" },
+      { id: "gain", label: "Gain", min: 0, max: 24, default: 0, curve: "lin", unit: "dB" },
+    ],
+    pd: "ge-compressor",
+    scope: "voice",
+    normalled: [["in", "side"]],
+  },
+  {
+    // Never lets its output past Ceiling: both sides are turned down together, at once, by
+    // what the louder one is over it, and come back up in Release. Gain is before that.
+    type: "limiter",
+    name: "Limiter",
+    category: "level",
+    width: 2,
+    height: 3,
+    layout: "rows",
+    inputs: [
+      { id: "in", label: "Left", hint: "audio" },
+      { id: "right", label: "Right", hint: "audio" },
+      settingInput("gain", "Gain"),
+      settingInput("ceiling", "Ceiling"),
+      settingInput("release", "Release"),
+    ],
+    outputs: stereoOutputs,
+    params: [
+      { id: "gain", label: "Gain", min: 0, max: 24, default: 0, curve: "lin", unit: "dB" },
+      { id: "ceiling", label: "Ceiling", min: -24, max: 0, default: -1, curve: "lin", unit: "dB" },
+      { id: "release", label: "Release", min: 10, max: 2000, default: 150, curve: "exp", unit: "ms" },
+    ],
+    pd: "ge-limiter",
+    scope: "voice",
+    normalled: [["in", "right"]],
+  },
 ];
 
 const BY_TYPE = new Map(DEFS.map((def) => [def.type, def]));

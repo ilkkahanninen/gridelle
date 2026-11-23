@@ -1,8 +1,8 @@
 //! Measures what the module abstractions in `pd-lib/modules` actually do, in real Pd:
 //! oscillator pitch, level, aliasing and modulation, filter frequency responses, the
 //! shapers' curves, mixer sums, the envelopes' stages, the LFOs, the effects, the wrappers of
-//! Pd's own filters and reverbs, the pitch, math and logic modules, the clock and the
-//! sequencer, and that every setting's input multiplies its knob.
+//! Pd's own filters and reverbs, the pitch, math and logic modules, the compressor and the
+//! limiter, the clock and the sequencer, and that every setting's input multiplies its knob.
 //!
 //! Each check loads a few-box test patch around one abstraction and analyses the audio
 //! it renders. libpd is a single global instance, so everything runs from one test.
@@ -83,6 +83,8 @@ fn inlets_of(name: &str) -> &'static [Inlet] {
         "ge-shaper-hard" | "ge-shaper-rectify" => &[Main, Setting, Mod],
         "ge-shaper-crush" => &[Main, Setting, Setting, Mod],
         "ge-amp" => &[Main, Setting],
+        "ge-compressor" => &[Main, Mod, Setting, Setting, Setting, Setting, Setting],
+        "ge-limiter" => &[Main, Mod, Setting, Setting, Setting],
         "ge-lfo" | "ge-clock" | "ge-env-ar" | "ge-env-ad" => &[Main, Setting, Setting],
         "ge-sequencer" => &[Main, Mod, Pwm, Setting, Setting, Setting, Setting, Setting, Setting, Setting, Setting, Setting],
         "ge-lfo-random" => &[Setting, Setting, Setting],
@@ -1889,6 +1891,193 @@ fn logic_modules(pd: &mut Pd, dir: &Path) {
     println!("logic: and, or, not, compare, toggle and divider give what they should");
 }
 
+// --- compressor and limiter ----------------------------------------------------------------
+
+/// The Compressor with a 220 Hz sine at In, its level set through `t-amp`. Its Sidechain is
+/// that input times `t-own` (1 to begin with, as when nothing is patched there) plus a
+/// 330 Hz sine times `t-side`. The output goes left and the input right. Threshold -20 dB,
+/// Ratio 4, Attack 10 ms, Release 200 ms, no Gain.
+fn with_compressor<T>(pd: &mut Pd, dir: &Path, measure: impl FnOnce(&mut Pd) -> T) -> T {
+    let boxes = ["osc~ 220", "r t-amp", "*~ 0", "r t-own", "*~ 1", "osc~ 330", "r t-side", "*~ 0", "+~"];
+    let connections = [[0, 0, 2, 0], [1, 0, 2, 1], [2, 0, 4, 0], [3, 0, 4, 1], [5, 0, 7, 0], [6, 0, 7, 1], [4, 0, 8, 0], [7, 0, 8, 1]];
+    let both = |module: usize| (vec!["dac~ 1", "dac~ 2"], vec![[module, 0, module + 1, 0], [2, 0, module + 2, 0]]);
+    with_module(pd, dir, "ge-compressor", &boxes, &connections, [Some(2), Some(8), None], both, |pd| {
+        set(pd, &[("threshold", -20.0), ("ratio", 4.0), ("attack", 10.0), ("release", 200.0), ("gain", 0.0)]);
+        render(pd, 0.05);
+        measure(pd)
+    })
+}
+
+/// The peak of the stretch from `from` to `to` milliseconds.
+fn peak_between(signal: &[f32], from: f32, to: f32) -> f32 {
+    let at = |ms: f32| ((ms / 1000.0 * SAMPLE_RATE) as usize).min(signal.len());
+    peak(&signal[at(from)..at(to)])
+}
+
+fn compressor(pd: &mut Pd, dir: &Path) {
+    // The level a steady sine of `amp` comes out at, in dB.
+    let steady = |pd: &mut Pd, amp: f32| {
+        pd.send_float("t-amp", amp);
+        render(pd, 1.0);
+        db(peak(&render(pd, 0.1).0))
+    };
+    with_compressor(pd, dir, |pd| {
+        // Under Threshold nothing is changed, to the sample.
+        pd.send_float("t-amp", 0.05);
+        let (out, input) = settled(pd, 0.2);
+        let apart = out.iter().zip(&input).map(|(o, i)| (o - i).abs()).fold(0.0f32, f32::max);
+        assert!(peak(&input) > 0.049 && apart < 1e-7, "compressor leaves a signal under Threshold as it is (off by {apart})");
+
+        // Over it, every Ratio decibels in are one out. A long Release, so that the level it
+        // reads between two peaks of the sine is the peak itself to within 0.1 dB.
+        set(pd, &[("release", 1000.0)]);
+        let mut curve = Vec::new();
+        for (amp, ratio) in [(0.2, 4.0), (0.5, 4.0), (1.0, 4.0), (1.0, 2.0), (1.0, 20.0), (1.0, 1.0)] {
+            set(pd, &[("ratio", ratio)]);
+            let over = db(amp) + 20.0;
+            let expected = -20.0 + over / ratio;
+            let measured = steady(pd, amp);
+            close(measured, expected, 0.25, &format!("compressor: a sine at {:.1} dB with Ratio {ratio}", db(amp)));
+            curve.push(measured);
+        }
+        // Each setting's input multiplies it.
+        set(pd, &[("ratio", 8.0), ("threshold", -40.0)]);
+        pd.send_float("t-in2", 0.5);
+        pd.send_float("t-in3", 0.5);
+        close(steady(pd, 1.0), -15.0, 0.25, "compressor: Threshold -40 x 0.5 and Ratio 8 x 0.5");
+        pd.send_float("t-in2", 1.0);
+        pd.send_float("t-in3", 1.0);
+        set(pd, &[("ratio", 4.0), ("threshold", -20.0), ("gain", 6.0)]);
+        close(steady(pd, 1.0), -9.0, 0.25, "compressor: Gain of 6 dB after the compression");
+        close(steady(pd, 0.05), db(0.05) + 6.0, 0.05, "compressor: Gain of 6 dB on what is under Threshold");
+        pd.send_float("t-in6", 0.5);
+        close(steady(pd, 0.05), db(0.05) + 3.0, 0.05, "compressor: Gain 6 dB x 0.5");
+        pd.send_float("t-in6", 1.0);
+        set(pd, &[("gain", 0.0), ("release", 200.0)]);
+
+        // Attack: a sound that starts loud gets through at first, and is down in Attack.
+        let mut attacks = Vec::new();
+        for attack in [10.0, 100.0] {
+            set(pd, &[("attack", attack)]);
+            pd.send_float("t-amp", 0.0);
+            render(pd, 1.0);
+            pd.send_float("t-amp", 1.0);
+            let out = render(pd, 1.0).0;
+            let (first, at, end) = (db(peak_between(&out, 0.0, 5.0)), db(peak_between(&out, attack, attack + 5.0)), db(peak_between(&out, 900.0, 1000.0)));
+            assert!(first > end + 10.0, "compressor Attack {attack} ms: the start gets through, {first:.1} dB against {end:.1} later");
+            // 95 % of the way in level is within half a decibel of it; times 3/4 for the Ratio.
+            assert!((at - end).abs() < 0.8, "compressor Attack {attack} ms: down after that time, {at:.1} dB against {end:.1}");
+            attacks.push(db(peak_between(&out, 10.0, 15.0)) - end);
+        }
+        assert!(attacks[1] > attacks[0] + 5.0, "compressor: a longer Attack lets more through, {attacks:?} dB over at 10 ms");
+        set(pd, &[("attack", 10.0)]);
+
+        // Release: when the sound drops under Threshold the gain comes back, as the peak it
+        // holds falls: from 0 dB to the Threshold of -20 dB takes ln(10) / 3 of Release.
+        steady(pd, 1.0);
+        pd.send_float("t-amp", 0.05);
+        let out = render(pd, 0.5).0;
+        let soon = db(peak_between(&out, 10.0, 20.0)) - db(0.05);
+        let later = db(peak_between(&out, 250.0, 300.0)) - db(0.05);
+        assert!(soon < -12.0, "compressor: still turned down 10 ms after the sound dropped, {soon:.1} dB");
+        close(later, 0.0, 0.1, "compressor: let go after Release");
+        let half = db(peak_between(&out, 72.0, 82.0)) - db(0.05);
+        close(half, -7.5, 1.5, "compressor: half way back, in decibels, half way through");
+
+        // The Sidechain is what it listens to: another sound there ducks this one.
+        pd.send_float("t-own", 0.0);
+        pd.send_float("t-side", 1.0);
+        let ducked = steady(pd, 0.05) - db(0.05);
+        close(ducked, -15.0, 0.3, "compressor: a full-level Sidechain turns a quiet input down by 15 dB");
+        pd.send_float("t-side", 0.0);
+        let free = steady(pd, 1.0);
+        close(free, 0.0, 0.01, "compressor: nothing at the Sidechain, nothing turned down");
+        println!("ge-compressor: out for sines at -14 / -6 / 0 dB at 4:1, then 0 dB at 2:1, 20:1 and 1:1: {curve:.1?} dB; ducked {ducked:.1} dB by its sidechain");
+    });
+}
+
+/// The Limiter with a 220 Hz sine on the left, its level set through `t-amp`, and a 330 Hz
+/// one on the right (`t-right`). With `stereo` its two outputs go left and right; without,
+/// its left output and its left input do. No Gain, a Ceiling of -6 dB, Release 300 ms.
+fn with_limiter<T>(pd: &mut Pd, dir: &Path, stereo: bool, measure: impl FnOnce(&mut Pd) -> T) -> T {
+    let boxes = ["osc~ 220", "r t-amp", "*~ 0", "osc~ 330", "r t-right", "*~ 0"];
+    let connections = [[0, 0, 2, 0], [1, 0, 2, 1], [3, 0, 5, 0], [4, 0, 5, 1]];
+    let outputs = move |module: usize| {
+        let second = if stereo { [module, 1, module + 2, 0] } else { [2, 0, module + 2, 0] };
+        (vec!["dac~ 1", "dac~ 2"], vec![[module, 0, module + 1, 0], second])
+    };
+    with_module(pd, dir, "ge-limiter", &boxes, &connections, [Some(2), Some(5), None], outputs, |pd| {
+        set(pd, &[("gain", 0.0), ("ceiling", -6.0), ("release", 300.0)]);
+        render(pd, 0.05);
+        measure(pd)
+    })
+}
+
+fn limiter(pd: &mut Pd, dir: &Path) {
+    let ceiling = gain_of(-6.0);
+    with_limiter(pd, dir, false, |pd| {
+        // Under the Ceiling nothing is changed, to the sample.
+        pd.send_float("t-amp", 0.3);
+        let (out, input) = settled(pd, 0.2);
+        let apart = out.iter().zip(&input).map(|(o, i)| (o - i).abs()).fold(0.0f32, f32::max);
+        assert!(peak(&input) > 0.29 && apart < 1e-7, "limiter leaves a signal under the Ceiling as it is (off by {apart})");
+
+        // A sound twice the Ceiling that starts all at once: nothing gets past, from the
+        // first sample, and after that it is the same sine turned down, barely bent.
+        pd.send_float("t-amp", 0.0);
+        render(pd, 0.5);
+        pd.send_float("t-amp", 1.0);
+        let (out, _) = render(pd, 0.6);
+        assert!(peak(&out) <= ceiling * 1.000001, "limiter: nothing over the Ceiling of {ceiling}, peak {}", peak(&out));
+        assert!(peak(&out[..441]) > ceiling * 0.99, "limiter: the first peak is at the Ceiling");
+        let late = &out[out.len() - 8820..];
+        let (first, third) = (amplitude_at(late, 220.0), amplitude_at(late, 660.0));
+        // (A sine with its tips flattened has a fundamental a little over its peak.)
+        close(first, ceiling, ceiling * 0.02, "limiter: a steady sine comes out at the Ceiling");
+        assert!(third < first * 0.02, "limiter: and stays a sine: third harmonic {third} of {first}");
+
+        // Release: the peak it holds falls 95 % of the way in that time, so from 1 to the
+        // Ceiling of a half takes ln(2) / 3 of it: 69 ms of 300.
+        pd.send_float("t-amp", 0.2);
+        let out = render(pd, 0.3).0;
+        close(peak_between(&out, 0.0, 10.0), 0.2 * ceiling, 0.01, "limiter: still turned down by half just after the sound drops");
+        let part = peak_between(&out, 30.0, 40.0);
+        assert!((0.125..0.155).contains(&part), "limiter: part of the way back after 30 to 40 ms, {part}");
+        close(peak_between(&out, 100.0, 300.0), 0.2, 0.001, "limiter: let go after 100 ms");
+
+        // Gain is before the limiting, and each input multiplies its setting.
+        pd.send_float("t-amp", 0.1);
+        set(pd, &[("gain", 12.0)]);
+        close(peak(&settled(pd, 0.2).0), 0.1 * gain_of(12.0), 0.002, "limiter: Gain of 12 dB on a quiet sound");
+        pd.send_float("t-in2", 0.5);
+        close(peak(&settled(pd, 0.2).0), 0.1 * gain_of(6.0), 0.002, "limiter: Gain 12 dB x 0.5");
+        pd.send_float("t-in2", 1.0);
+        set(pd, &[("gain", 24.0), ("ceiling", -12.0)]);
+        pd.send_float("t-amp", 1.0);
+        let out = settled(pd, 0.5).0;
+        assert!(peak(&out) <= gain_of(-12.0) * 1.000001, "limiter: a sine 36 dB over stays under the Ceiling, peak {}", peak(&out));
+        pd.send_float("t-in3", 0.5);
+        let out = settled(pd, 0.5).0;
+        close(peak(&out), ceiling, 0.001, "limiter: Ceiling -12 dB x 0.5");
+        pd.send_float("t-in3", 1.0);
+    });
+
+    with_limiter(pd, dir, true, |pd| {
+        // The two sides are turned down together, by what the louder one needs.
+        pd.send_float("t-amp", 1.0);
+        pd.send_float("t-right", 0.2);
+        let (left, right) = settled(pd, 0.5);
+        close(peak(&left), ceiling, 0.001, "limiter: the loud side is at the Ceiling");
+        close(peak(&right), 0.2 * ceiling, 0.004, "limiter: the quiet side is turned down as much");
+        pd.send_float("t-amp", 0.2);
+        pd.send_float("t-right", 1.0);
+        let (left, right) = settled(pd, 0.5);
+        close(peak(&right), ceiling, 0.001, "limiter: the right side at the Ceiling");
+        close(peak(&left), 0.2 * ceiling, 0.004, "limiter: and the left turned down with it");
+        println!("ge-limiter: never over its Ceiling, from the first sample; both sides down together; back up in Release");
+    });
+}
+
 // --- clock and sequencer -------------------------------------------------------------------
 
 /// The samples at which a gate goes on.
@@ -2175,6 +2364,10 @@ fn with_setting(pd: &mut Pd, dir: &Path, name: &str, inlet: usize, receiver: &st
         with_oscillator(pd, dir, name, measure)
     } else if name == "ge-lfo" {
         with_lfo(pd, dir, measure)
+    } else if name == "ge-compressor" {
+        with_compressor(pd, dir, measure)
+    } else if name == "ge-limiter" {
+        with_limiter(pd, dir, false, measure)
     } else if name == "ge-clock" {
         with_clock(pd, dir, measure)
     } else if name == "ge-sequencer" {
@@ -2275,6 +2468,10 @@ fn setting_inputs(pd: &mut Pd, dir: &Path) {
         ("ge-math-crossfade", 2, "mix", 0.8, 0.5),
         ("ge-math-smooth", 1, "rise", 400.0, 0.25),
         ("ge-logic-compare", 1, "threshold", 1.0, 0.5),
+        ("ge-compressor", 2, "threshold", -40.0, 0.5),
+        ("ge-compressor", 3, "ratio", 8.0, 0.5),
+        ("ge-compressor", 6, "gain", 12.0, 0.5),
+        ("ge-limiter", 3, "ceiling", -12.0, 0.5),
         ("ge-clock", 1, "tempo", 240.0, 0.5),
         ("ge-clock", 2, "width", 80.0, 0.5),
         ("ge-sequencer", 3, "steps", 6.0, 0.5),
@@ -2388,6 +2585,8 @@ fn modules_do_what_they_are_designed_to() {
     pitch_modules(&mut pd, &dir);
     math_modules(&mut pd, &dir);
     logic_modules(&mut pd, &dir);
+    compressor(&mut pd, &dir);
+    limiter(&mut pd, &dir);
     clock(&mut pd, &dir);
     sequencer(&mut pd, &dir);
     clock_and_sequencer(&mut pd, &dir);

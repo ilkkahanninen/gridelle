@@ -168,6 +168,14 @@ fn golden_patches_play_in_pd() {
             assert!(echoes.windows(2).all(|pair| pair[1] < pair[0] * 0.6), "{name}: each echo is quieter than the one before: {echoes:?}");
             println!("{name}: echoes after the release at {echoes:.3?}");
         }
+        if name == "dynamics" {
+            // Three saws at full level, 6 dB of gain in the compressor and the output wide
+            // open: what keeps the chord under the host's clip is the Limiter, at its Ceiling of -3 dB.
+            let top = 10f32.powf(-3.0 / 20.0);
+            assert!(level <= top * 1.000001, "{name}: nothing over the limiter's Ceiling of {top}, peak {level}");
+            assert!(level > top * 0.98, "{name}: the chord is up against the Ceiling, peak {level}");
+            println!("{name}: a chord peaks at {level:.4}, the limiter's Ceiling being {top:.4}");
+        }
         if name == "sequence" {
             // A key held: the Sequencer plays its six steps from that note, one to each tick
             // of the Clock, and goes round. At 140 beats a minute in sixteenths a tick is

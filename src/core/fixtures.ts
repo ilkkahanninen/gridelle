@@ -643,6 +643,35 @@ export const envelopes: PatchDocument = settle({
 });
 
 /**
+ * A Compressor and a Limiter after the voices are added up. The saws are far too loud for
+ * the output, which is at full level: the limiter is what keeps the patch under its ceiling.
+ */
+export const dynamics: PatchDocument = settle({
+  version: DOCUMENT_VERSION,
+  name: "Dynamics",
+  voices: 4,
+  modules: [
+    { id: "ge1", type: "osc-saw", x: 0, y: 0, params: {} },
+    { id: "ge2", type: "amp", x: 2, y: 0, params: {} },
+    { id: "ge3", type: "env-adsr", x: 0, y: 3, params: { release: 150 } },
+    { id: "ge4", type: "voice-sum", x: 3, y: 0, params: {} },
+    { id: "ge5", type: "compressor", x: 4, y: 0, params: { threshold: -24, ratio: 3, gain: 6 } },
+    { id: "ge6", type: "limiter", x: 6, y: 0, params: { ceiling: -3, release: 200 } },
+    { id: "ge7", type: "audio-out", x: 8, y: 0, params: { level: 1 } },
+  ],
+  cables: [
+    { from: { module: "ge1", port: "out" }, to: { module: "ge2", port: "in" } },
+    { from: { module: "ge3", port: "out" }, to: { module: "ge2", port: "cv" } },
+    { from: { module: "ge2", port: "out" }, to: { module: "ge4", port: "in" } },
+    { from: { module: "ge4", port: "out" }, to: { module: "ge5", port: "in" } },
+    { from: { module: "ge5", port: "out" }, to: { module: "ge6", port: "in" } },
+    { from: { module: "ge6", port: "out" }, to: { module: "ge7", port: "left" } },
+    { from: { module: "ge6", port: "right" }, to: { module: "ge7", port: "right" } },
+  ],
+  pages: [],
+});
+
+/**
  * What a new patch starts as, until the user saves a base of their own over it: a saw
  * through an amp that an envelope opens, into the output. It sounds when a key is pressed,
  * and every part of it is easy to replace.
@@ -683,5 +712,6 @@ export const fixtures = {
   grains,
   sequence,
   envelopes,
+  dynamics,
   "new-patch": newPatch,
 } as const;
