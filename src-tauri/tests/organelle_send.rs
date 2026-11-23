@@ -15,7 +15,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 use gridelle_lib::organelle::{osc_message, parse_address, send_patch, send_patch_to, SendReport, Target, EXISTS};
-use gridelle_lib::samples::{self, SampleFile};
+use gridelle_lib::samples::{self, SampleFile, Source};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Generation {
@@ -462,7 +462,7 @@ fn resending_removes_the_abstractions_the_patch_no_longer_has() {
 
 /// A sound file of the repository's test sounds, under the name a patch gives it.
 fn sound(file: &str, source: &str) -> SampleFile {
-    SampleFile { file: file.to_string(), path: format!("{}/tests/sounds/{source}", env!("CARGO_MANIFEST_DIR")) }
+    SampleFile::sound(file, &format!("{}/tests/sounds/{source}", env!("CARGO_MANIFEST_DIR")))
 }
 
 #[test]
@@ -478,7 +478,7 @@ fn sends_a_patchs_sound_files_once_and_removes_those_it_no_longer_plays() {
         let both = [sound("ge-sample-a.wav", "tone.flac"), sound("ge-sample-b.wav", "tone.mp3")];
         send_patch_to(&device.target, "My_Patch", &files, &both, false).unwrap();
         assert_eq!(device.names(dir), ["ge-sample-a.wav", "ge-sample-b.wav", "ge-voice.pd", "main.pd", "voice.pd"], "{generation:?}");
-        let flac = samples::converted(&both[0].path).unwrap();
+        let flac = samples::convert_all(&both[..1]).unwrap().remove(0).1;
         assert_eq!(stored("ge-sample-a.wav").as_deref(), Some(flac.wav.as_slice()), "{generation:?}: every byte of the sound");
         assert_eq!(&flac.wav[..4], b"RIFF");
         // The sounds are there before the patch that plays them.
@@ -490,11 +490,22 @@ fn sends_a_patchs_sound_files_once_and_removes_those_it_no_longer_plays() {
         send_patch_to(&device.target, "My_Patch", &files, &changed, false).unwrap();
         assert_eq!(uploads_of("ge-sample-a.wav"), 1, "{generation:?}: a sound the device has is not sent again");
         assert_eq!(uploads_of("ge-sample-b.wav"), 2, "{generation:?}: a changed one is");
-        assert_eq!(stored("ge-sample-b.wav").as_deref(), Some(samples::converted(&changed[1].path).unwrap().wav.as_slice()));
+        assert_eq!(stored("ge-sample-b.wav").as_deref(), Some(samples::convert_all(&changed[1..]).unwrap()[0].1.wav.as_slice()));
         assert_eq!(device.names(dir).len(), 5, "{generation:?}: and it replaced the old one, with no second copy");
 
         // A patch that plays one sound fewer: that file goes, a sound of the user's own stays.
         device.put(&format!("{dir}/my-sample.wav"), Some("mine"));
+        send_patch_to(&device.target, "My_Patch", &files, &changed[..1], false).unwrap();
+        assert_eq!(device.names(dir), ["ge-sample-a.wav", "ge-voice.pd", "main.pd", "my-sample.wav", "voice.pd"], "{generation:?}");
+
+        // A wavetable travels the same way, under its own name, and goes when the patch has it no more.
+        let table = SampleFile { file: "ge-wave-b.wav".into(), source: Source::Bank { id: "basic-shapes".into() } };
+        let with_table = [changed[0].clone(), table.clone()];
+        send_patch_to(&device.target, "My_Patch", &files, &with_table, false).unwrap();
+        let made = samples::convert_all(&[table]).unwrap().remove(0).1;
+        assert_eq!(stored("ge-wave-b.wav").as_deref(), Some(made.wav.as_slice()), "{generation:?}: every byte of the wavetable");
+        send_patch_to(&device.target, "My_Patch", &files, &with_table, false).unwrap();
+        assert_eq!(uploads_of("ge-wave-b.wav"), 1, "{generation:?}: a wavetable the device has is not sent again");
         send_patch_to(&device.target, "My_Patch", &files, &changed[..1], false).unwrap();
         assert_eq!(device.names(dir), ["ge-sample-a.wav", "ge-voice.pd", "main.pd", "my-sample.wav", "voice.pd"], "{generation:?}");
     }
@@ -503,7 +514,7 @@ fn sends_a_patchs_sound_files_once_and_removes_those_it_no_longer_plays() {
 #[test]
 fn a_sound_that_cannot_be_read_stops_the_send_before_the_device_is_touched() {
     let device = FakeOrganelle::start(Generation::Classic);
-    let missing = [SampleFile { file: "ge-sample-a.wav".into(), path: "/nowhere/kick.wav".into() }];
+    let missing = [SampleFile::sound("ge-sample-a.wav", "/nowhere/kick.wav")];
     let error = send_patch_to(&device.target, "My_Patch", &patch("x\n"), &missing, false).unwrap_err();
     assert!(error.starts_with("kick.wav is not where the patch expects it"), "{error}");
     assert!(device.names("/sdcard/Patches").is_empty(), "nothing was created on the device");
@@ -615,11 +626,21 @@ fn sends_a_patch_to_a_real_organelle() {
     let files: HashMap<String, String> = std::fs::read_dir(&folder)
         .unwrap_or_else(|e| panic!("{} is a patch folder (run `npm test` to generate the fixtures): {e}", folder.display()))
         .flatten()
+        .filter(|entry| entry.path().extension().is_some_and(|ending| ending == "pd"))
         .map(|entry| (entry.file_name().to_string_lossy().into_owned(), std::fs::read_to_string(entry.path()).unwrap()))
         .collect();
     assert!(files.contains_key("main.pd"));
+    // A fixture's sounds are listed beside it: what each is made from, paths from the top of the repo.
+    let sounds: Vec<SampleFile> = match std::fs::read_to_string(folder.join("samples.json")) {
+        Ok(list) => serde_json::from_str::<Vec<SampleFile>>(&list)
+            .expect("samples.json lists the patch's sounds")
+            .into_iter()
+            .map(|sound| sound.within(&PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..")))
+            .collect(),
+        Err(_) => Vec::new(),
+    };
 
-    let report = send_patch(&address, "Gridelle_Test", &files, &[], false).expect("the patch is sent");
+    let report = send_patch(&address, "Gridelle_Test", &files, &sounds, false).expect("the patch is sent");
 
     println!("sent {} files of {patch} to {}; started: {}", files.len(), report.path, report.started);
     assert!(report.path.ends_with("/Patches/Gridelle_Test"));

@@ -3,10 +3,11 @@
 //! audible on a note, silent again after release, and free of Pd errors.
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::Receiver;
 
 use gridelle_lib::engine::pd::{Atom, Pd, PdEvent};
+use gridelle_lib::samples::{self, SampleFile};
 
 const SAMPLE_RATE: u32 = 44_100;
 
@@ -39,8 +40,34 @@ fn render(pd: &mut Pd, seconds: f32) -> Vec<f32> {
     out
 }
 
+/// The folder to play a fixture from. The compiler test writes a patch's text files, and
+/// beside them `samples.json`: what each of its sounds is made from. A fixture with such a
+/// list is copied to `scratch` and its sounds are made there, as the editor makes them for
+/// a patch it exports. Paths in the list are from the top of the repo.
+fn with_sounds(golden: &Path, scratch: &Path) -> PathBuf {
+    let Ok(list) = fs::read_to_string(golden.join("samples.json")) else {
+        return golden.to_path_buf();
+    };
+    let sounds: Vec<SampleFile> = serde_json::from_str::<Vec<SampleFile>>(&list)
+        .expect("samples.json lists the patch's sounds")
+        .into_iter()
+        .map(|sound| sound.within(&repo()))
+        .collect();
+    let dir = scratch.join(golden.file_name().unwrap());
+    fs::create_dir_all(&dir).unwrap();
+    for entry in fs::read_dir(golden).unwrap().flatten() {
+        if entry.path().extension().is_some_and(|ending| ending == "pd") {
+            fs::copy(entry.path(), dir.join(entry.file_name())).unwrap();
+        }
+    }
+    samples::write_all(&dir, &sounds).expect("the fixture's sounds can be made");
+    dir
+}
+
 #[test]
 fn golden_patches_play_in_pd() {
+    let scratch = std::env::temp_dir().join(format!("gridelle-compiled-patches-{}", std::process::id()));
+
     let events = Pd::init().expect("first init returns the event stream");
     let mut names: Vec<String> = fs::read_dir(repo().join("tests/golden"))
         .expect("tests/golden exists; run `npx vitest run` to generate it")
@@ -63,7 +90,7 @@ fn golden_patches_play_in_pd() {
 
     for name in &names {
         let host = pd.open(&repo().join("pd-lib/host.pd")).unwrap();
-        let main = pd.open(&repo().join("tests/golden").join(name).join("main.pd")).unwrap();
+        let main = pd.open(&with_sounds(&repo().join("tests/golden").join(name), &scratch).join("main.pd")).unwrap();
 
         // A voice is never muted, so a patch is as quiet as it is made: one with nothing
         // between its sound and the output sounds from the start, and for ever.
@@ -176,6 +203,15 @@ fn golden_patches_play_in_pd() {
             assert!(level > top * 0.98, "{name}: the chord is up against the Ceiling, peak {level}");
             println!("{name}: a chord peaks at {level:.4}, the limiter's Ceiling being {top:.4}");
         }
+        if name == "wavetable" {
+            // Both wavetables were made and loaded when the patch started: a record for each
+            // of their cycles, 64 of one and 33 of the other.
+            for (table, cycles) in [("ge-wave-0", 64), ("ge-wave-1", 33)] {
+                let points = pd.read_array(table).unwrap_or_else(|| panic!("{name}: {table} is there"));
+                assert_eq!(points.len(), cycles * gridelle_lib::wavetable::RECORD, "{name}: {table} has its {cycles} cycles");
+                assert!((peak(&points) - 1.0).abs() < 0.001, "{name}: {table} is at full level, peak {}", peak(&points));
+            }
+        }
         if name == "sequence" {
             // A key held: the Sequencer plays its six steps from that note, one to each tick
             // of the Clock, and goes round. At 140 beats a minute in sixteenths a tick is
@@ -235,6 +271,7 @@ fn golden_patches_play_in_pd() {
     for binding in bindings {
         pd.unbind(binding);
     }
+    let _ = fs::remove_dir_all(&scratch);
 }
 
 /// Everything the patch has sent to the screen and LED since the last call, as `name: text`.

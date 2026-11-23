@@ -485,6 +485,17 @@ const DEFS: ModuleDef[] = [
     params: [{ id: "width", label: "Width", min: 5, max: 95, default: 50, curve: "lin", unit: "%" }],
   }),
   {
+    // Plays one cycle of a wavetable and fades to the next: Position goes from the first
+    // frame to the last, and Position modulation adds to it, the whole table for a signal
+    // of 1. The wavetable is a sample slot's: one of the editor's own, or a sound file cut
+    // into cycles. It is read at the level that has only the harmonics the pitch has room for.
+    ...oscillator("osc-wavetable", "Wavetable", {
+      inputs: [settingInput("position", "Position"), { id: "scan", label: "Position modulation", hint: "mod" }],
+      params: [level("position", "Position", 1, 0), { ...sampleChoice, label: "Wavetable" }],
+    }),
+    sample: "wavetable",
+  },
+  {
     type: "noise",
     name: "Noise",
     category: "random",

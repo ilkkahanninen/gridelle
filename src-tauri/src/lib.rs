@@ -1,5 +1,7 @@
 pub mod engine;
+pub mod banks;
 pub mod samples;
+pub mod wavetable;
 pub mod organelle;
 pub mod presets;
 
@@ -10,7 +12,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 use engine::audio::Engine;
 use engine::pd::{Atom, PdEvent};
-use samples::{SampleFile, SampleInfo};
+use samples::{SampleFile, SampleInfo, Source, WavetableInfo};
 
 /// Event name for everything the running patch prints or sends to the host.
 const PD_EVENT: &str = "pd-event";
@@ -65,6 +67,12 @@ fn engine_load(
 #[tauri::command(async)]
 fn sample_info(path: String) -> Result<SampleInfo, String> {
     crate::samples::info(&path)
+}
+
+/// What the editor shows of a wavetable: how many cycles it has, and a picture of some.
+#[tauri::command(async)]
+fn wavetable_info(source: Source) -> Result<WavetableInfo, String> {
+    crate::samples::wavetable_info(&source)
 }
 
 #[tauri::command]
@@ -218,6 +226,7 @@ pub fn run() {
             engine_peak,
             engine_scope,
             sample_info,
+            wavetable_info,
             presets_list,
             preset_save,
             preset_delete,

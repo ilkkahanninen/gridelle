@@ -7,12 +7,15 @@
 import { getModuleDef } from "../modules/registry";
 import { clampParam } from "../modules/params";
 import { visibleDef } from "../modules/shape";
+import { DEFAULT_BANK, wavetableBank } from "../wavetables/banks";
 import type { ModuleDef } from "../modules/types";
 import {
   KNOBS_PER_PAGE,
+  MAX_CYCLE,
   MAX_MODULE_NAME,
   MAX_PAGES,
   MAX_TAPE_SECONDS,
+  SAMPLE_PARAM,
   SAMPLE_SLOTS,
   type Cable,
   type KnobAssignment,
@@ -106,7 +109,17 @@ export function addModule(doc: PatchDocument, type: string, at: Cell): { doc: Pa
 }
 
 function place(doc: PatchDocument, id: ModuleId, type: string, at: Cell): PatchDocument {
-  return { ...doc, modules: [...doc.modules, { id, type, x: at.x, y: at.y, params: {} }] };
+  const placed = { ...doc, modules: [...doc.modules, { id, type, x: at.x, y: at.y, params: {} }] };
+  // A Wavetable oscillator comes with a wavetable, so that it sounds: one the patch
+  // already has, or the first of the editor's own in a free slot. With neither it is
+  // left on the first slot, and the compiler says what is wrong with that.
+  if (getModuleDef(type)?.sample !== "wavetable") return placed;
+  const slots = Array.from({ length: SAMPLE_SLOTS }, (_, slot) => sampleAt(doc, slot));
+  const has = slots.findIndex((sample) => sample?.kind === "wavetable");
+  const slot = has >= 0 ? has : slots.findIndex((sample) => sample === null);
+  if (slot < 0) return placed;
+  const filled = has >= 0 ? placed : setSample(placed, slot, { kind: "wavetable", bank: DEFAULT_BANK });
+  return setParam(filled, id, SAMPLE_PARAM, slot);
 }
 
 /** Whether the modules `ids` can all shift by `delta` without landing on another module. */
@@ -471,8 +484,14 @@ export function sampleAt(doc: Pick<PatchDocument, "samples">, slot: number): Sam
  */
 export function setSample(doc: PatchDocument, slot: number, sample: SampleSlot | null): PatchDocument {
   if (!Number.isInteger(slot) || slot < 0 || slot >= SAMPLE_SLOTS) return doc;
-  const next: SampleSlot | null =
-    sample?.kind === "tape" ? { kind: "tape", seconds: Math.min(MAX_TAPE_SECONDS, Math.max(0.1, sample.seconds || 0)) } : sample;
+  let next = sample;
+  if (sample?.kind === "tape") next = { kind: "tape", seconds: Math.min(MAX_TAPE_SECONDS, Math.max(0.1, sample.seconds || 0)) };
+  if (sample?.kind === "file") {
+    // A cycle length is a whole number of samples that a cycle can have, or it is left out.
+    const { cycle, ...file } = sample;
+    const whole = Math.round(cycle ?? 0);
+    next = whole >= 2 && whole <= MAX_CYCLE ? { ...file, cycle: whole } : file;
+  }
   const current = sampleAt(doc, slot);
   if (JSON.stringify(current) === JSON.stringify(next)) return doc;
   const samples: (SampleSlot | null)[] = Array.from({ length: SAMPLE_SLOTS }, (_, i) => sampleAt(doc, i));
@@ -481,6 +500,26 @@ export function setSample(doc: PatchDocument, slot: number, sample: SampleSlot |
   while (samples.length > 0 && samples[samples.length - 1] === null) samples.pop();
   const { samples: _dropped, ...rest } = doc;
   return samples.length > 0 ? { ...rest, samples } : rest;
+}
+
+/**
+ * Give a module one of the editor's own wavetables. It goes to a slot that already has
+ * that wavetable; or it takes the place of the wavetable in the module's own slot, when
+ * that is one of the editor's (or empty) and no other module uses it; or it goes in the
+ * first free slot. With no such slot the document is left as it is.
+ */
+export function setWavetable(doc: PatchDocument, id: ModuleId, bank: string): PatchDocument {
+  const module = doc.modules.find((m) => m.id === id);
+  if (!module || getModuleDef(module.type)?.sample !== "wavetable" || !wavetableBank(bank)) return doc;
+  const slots = Array.from({ length: SAMPLE_SLOTS }, (_, slot) => sampleAt(doc, slot));
+  const same = slots.findIndex((sample) => sample?.kind === "wavetable" && sample.bank === bank);
+  if (same >= 0) return setParam(doc, id, SAMPLE_PARAM, same);
+  const own = paramValue(module, SAMPLE_PARAM);
+  const shared = doc.modules.some((m) => m !== module && getModuleDef(m.type)?.params.some((p) => p.id === SAMPLE_PARAM) && paramValue(m, SAMPLE_PARAM) === own);
+  const replaceable = slots[own] === null || slots[own]?.kind === "wavetable";
+  const slot = replaceable && !shared ? own : slots.findIndex((sample) => sample === null);
+  if (slot < 0) return doc;
+  return setParam(setSample(doc, slot, { kind: "wavetable", bank }), id, SAMPLE_PARAM, slot);
 }
 
 /**

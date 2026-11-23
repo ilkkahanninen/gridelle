@@ -1,5 +1,6 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import type { SampleFile } from "../core/compiler";
 
 /** A Pd atom: a number or a symbol. */
 export type Atom = number | string;
@@ -18,11 +19,8 @@ export interface EngineStatus {
 /** Patch files by name, e.g. `{ "main.pd": "#N canvas ..." }`. */
 export type PatchFiles = Record<string, string>;
 
-/** A sound file a patch plays: the name it has in the patch folder, and where it is now. */
-export interface SoundFile {
-  file: string;
-  path: string;
-}
+/** A file of sound a patch plays: the name it has in the patch folder, and what it is made from. */
+export type SoundFile = SampleFile;
 
 /**
  * The live preview. The editor talks to Pd only through this interface, so the

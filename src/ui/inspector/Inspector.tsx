@@ -8,6 +8,8 @@ import {
   type ModuleInstance,
 } from "../../core/model/types";
 import { MODULE_DOCS } from "../../core/modules/docs";
+import { getModuleDef } from "../../core/modules/registry";
+import { wavetableGroups } from "../../core/wavetables/banks";
 import { visibleDef } from "../../core/modules/shape";
 import type { ModuleDef, ParamDef } from "../../core/modules/types";
 import { usePreview } from "../../state/preview";
@@ -21,30 +23,51 @@ const VOICE_SIGNAL = { pitch: "the played note", gate: "the key gate", velocity:
 function ChoiceRow({ module, param }: { module: ModuleInstance; param: ParamDef }) {
   const id = `param-${module.id}-${param.id}`;
   const value = ops.paramValue(module, param.id);
-  // The Sample choice offers the samples the patch has (they are made in the Samples pane),
-  // and says what each holds. The one the module is on is offered even when it is empty.
+  // The Sample choice offers the samples the patch has (they are made in the Samples pane)
+  // that the module can use, and says what each holds: a Wavetable oscillator reads a
+  // wavetable or a sound file, the sample modules a sound file or a tape. The one the
+  // module is on is offered whatever it holds.
   const isSample = param.id === SAMPLE_PARAM;
+  const scans = isSample && getModuleDef(module.type)?.sample === "wavetable";
   const samples = useEditor((s) => (isSample ? s.doc.samples : undefined));
-  const offered = (i: number) => !isSample || i === value || !!samples?.[i];
+  const usable = (i: number) => {
+    const kind = samples?.[i]?.kind;
+    return kind === "file" || kind === (scans ? "wavetable" : "tape");
+  };
+  const offered = (i: number) => !isSample || i === value || usable(i);
   const text = (option: string, i: number) => (isSample ? `${sampleLetter(i)}: ${describeSample(samples?.[i] ?? null)}` : option);
+  // For a Wavetable oscillator the list goes on with every wavetable the editor has:
+  // choosing one puts it in a slot of the patch (`ops.setWavetable`) and the module on that.
+  const BANK = "bank:";
+  const choose = (chosen: string) =>
+    useEditor
+      .getState()
+      .apply((doc) =>
+        chosen.startsWith(BANK) ? ops.setWavetable(doc, module.id, chosen.slice(BANK.length)) : ops.setParam(doc, module.id, param.id, Number(chosen)),
+      );
+  const slots = param.options!.map(
+    (option, i) =>
+      offered(i) && (
+        <option key={option} value={i}>
+          {text(option, i)}
+        </option>
+      ),
+  );
   return (
     <div className="inspector-param inspector-choice">
       <label htmlFor={id}>{param.label}</label>
-      <select
-        id={id}
-        value={value}
-        onChange={(e) =>
-          useEditor.getState().apply((doc) => ops.setParam(doc, module.id, param.id, Number(e.target.value)))
-        }
-      >
-        {param.options!.map(
-          (option, i) =>
-            offered(i) && (
-              <option key={option} value={i}>
-                {text(option, i)}
-              </option>
-            ),
-        )}
+      <select id={id} value={value} onChange={(e) => choose(e.target.value)}>
+        {scans ? <optgroup label="In this patch">{slots}</optgroup> : slots}
+        {scans &&
+          wavetableGroups().map(({ group, banks }) => (
+            <optgroup key={group} label={group}>
+              {banks.map((bank) => (
+                <option key={bank.id} value={BANK + bank.id}>
+                  {bank.name}
+                </option>
+              ))}
+            </optgroup>
+          ))}
       </select>
     </div>
   );

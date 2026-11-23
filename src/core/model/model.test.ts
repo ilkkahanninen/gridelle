@@ -28,6 +28,7 @@ import {
   moveModules,
   nextFreeKnob,
   nextModuleId,
+  paramValue,
   planPortDrop,
   type PortTarget,
   removeModules,
@@ -35,6 +36,7 @@ import {
   sampleAt,
   setParam,
   setSample,
+  setWavetable,
   setPrecord,
   togglePrecord,
 } from "./ops";
@@ -382,6 +384,69 @@ describe("saved files", () => {
     // There are eight slots.
     expect(setSample(basicSynth, 8, { kind: "tape", seconds: 1 })).toBe(basicSynth);
     expect(setSample(basicSynth, -1, { kind: "tape", seconds: 1 })).toBe(basicSynth);
+  });
+
+  it("round-trips a wavetable and a cycle length, and opens a file of the version before", () => {
+    const file = { kind: "file", path: "/tables/growl.wav", name: "growl.wav", frames: 131072, sampleRate: 44100, cycle: 2048 } as const;
+    const doc = setSample(setSample(basicSynth, 0, { kind: "wavetable", bank: "vowels" }), 1, file);
+    expect(parseDocument(serializeDocument(doc))).toEqual(doc);
+    for (const samples of [[{ kind: "wavetable" }], [{ kind: "wavetable", bank: 3 }], [{ ...file, cycle: "long" }]]) {
+      expect(() => parseDocument(JSON.stringify({ ...basicSynth, samples }))).toThrow(/damaged/);
+    }
+    // Version 1 had no wavetables; what it did have reads the same.
+    expect(parseDocument(JSON.stringify({ ...basicSynth, version: 1 }))).toEqual(basicSynth);
+    // A cycle is a whole number of samples that a cycle can have, or there is none.
+    const cycleOf = (cycle: number | undefined) => sampleAt(setSample(basicSynth, 0, { ...file, cycle }), 0);
+    expect(cycleOf(1024.4)).toEqual({ ...file, cycle: 1024 });
+    for (const none of [undefined, 0, 1, -5, 100000]) expect(cycleOf(none)).not.toHaveProperty("cycle");
+  });
+
+  it("gives a new Wavetable oscillator a wavetable to play", () => {
+    // The first gets the default one in the first free slot; the second shares it.
+    const tape = setSample(emptyDocument(), 0, { kind: "tape", seconds: 1 });
+    const one = addModule(tape, "osc-wavetable", { x: 0, y: 0 });
+    expect(one.doc.samples).toEqual([{ kind: "tape", seconds: 1 }, { kind: "wavetable", bank: "basic-shapes" }]);
+    expect(one.doc.modules[0].params).toEqual({ sample: 1 });
+    const two = addModule(one.doc, "osc-wavetable", { x: 0, y: 5 });
+    expect(two.doc.samples).toBe(one.doc.samples);
+    expect(two.doc.modules[1].params).toEqual({ sample: 1 });
+    // Dropped on a port it gets one too.
+    const amp = addModule(emptyDocument(), "amp", { x: 4, y: 0 }).doc;
+    const dropped = addModuleAtPort(amp, "osc-wavetable", { module: "ge1", port: "in", side: "in" }).doc;
+    expect(dropped.samples).toEqual([{ kind: "wavetable", bank: "basic-shapes" }]);
+    // With every slot taken by something else it is left on the first, for the compiler to speak of.
+    const full = Array.from({ length: 8 }, (_, slot) => slot).reduce((d, slot) => setSample(d, slot, { kind: "tape", seconds: 1 }), emptyDocument());
+    const crowded = addModule(full, "osc-wavetable", { x: 0, y: 0 }).doc;
+    expect(crowded.samples).toBe(full.samples);
+    expect(crowded.modules[0].params).toEqual({});
+    // No other module brings a sample with it.
+    expect(addModule(emptyDocument(), "sample-player", { x: 0, y: 0 }).doc.samples).toBeUndefined();
+  });
+
+  it("gives a Wavetable oscillator another of the editor's wavetables", () => {
+    const one = addModule(emptyDocument(), "osc-wavetable", { x: 0, y: 0 }).doc;
+    // Alone on its slot, the wavetable there is changed.
+    const changed = setWavetable(one, "ge1", "vowels");
+    expect(changed.samples).toEqual([{ kind: "wavetable", bank: "vowels" }]);
+    expect(setWavetable(changed, "ge1", "vowels")).toBe(changed);
+    // Two on a slot: the one that is given another goes to a slot of its own.
+    const two = addModule(changed, "osc-wavetable", { x: 0, y: 5 }).doc;
+    const apart = setWavetable(two, "ge2", "glass");
+    expect(apart.samples).toEqual([{ kind: "wavetable", bank: "vowels" }, { kind: "wavetable", bank: "glass" }]);
+    expect(apart.modules.map((m) => paramValue(m, "sample"))).toEqual([0, 1]);
+    // Asking for one the patch has puts the module on that slot, and makes no second copy.
+    const together = setWavetable(apart, "ge2", "vowels");
+    expect(together.samples).toBe(apart.samples);
+    expect(together.modules.map((m) => paramValue(m, "sample"))).toEqual([0, 0]);
+    // On a sound file, the file is left alone and the wavetable goes in a free slot.
+    const file = { kind: "file", path: "/t.wav", name: "t.wav", frames: 4096, sampleRate: 44100 } as const;
+    const onFile = setWavetable(setSample(one, 0, file), "ge1", "bells");
+    expect(onFile.samples).toEqual([file, { kind: "wavetable", bank: "bells" }]);
+    expect(onFile.modules[0].params.sample).toBe(1);
+    // Unknown wavetables, other modules and missing ones change nothing.
+    expect(setWavetable(one, "ge1", "no-such-bank")).toBe(one);
+    expect(setWavetable(one, "ge9", "vowels")).toBe(one);
+    expect(setWavetable(addModule(one, "osc-saw", { x: 0, y: 5 }).doc, "ge2", "vowels").samples).toBe(one.samples);
   });
 
   it("makes export folder names the Organelle installer accepts", () => {

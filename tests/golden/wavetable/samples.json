@@ -1,0 +1,16 @@
+[
+  {
+    "file": "ge-wave-a.wav",
+    "source": {
+      "kind": "bank",
+      "id": "resonance"
+    }
+  },
+  {
+    "file": "ge-wave-b.wav",
+    "source": {
+      "kind": "bank",
+      "id": "vowels"
+    }
+  }
+]

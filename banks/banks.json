@@ -1,0 +1,887 @@
+[
+  {
+    "id": "basic-shapes",
+    "name": "Basic Shapes",
+    "group": "Basic",
+    "frames": 33
+  },
+  {
+    "id": "sine-to-saw",
+    "name": "Sine to Saw",
+    "group": "Basic",
+    "frames": 48
+  },
+  {
+    "id": "sine-to-square",
+    "name": "Sine to Square",
+    "group": "Basic",
+    "frames": 48
+  },
+  {
+    "id": "pulse-width",
+    "name": "Pulse Width",
+    "group": "Basic",
+    "frames": 48
+  },
+  {
+    "id": "triangle-to-saw",
+    "name": "Triangle to Saw",
+    "group": "Basic",
+    "frames": 32
+  },
+  {
+    "id": "sync-saw",
+    "name": "Sync Saw",
+    "group": "Analog",
+    "frames": 64
+  },
+  {
+    "id": "sync-square",
+    "name": "Sync Square",
+    "group": "Analog",
+    "frames": 64
+  },
+  {
+    "id": "sync-sine",
+    "name": "Sync Sine",
+    "group": "Analog",
+    "frames": 64
+  },
+  {
+    "id": "resonance",
+    "name": "Resonance",
+    "group": "Analog",
+    "frames": 64
+  },
+  {
+    "id": "reso-wave",
+    "name": "Reso Wave",
+    "group": "Analog",
+    "frames": 64
+  },
+  {
+    "id": "harmonics",
+    "name": "Harmonics",
+    "group": "Additive",
+    "frames": 32
+  },
+  {
+    "id": "overtones",
+    "name": "Overtones",
+    "group": "Additive",
+    "frames": 64
+  },
+  {
+    "id": "odd-to-even",
+    "name": "Odd to Even",
+    "group": "Additive",
+    "frames": 17
+  },
+  {
+    "id": "octaves",
+    "name": "Octaves",
+    "group": "Additive",
+    "frames": 33
+  },
+  {
+    "id": "drawbars",
+    "name": "Drawbars",
+    "group": "Additive",
+    "frames": 16
+  },
+  {
+    "id": "tilt",
+    "name": "Dark to Bright",
+    "group": "Additive",
+    "frames": 32
+  },
+  {
+    "id": "primes",
+    "name": "Primes",
+    "group": "Additive",
+    "frames": 32
+  },
+  {
+    "id": "vowels",
+    "name": "Vowels",
+    "group": "Vocal",
+    "frames": 33
+  },
+  {
+    "id": "formant",
+    "name": "Formant",
+    "group": "Vocal",
+    "frames": 64
+  },
+  {
+    "id": "twin-peaks",
+    "name": "Twin Peaks",
+    "group": "Vocal",
+    "frames": 64
+  },
+  {
+    "id": "fm-1-1",
+    "name": "FM 1:1",
+    "group": "FM",
+    "frames": 48
+  },
+  {
+    "id": "fm-1-2",
+    "name": "FM 1:2",
+    "group": "FM",
+    "frames": 48
+  },
+  {
+    "id": "fm-1-3",
+    "name": "FM 1:3",
+    "group": "FM",
+    "frames": 48
+  },
+  {
+    "id": "fm-3-1",
+    "name": "FM 3:1",
+    "group": "FM",
+    "frames": 48
+  },
+  {
+    "id": "phase-distortion",
+    "name": "Phase Distortion",
+    "group": "FM",
+    "frames": 48
+  },
+  {
+    "id": "wavefold",
+    "name": "Wavefold",
+    "group": "Shaped",
+    "frames": 64
+  },
+  {
+    "id": "overdrive",
+    "name": "Overdrive",
+    "group": "Shaped",
+    "frames": 32
+  },
+  {
+    "id": "bit-reduction",
+    "name": "Bit Reduction",
+    "group": "Shaped",
+    "frames": 24
+  },
+  {
+    "id": "stepped",
+    "name": "Stepped",
+    "group": "Shaped",
+    "frames": 32
+  },
+  {
+    "id": "glass",
+    "name": "Glass",
+    "group": "Spectral",
+    "frames": 33
+  },
+  {
+    "id": "bells",
+    "name": "Bells",
+    "group": "Spectral",
+    "frames": 16
+  },
+  {
+    "id": "noise-bands",
+    "name": "Noise Bands",
+    "group": "Spectral",
+    "frames": 64
+  },
+  {
+    "id": "akwf-bw-blended-1",
+    "name": "Blended Shapes A",
+    "group": "AKWF Shapes",
+    "frames": 37,
+    "akwf": 2157
+  },
+  {
+    "id": "akwf-bw-blended-2",
+    "name": "Blended Shapes B",
+    "group": "AKWF Shapes",
+    "frames": 36,
+    "akwf": 2194
+  },
+  {
+    "id": "akwf-bw-perfectwaves",
+    "name": "Perfect Waves",
+    "group": "AKWF Shapes",
+    "frames": 4,
+    "akwf": 2230
+  },
+  {
+    "id": "akwf-bw-saw",
+    "name": "Saws",
+    "group": "AKWF Shapes",
+    "frames": 50,
+    "akwf": 2234
+  },
+  {
+    "id": "akwf-bw-sawbright",
+    "name": "Bright Saws",
+    "group": "AKWF Shapes",
+    "frames": 10,
+    "akwf": 2284
+  },
+  {
+    "id": "akwf-bw-sawgap",
+    "name": "Gapped Saws",
+    "group": "AKWF Shapes",
+    "frames": 42,
+    "akwf": 2294
+  },
+  {
+    "id": "akwf-bw-sawrounded",
+    "name": "Rounded Saws",
+    "group": "AKWF Shapes",
+    "frames": 52,
+    "akwf": 2336
+  },
+  {
+    "id": "akwf-bw-sin",
+    "name": "Sines",
+    "group": "AKWF Shapes",
+    "frames": 12,
+    "akwf": 2388
+  },
+  {
+    "id": "akwf-bw-squ-1",
+    "name": "Squares A",
+    "group": "AKWF Shapes",
+    "frames": 50,
+    "akwf": 2400
+  },
+  {
+    "id": "akwf-bw-squ-2",
+    "name": "Squares B",
+    "group": "AKWF Shapes",
+    "frames": 50,
+    "akwf": 2450
+  },
+  {
+    "id": "akwf-bw-squrounded",
+    "name": "Rounded Squares",
+    "group": "AKWF Shapes",
+    "frames": 52,
+    "akwf": 2500
+  },
+  {
+    "id": "akwf-bw-tri",
+    "name": "Triangles",
+    "group": "AKWF Shapes",
+    "frames": 25,
+    "akwf": 2552
+  },
+  {
+    "id": "akwf-hdrawn",
+    "name": "Hand Drawn",
+    "group": "AKWF Shapes",
+    "frames": 50,
+    "akwf": 3302
+  },
+  {
+    "id": "akwf-linear-1",
+    "name": "Linear A",
+    "group": "AKWF Shapes",
+    "frames": 43,
+    "akwf": 3456
+  },
+  {
+    "id": "akwf-linear-2",
+    "name": "Linear B",
+    "group": "AKWF Shapes",
+    "frames": 42,
+    "akwf": 3499
+  },
+  {
+    "id": "akwf-symetric",
+    "name": "Symmetric",
+    "group": "AKWF Shapes",
+    "frames": 17,
+    "akwf": 3900
+  },
+  {
+    "id": "akwf-aguitar",
+    "name": "Acoustic Guitar",
+    "group": "AKWF Instruments",
+    "frames": 38,
+    "akwf": 2011
+  },
+  {
+    "id": "akwf-altosax",
+    "name": "Alto Sax",
+    "group": "AKWF Instruments",
+    "frames": 26,
+    "akwf": 2049
+  },
+  {
+    "id": "akwf-birds",
+    "name": "Birds",
+    "group": "AKWF Instruments",
+    "frames": 14,
+    "akwf": 2075
+  },
+  {
+    "id": "akwf-cello",
+    "name": "Cello",
+    "group": "AKWF Instruments",
+    "frames": 19,
+    "akwf": 2609
+  },
+  {
+    "id": "akwf-clarinett",
+    "name": "Clarinet",
+    "group": "AKWF Instruments",
+    "frames": 25,
+    "akwf": 2628
+  },
+  {
+    "id": "akwf-clavinet",
+    "name": "Clavinet",
+    "group": "AKWF Instruments",
+    "frames": 33,
+    "akwf": 2653
+  },
+  {
+    "id": "akwf-dbass-1",
+    "name": "Double Bass A",
+    "group": "AKWF Instruments",
+    "frames": 35,
+    "akwf": 2686
+  },
+  {
+    "id": "akwf-dbass-2",
+    "name": "Double Bass B",
+    "group": "AKWF Instruments",
+    "frames": 34,
+    "akwf": 2721
+  },
+  {
+    "id": "akwf-ebass-1",
+    "name": "Electric Bass A",
+    "group": "AKWF Instruments",
+    "frames": 35,
+    "akwf": 2800
+  },
+  {
+    "id": "akwf-ebass-2",
+    "name": "Electric Bass B",
+    "group": "AKWF Instruments",
+    "frames": 35,
+    "akwf": 2835
+  },
+  {
+    "id": "akwf-eguitar",
+    "name": "Electric Guitar",
+    "group": "AKWF Instruments",
+    "frames": 22,
+    "akwf": 2870
+  },
+  {
+    "id": "akwf-eorgan-1",
+    "name": "Electric Organ A",
+    "group": "AKWF Instruments",
+    "frames": 52,
+    "akwf": 2892
+  },
+  {
+    "id": "akwf-eorgan-2",
+    "name": "Electric Organ B",
+    "group": "AKWF Instruments",
+    "frames": 51,
+    "akwf": 2944
+  },
+  {
+    "id": "akwf-eorgan-3",
+    "name": "Electric Organ C",
+    "group": "AKWF Instruments",
+    "frames": 51,
+    "akwf": 2995
+  },
+  {
+    "id": "akwf-epiano-1",
+    "name": "Electric Piano A",
+    "group": "AKWF Instruments",
+    "frames": 37,
+    "akwf": 3046
+  },
+  {
+    "id": "akwf-epiano-2",
+    "name": "Electric Piano B",
+    "group": "AKWF Instruments",
+    "frames": 36,
+    "akwf": 3083
+  },
+  {
+    "id": "akwf-flute",
+    "name": "Flute",
+    "group": "AKWF Instruments",
+    "frames": 17,
+    "akwf": 3119
+  },
+  {
+    "id": "akwf-hvoice-1",
+    "name": "Human Voice A",
+    "group": "AKWF Instruments",
+    "frames": 52,
+    "akwf": 3352
+  },
+  {
+    "id": "akwf-hvoice-2",
+    "name": "Human Voice B",
+    "group": "AKWF Instruments",
+    "frames": 52,
+    "akwf": 3404
+  },
+  {
+    "id": "akwf-oboe",
+    "name": "Oboe",
+    "group": "AKWF Instruments",
+    "frames": 13,
+    "akwf": 3541
+  },
+  {
+    "id": "akwf-piano",
+    "name": "Piano",
+    "group": "AKWF Instruments",
+    "frames": 30,
+    "akwf": 3756
+  },
+  {
+    "id": "akwf-stringbox",
+    "name": "String Box",
+    "group": "AKWF Instruments",
+    "frames": 6,
+    "akwf": 3894
+  },
+  {
+    "id": "akwf-theremin",
+    "name": "Theremin",
+    "group": "AKWF Instruments",
+    "frames": 26,
+    "akwf": 3917
+  },
+  {
+    "id": "akwf-violin",
+    "name": "Violin",
+    "group": "AKWF Instruments",
+    "frames": 14,
+    "akwf": 4144
+  },
+  {
+    "id": "akwf-bitreduced-1",
+    "name": "Bit Reduced A",
+    "group": "AKWF Synth",
+    "frames": 34,
+    "akwf": 2089
+  },
+  {
+    "id": "akwf-bitreduced-2",
+    "name": "Bit Reduced B",
+    "group": "AKWF Synth",
+    "frames": 34,
+    "akwf": 2123
+  },
+  {
+    "id": "akwf-c604",
+    "name": "C604",
+    "group": "AKWF Synth",
+    "frames": 32,
+    "akwf": 2577
+  },
+  {
+    "id": "akwf-distorted",
+    "name": "Distorted",
+    "group": "AKWF Synth",
+    "frames": 45,
+    "akwf": 2755
+  },
+  {
+    "id": "akwf-fmsynth-1",
+    "name": "FM Synth A",
+    "group": "AKWF Synth",
+    "frames": 61,
+    "akwf": 3136
+  },
+  {
+    "id": "akwf-fmsynth-2",
+    "name": "FM Synth B",
+    "group": "AKWF Synth",
+    "frames": 61,
+    "akwf": 3197
+  },
+  {
+    "id": "akwf-granular",
+    "name": "Granular",
+    "group": "AKWF Synth",
+    "frames": 44,
+    "akwf": 3258
+  },
+  {
+    "id": "akwf-oscchip-1",
+    "name": "Chip Oscillators A",
+    "group": "AKWF Synth",
+    "frames": 53,
+    "akwf": 3554
+  },
+  {
+    "id": "akwf-oscchip-2",
+    "name": "Chip Oscillators B",
+    "group": "AKWF Synth",
+    "frames": 53,
+    "akwf": 3607
+  },
+  {
+    "id": "akwf-oscchip-3",
+    "name": "Chip Oscillators C",
+    "group": "AKWF Synth",
+    "frames": 52,
+    "akwf": 3660
+  },
+  {
+    "id": "akwf-overtone",
+    "name": "Overtone",
+    "group": "AKWF Synth",
+    "frames": 44,
+    "akwf": 3712
+  },
+  {
+    "id": "akwf-pluckalgo",
+    "name": "Pluck Algorithm",
+    "group": "AKWF Synth",
+    "frames": 9,
+    "akwf": 3786
+  },
+  {
+    "id": "akwf-raw",
+    "name": "Raw",
+    "group": "AKWF Synth",
+    "frames": 36,
+    "akwf": 3795
+  },
+  {
+    "id": "akwf-sinharm",
+    "name": "Sine Harmonics",
+    "group": "AKWF Synth",
+    "frames": 16,
+    "akwf": 3831
+  },
+  {
+    "id": "akwf-snippets",
+    "name": "Snippets",
+    "group": "AKWF Synth",
+    "frames": 47,
+    "akwf": 3847
+  },
+  {
+    "id": "akwf-vgame-1",
+    "name": "Video Game A",
+    "group": "AKWF Synth",
+    "frames": 46,
+    "akwf": 3943
+  },
+  {
+    "id": "akwf-vgame-2",
+    "name": "Video Game B",
+    "group": "AKWF Synth",
+    "frames": 46,
+    "akwf": 3989
+  },
+  {
+    "id": "akwf-vgame-3",
+    "name": "Video Game C",
+    "group": "AKWF Synth",
+    "frames": 45,
+    "akwf": 4035
+  },
+  {
+    "id": "akwf-vgamebasic",
+    "name": "Video Game Basics",
+    "group": "AKWF Synth",
+    "frames": 64,
+    "akwf": 4080
+  },
+  {
+    "id": "akwf-0001-1",
+    "name": "Mixed 1 A",
+    "group": "AKWF Mixed",
+    "frames": 50,
+    "akwf": 0
+  },
+  {
+    "id": "akwf-0001-2",
+    "name": "Mixed 1 B",
+    "group": "AKWF Mixed",
+    "frames": 50,
+    "akwf": 50
+  },
+  {
+    "id": "akwf-0002-1",
+    "name": "Mixed 2 A",
+    "group": "AKWF Mixed",
+    "frames": 50,
+    "akwf": 100
+  },
+  {
+    "id": "akwf-0002-2",
+    "name": "Mixed 2 B",
+    "group": "AKWF Mixed",
+    "frames": 50,
+    "akwf": 150
+  },
+  {
+    "id": "akwf-0003-1",
+    "name": "Mixed 3 A",
+    "group": "AKWF Mixed",
+    "frames": 50,
+    "akwf": 200
+  },
+  {
+    "id": "akwf-0003-2",
+    "name": "Mixed 3 B",
+    "group": "AKWF Mixed",
+    "frames": 50,
+    "akwf": 250
+  },
+  {
+    "id": "akwf-0004-1",
+    "name": "Mixed 4 A",
+    "group": "AKWF Mixed",
+    "frames": 50,
+    "akwf": 300
+  },
+  {
+    "id": "akwf-0004-2",
+    "name": "Mixed 4 B",
+    "group": "AKWF Mixed",
+    "frames": 50,
+    "akwf": 350
+  },
+  {
+    "id": "akwf-0005-1",
+    "name": "Mixed 5 A",
+    "group": "AKWF Mixed",
+    "frames": 50,
+    "akwf": 400
+  },
+  {
+    "id": "akwf-0005-2",
+    "name": "Mixed 5 B",
+    "group": "AKWF Mixed",
+    "frames": 50,
+    "akwf": 450
+  },
+  {
+    "id": "akwf-0006-1",
+    "name": "Mixed 6 A",
+    "group": "AKWF Mixed",
+    "frames": 50,
+    "akwf": 500
+  },
+  {
+    "id": "akwf-0006-2",
+    "name": "Mixed 6 B",
+    "group": "AKWF Mixed",
+    "frames": 50,
+    "akwf": 550
+  },
+  {
+    "id": "akwf-0007-1",
+    "name": "Mixed 7 A",
+    "group": "AKWF Mixed",
+    "frames": 50,
+    "akwf": 600
+  },
+  {
+    "id": "akwf-0007-2",
+    "name": "Mixed 7 B",
+    "group": "AKWF Mixed",
+    "frames": 50,
+    "akwf": 650
+  },
+  {
+    "id": "akwf-0008-1",
+    "name": "Mixed 8 A",
+    "group": "AKWF Mixed",
+    "frames": 50,
+    "akwf": 700
+  },
+  {
+    "id": "akwf-0008-2",
+    "name": "Mixed 8 B",
+    "group": "AKWF Mixed",
+    "frames": 50,
+    "akwf": 750
+  },
+  {
+    "id": "akwf-0009-1",
+    "name": "Mixed 9 A",
+    "group": "AKWF Mixed",
+    "frames": 50,
+    "akwf": 800
+  },
+  {
+    "id": "akwf-0009-2",
+    "name": "Mixed 9 B",
+    "group": "AKWF Mixed",
+    "frames": 50,
+    "akwf": 850
+  },
+  {
+    "id": "akwf-0010-1",
+    "name": "Mixed 10 A",
+    "group": "AKWF Mixed",
+    "frames": 50,
+    "akwf": 900
+  },
+  {
+    "id": "akwf-0010-2",
+    "name": "Mixed 10 B",
+    "group": "AKWF Mixed",
+    "frames": 50,
+    "akwf": 950
+  },
+  {
+    "id": "akwf-0011-1",
+    "name": "Mixed 11 A",
+    "group": "AKWF Mixed",
+    "frames": 50,
+    "akwf": 1000
+  },
+  {
+    "id": "akwf-0011-2",
+    "name": "Mixed 11 B",
+    "group": "AKWF Mixed",
+    "frames": 50,
+    "akwf": 1050
+  },
+  {
+    "id": "akwf-0012-1",
+    "name": "Mixed 12 A",
+    "group": "AKWF Mixed",
+    "frames": 50,
+    "akwf": 1100
+  },
+  {
+    "id": "akwf-0012-2",
+    "name": "Mixed 12 B",
+    "group": "AKWF Mixed",
+    "frames": 50,
+    "akwf": 1150
+  },
+  {
+    "id": "akwf-0013-1",
+    "name": "Mixed 13 A",
+    "group": "AKWF Mixed",
+    "frames": 50,
+    "akwf": 1200
+  },
+  {
+    "id": "akwf-0013-2",
+    "name": "Mixed 13 B",
+    "group": "AKWF Mixed",
+    "frames": 50,
+    "akwf": 1250
+  },
+  {
+    "id": "akwf-0014-1",
+    "name": "Mixed 14 A",
+    "group": "AKWF Mixed",
+    "frames": 50,
+    "akwf": 1300
+  },
+  {
+    "id": "akwf-0014-2",
+    "name": "Mixed 14 B",
+    "group": "AKWF Mixed",
+    "frames": 50,
+    "akwf": 1350
+  },
+  {
+    "id": "akwf-0015-1",
+    "name": "Mixed 15 A",
+    "group": "AKWF Mixed",
+    "frames": 50,
+    "akwf": 1400
+  },
+  {
+    "id": "akwf-0015-2",
+    "name": "Mixed 15 B",
+    "group": "AKWF Mixed",
+    "frames": 50,
+    "akwf": 1450
+  },
+  {
+    "id": "akwf-0016-1",
+    "name": "Mixed 16 A",
+    "group": "AKWF Mixed",
+    "frames": 50,
+    "akwf": 1500
+  },
+  {
+    "id": "akwf-0016-2",
+    "name": "Mixed 16 B",
+    "group": "AKWF Mixed",
+    "frames": 50,
+    "akwf": 1550
+  },
+  {
+    "id": "akwf-0017-1",
+    "name": "Mixed 17 A",
+    "group": "AKWF Mixed",
+    "frames": 50,
+    "akwf": 1600
+  },
+  {
+    "id": "akwf-0017-2",
+    "name": "Mixed 17 B",
+    "group": "AKWF Mixed",
+    "frames": 50,
+    "akwf": 1650
+  },
+  {
+    "id": "akwf-0018-1",
+    "name": "Mixed 18 A",
+    "group": "AKWF Mixed",
+    "frames": 50,
+    "akwf": 1700
+  },
+  {
+    "id": "akwf-0018-2",
+    "name": "Mixed 18 B",
+    "group": "AKWF Mixed",
+    "frames": 50,
+    "akwf": 1750
+  },
+  {
+    "id": "akwf-0019-1",
+    "name": "Mixed 19 A",
+    "group": "AKWF Mixed",
+    "frames": 50,
+    "akwf": 1800
+  },
+  {
+    "id": "akwf-0019-2",
+    "name": "Mixed 19 B",
+    "group": "AKWF Mixed",
+    "frames": 50,
+    "akwf": 1850
+  },
+  {
+    "id": "akwf-0020-1",
+    "name": "Mixed 20 A",
+    "group": "AKWF Mixed",
+    "frames": 56,
+    "akwf": 1900
+  },
+  {
+    "id": "akwf-0020-2",
+    "name": "Mixed 20 B",
+    "group": "AKWF Mixed",
+    "frames": 55,
+    "akwf": 1956
+  }
+]

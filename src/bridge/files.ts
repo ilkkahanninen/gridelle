@@ -1,6 +1,7 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { ask, message, open } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
+import type { SampleSource } from "../core/compiler";
 import type { SoundFile } from "./engine";
 
 /** A preset the user has saved: its name, which is its file's name without the ending, and where it is. */
@@ -89,6 +90,20 @@ export interface SoundInfo {
 /** Read a sound file's length, rate and picture. Rejects with the reason when it cannot be read. */
 export const soundInfo = (path: string): Promise<SoundInfo> =>
   isTauri() ? invoke<SoundInfo>("sample_info", { path }) : Promise.reject("Sound files need the desktop app.");
+
+/** What the editor shows of a wavetable. */
+export interface WavetableInfo {
+  /** How many cycles it has as a table. */
+  frames: number;
+  /** The samples of a cycle in the sound it was cut from; 0 for one of the editor's own. */
+  cycle: number;
+  /** Some of its cycles, evenly spread, each a row of points between -1 and 1. */
+  picture: number[][];
+}
+
+/** Have a wavetable made and get its picture: one of the editor's own, or a sound file cut into cycles. */
+export const wavetableInfo = (source: Exclude<SampleSource, { kind: "sound" }>): Promise<WavetableInfo> =>
+  isTauri() ? invoke<WavetableInfo>("wavetable_info", { source }) : Promise.reject("Wavetables are drawn in the desktop app.");
 
 export const confirm = (text: string, okLabel: string) =>
   ask(text, { title: "Gridelle", kind: "warning", okLabel, cancelLabel: "Cancel" });

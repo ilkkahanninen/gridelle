@@ -83,7 +83,7 @@ fn engine_renders_loaded_patch_to_the_device() {
         .filter(|path| path.extension().is_some_and(|e| e == "pd"))
         .map(|path| (path.file_name().unwrap().to_string_lossy().into_owned(), std::fs::read_to_string(&path).unwrap()))
         .collect();
-    let sound = |path: &str| SampleFile { file: "ge-sample-a.wav".into(), path: path.into() };
+    let sound = |path: &str| SampleFile::sound("ge-sample-a.wav", path);
     let flac = format!("{}/tests/sounds/tone.flac", env!("CARGO_MANIFEST_DIR"));
     let _ = engine.load(&sampler, "main.pd", &[sound(&flac)]).expect("the sampler loads");
     sleep(Duration::from_millis(150));

@@ -19,7 +19,8 @@ describe("the presets that come with the editor", () => {
   it.each(EXAMPLE_PRESETS.map((p) => [p.name, p.doc] as const))("%s compiles as it is, and needs no sound file", (_name, doc) => {
     const result = compile(doc, abstractionLibrary);
     expect(result.diagnostics).toEqual([]);
-    expect(result.samples).toEqual([]);
+    // A wavetable of the editor's own is made where the preset is opened; a sound file is not.
+    expect(result.samples.filter((sample) => sample.source.kind !== "bank")).toEqual([]);
   });
 });
 

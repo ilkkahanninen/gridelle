@@ -10,6 +10,8 @@ import {
   SAMPLE_FILE_ABSTRACTION,
   SAMPLE_TAPE_ABSTRACTION,
   sampleFileName,
+  WAVE_FILE_ABSTRACTION,
+  waveFileName,
   type ParamValue,
 } from "./emit";
 import { KNOB_ABSTRACTION, knobSlots, usesKnobs, type KnobSlotValue } from "./knobPages";
@@ -42,15 +44,26 @@ export interface CompileResult {
   scopes: Record<ModuleId, number>;
   /**
    * The sound files the patch plays: the name each must have in the patch folder, and
-   * where it is now. The folder is not complete without them; whoever writes it (the
-   * preview, an export, a send) converts and adds them.
+   * what it is made from. The folder is not complete without them; whoever writes it (the
+   * preview, an export, a send) makes and adds them.
    */
   samples: SampleFile[];
 }
 
+/**
+ * What a file of sound in a patch folder is made from: a sound file where it is now, as
+ * it is (`sound`) or cut into the cycles of a wavetable (`wavetable`), or a wavetable of
+ * the editor's own by its id (`bank`). `SampleFile` in `src-tauri/src/samples.rs` is the
+ * same from the other side.
+ */
+export type SampleSource =
+  | { kind: "sound"; path: string }
+  | { kind: "wavetable"; path: string; cycle?: number }
+  | { kind: "bank"; id: string };
+
 export interface SampleFile {
   file: string;
-  path: string;
+  source: SampleSource;
 }
 
 /**
@@ -84,7 +97,10 @@ export function compile(doc: PatchDocument, library: AbstractionLibrary): Compil
       VOICE_ABSTRACTION,
       ...analysis.modules.map((m) => m.def.pd),
       ...(usesKnobs(analysis) ? [KNOB_ABSTRACTION] : []),
-      ...analysis.samples.map(({ sample }) => (sample?.kind === "file" ? SAMPLE_FILE_ABSTRACTION : SAMPLE_TAPE_ABSTRACTION)),
+      ...analysis.samples.flatMap(({ table, wave }) => [
+        ...(table ? [table.kind === "file" ? SAMPLE_FILE_ABSTRACTION : SAMPLE_TAPE_ABSTRACTION] : []),
+        ...(wave && wave !== "silent" ? [WAVE_FILE_ABSTRACTION] : []),
+      ]),
     ],
     library,
   );
@@ -116,8 +132,19 @@ export function compile(doc: PatchDocument, library: AbstractionLibrary): Compil
     params: paramValues(analysis),
     knobSlots: knobSlots(analysis),
     scopes: Object.fromEntries([...analysis.taps].filter(([, slot]) => slot > 0)),
-    samples: analysis.samples.flatMap(({ slot, sample }) =>
-      sample?.kind === "file" ? [{ file: sampleFileName(slot), path: sample.path }] : [],
-    ),
+    samples: analysis.samples.flatMap(({ slot, table, wave }): SampleFile[] => [
+      ...(table?.kind === "file" ? [{ file: sampleFileName(slot), source: { kind: "sound" as const, path: table.path } }] : []),
+      ...(wave && wave !== "silent"
+        ? [
+            {
+              file: waveFileName(slot),
+              source:
+                wave.kind === "bank"
+                  ? { kind: "bank" as const, id: wave.id }
+                  : { kind: "wavetable" as const, path: wave.path, ...(wave.cycle ? { cycle: wave.cycle } : {}) },
+            },
+          ]
+        : []),
+    ]),
   };
 }

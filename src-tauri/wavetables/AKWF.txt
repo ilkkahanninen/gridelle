@@ -1,0 +1,12 @@
+akwf.bin holds Adventure Kid Waveforms (AKWF) by Kristoffer Ekstrand:
+4,158 single-cycle waveforms of 600 samples each, as 16-bit little-endian samples one
+cycle after another, in the order of the collection's folders and files. The stereo set
+is left out. banks/banks.json says where each bank starts (in cycles) and how many it has.
+
+Source: https://www.adventurekid.se/akrt/waveforms/adventure-kid-waveforms/
+        https://github.com/KristofferKarlAxelEkstrand/AKWF-FREE
+
+Licence: CC0 1.0 Universal (public domain dedication).
+"To the extent possible under law, Kristoffer Ekstrand has waived all copyright and
+related or neighboring rights to AKWF Waveforms. This work is published from: Sweden."
+https://creativecommons.org/publicdomain/zero/1.0/

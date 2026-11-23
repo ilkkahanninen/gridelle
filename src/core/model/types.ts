@@ -1,5 +1,5 @@
 /** Bumped whenever the saved document shape changes incompatibly. */
-export const DOCUMENT_VERSION = 1;
+export const DOCUMENT_VERSION = 2;
 
 /**
  * Module instance id, e.g. `ge12`. It doubles as the prefix of the module's Pd
@@ -70,7 +70,8 @@ export const MAX_TAPE_SECONDS = 60;
 /**
  * A sound the sample modules share. A sound file is referred to where it is on this
  * computer; exporting copies it into the patch folder. A tape starts out silent, for a
- * Recorder to fill.
+ * Recorder to fill. A wavetable is one of the editor's own (`core/wavetables/banks.ts`),
+ * for a Wavetable oscillator, which can also read a sound file as one: cut into cycles.
  */
 export type SampleSlot =
   | {
@@ -82,8 +83,17 @@ export type SampleSlot =
       /** Its length in samples and its sample rate, as found when it was chosen. */
       frames: number;
       sampleRate: number;
+      /**
+       * The length of one cycle, in samples, when the file is read as a wavetable. Without
+       * it the length is what the file says of itself, or a guess from how long it is.
+       */
+      cycle?: number;
     }
-  | { kind: "tape"; seconds: number };
+  | { kind: "tape"; seconds: number }
+  | { kind: "wavetable"; bank: string };
+
+/** The longest cycle a sound file can be cut into as a wavetable. */
+export const MAX_CYCLE = 8192;
 
 export interface PatchDocument {
   version: typeof DOCUMENT_VERSION;

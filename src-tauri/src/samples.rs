@@ -1,9 +1,12 @@
-//! Sound files for the sample modules.
+//! Sound files for the sample modules, and wavetables for the Wavetable oscillator.
 //!
 //! A patch refers to a sound file where it is on this computer. Whoever writes a patch
 //! folder (the preview, an export, a send to the Organelle) gets it here as the one kind of
 //! file the Organelle's Pd 0.49 is sure to read: a mono, 16-bit WAV at the file's own rate.
 //! WAV, AIFF, FLAC, MP3 and Ogg Vorbis are decoded; several channels are mixed to one.
+//!
+//! A wavetable is written the same way, as the table `wavetable.rs` builds: from one of
+//! the editor's own banks, or from a sound file cut into cycles.
 
 use std::collections::HashMap;
 use std::fs::File;
@@ -20,17 +23,68 @@ use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
 
+use crate::banks;
+use crate::wavetable::{self, Cycle};
+
 /// The longest sound that is taken, in seconds. A table of this at 48 kHz is 58 MB in Pd.
 pub const MAX_SECONDS: u64 = 300;
 
 /// Pairs of lowest and highest sample that a sound's picture is drawn from.
 const PICTURE_COLUMNS: usize = 256;
 
-/// A sound file of a patch: the name it has in the patch folder, and where it is now.
-#[derive(Debug, Clone, Deserialize)]
+/// A file of sound in a patch folder: the name it has there, and what it is made from.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SampleFile {
     pub file: String,
-    pub path: String,
+    pub source: Source,
+}
+
+/// What a patch's file of sound is made from. `SampleSource` in `src/core/compiler/index.ts`
+/// is the same from the other side.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum Source {
+    /// A sound file where it is now, as it sounds.
+    Sound { path: String },
+    /// A sound file read as a wavetable: cut into cycles of `cycle` samples, or of a length
+    /// worked out from the file when that is not given.
+    Wavetable {
+        path: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cycle: Option<usize>,
+    },
+    /// A wavetable of the editor's own, by its id in `banks/banks.json`.
+    Bank { id: String },
+}
+
+impl SampleFile {
+    /// A sound file under the name `file`.
+    pub fn sound(file: &str, path: &str) -> Self {
+        SampleFile { file: file.to_string(), source: Source::Sound { path: path.to_string() } }
+    }
+
+    /// The same with a path that is not from the root taken as one from `folder`: the
+    /// fixtures name their sounds from the top of the repo.
+    pub fn within(mut self, folder: &Path) -> Self {
+        if let Source::Sound { path } | Source::Wavetable { path, .. } = &mut self.source {
+            if Path::new(path).is_relative() {
+                *path = folder.join(&*path).to_string_lossy().into_owned();
+            }
+        }
+        self
+    }
+}
+
+/// What the editor shows of a wavetable.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WavetableInfo {
+    /// How many cycles it has as a table: at most `wavetable::MAX_FRAMES`.
+    pub frames: usize,
+    /// The samples of a cycle in the sound it was cut from; 0 for one of the editor's own.
+    pub cycle: usize,
+    /// Some of its cycles, evenly spread, each a row of points between -1 and 1.
+    pub picture: Vec<Vec<f32>>,
 }
 
 /// What the editor shows of a sound file.
@@ -55,11 +109,19 @@ pub struct Sound {
 /// A sound file as the patch folder gets it.
 pub struct Converted {
     pub rate: u32,
+    /// The length of a sound in samples; the number of cycles of a wavetable.
     pub frames: usize,
     /// The bytes of a mono, 16-bit WAV.
     pub wav: Vec<u8>,
     pub peaks: Vec<f32>,
+    /// For a wavetable: the length of the cycles it was cut into, and its picture.
+    pub cycle: usize,
+    pub picture: Vec<Vec<f32>>,
 }
+
+/// Cycles of a wavetable's picture, and the points of each.
+const PICTURE_FRAMES: usize = 12;
+const PICTURE_POINTS: usize = 64;
 
 fn file_name(path: &str) -> String {
     Path::new(path).file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_else(|| path.to_string())
@@ -173,43 +235,97 @@ struct Stamp {
     length: u64,
 }
 
+/// What one of the editor's own wavetables is "stamped" with: it never changes.
+const BUILT_IN: Stamp = Stamp { modified: None, length: 0 };
+
 fn stamp(path: &str) -> Option<Stamp> {
     let meta = std::fs::metadata(path).ok()?;
     Some(Stamp { modified: meta.modified().ok(), length: meta.len() })
 }
 
-/// The files converted so far in this run. A patch reloads at every structural edit, and
-/// decoding a long MP3 each time would make every such edit wait.
+/// What has been converted so far in this run. A patch reloads at every structural edit,
+/// and decoding a long MP3 or building a wavetable each time would make every such edit wait.
 static CONVERTED: Mutex<Option<HashMap<String, (Stamp, Arc<Converted>)>>> = Mutex::new(None);
 const KEPT: usize = 16;
 
-/// The sound file at `path`, converted. Kept from the last time while the file has not changed.
-pub fn converted(path: &str) -> Result<Arc<Converted>, String> {
-    let now = stamp(path);
+/// What is kept under `key`, if it was made from what `now` describes; otherwise `make`s
+/// result, which is kept in its place. Nothing is kept of a file that cannot be described.
+fn kept(key: String, now: Option<Stamp>, make: impl FnOnce() -> Result<Converted, String>) -> Result<Arc<Converted>, String> {
     {
         let cache = CONVERTED.lock().unwrap();
-        if let (Some(now), Some((then, kept))) = (now, cache.as_ref().and_then(|c| c.get(path))) {
+        if let (Some(now), Some((then, kept))) = (now, cache.as_ref().and_then(|c| c.get(&key))) {
             if *then == now {
                 return Ok(kept.clone());
             }
         }
     }
-    let sound = decode(path)?;
-    let converted = Arc::new(Converted {
-        rate: sound.rate,
-        frames: sound.samples.len(),
-        wav: wav_bytes(&sound),
-        peaks: peaks(&sound.samples, PICTURE_COLUMNS),
-    });
+    let converted = Arc::new(make()?);
     if let Some(now) = now {
         let mut cache = CONVERTED.lock().unwrap();
         let cache = cache.get_or_insert_with(HashMap::new);
         if cache.len() >= KEPT {
             cache.clear();
         }
-        cache.insert(path.to_string(), (now, converted.clone()));
+        cache.insert(key, (now, converted.clone()));
     }
     Ok(converted)
+}
+
+/// The sound file at `path`, converted. Kept from the last time while the file has not changed.
+pub fn converted(path: &str) -> Result<Arc<Converted>, String> {
+    kept(path.to_string(), stamp(path), || {
+        let sound = decode(path)?;
+        Ok(Converted {
+            rate: sound.rate,
+            frames: sound.samples.len(),
+            wav: wav_bytes(&sound),
+            peaks: peaks(&sound.samples, PICTURE_COLUMNS),
+            cycle: 0,
+            picture: Vec::new(),
+        })
+    })
+}
+
+/// A wavetable from its cycles, as the patch folder gets it.
+fn wavetable_of(cycles: &[Cycle], cycle: usize) -> Converted {
+    let sound = Sound { rate: wavetable::FILE_RATE, samples: wavetable::table(cycles) };
+    Converted {
+        rate: sound.rate,
+        frames: cycles.len().min(wavetable::MAX_FRAMES),
+        wav: wav_bytes(&sound),
+        peaks: Vec::new(),
+        cycle,
+        picture: wavetable::picture(cycles, PICTURE_FRAMES, PICTURE_POINTS),
+    }
+}
+
+/// The wavetable a patch's file of sound is made from: one of the editor's own, or a sound
+/// file cut into cycles. Kept from the last time, as sounds are.
+pub fn wavetable(source: &Source) -> Result<Arc<Converted>, String> {
+    match source {
+        Source::Bank { id } => kept(format!("\0bank:{id}"), Some(BUILT_IN), || {
+            let cycles = banks::cycles(id).ok_or_else(|| format!("This version of Gridelle has no wavetable called {id:?}."))?;
+            Ok(wavetable_of(&cycles, 0))
+        }),
+        Source::Wavetable { path, cycle } => kept(format!("\0wave:{}:{path}", cycle.unwrap_or(0)), stamp(path), || {
+            let sound = decode(path)?;
+            // Only a WAV says how long its cycles are, and only its first megabyte is worth looking in.
+            let declared = std::fs::read(path).ok().and_then(|bytes| wavetable::declared_cycle(&bytes));
+            let length = wavetable::cycle_length(sound.samples.len(), *cycle, declared);
+            let cycles = wavetable::cycles(&sound.samples, length, wavetable::MAX_FRAMES);
+            if cycles.is_empty() {
+                return Err(format!("{} is too short to be a wavetable.", file_name(path)));
+            }
+            Ok(wavetable_of(&cycles, length))
+        }),
+        Source::Sound { path } => Err(format!("{} is a sound, not a wavetable.", file_name(path))),
+    }
+}
+
+/// What the editor shows of a wavetable.
+pub fn wavetable_info(source: &Source) -> Result<WavetableInfo, String> {
+    let table = wavetable(source)?;
+    Ok(WavetableInfo { frames: table.frames, cycle: table.cycle, picture: table.picture.clone() })
 }
 
 /// What the editor shows of the sound file at `path`.
@@ -218,20 +334,28 @@ pub fn info(path: &str) -> Result<SampleInfo, String> {
     Ok(SampleInfo { name: file_name(path), frames: sound.frames, sample_rate: sound.rate, peaks: sound.peaks.clone() })
 }
 
-/// Whether `name` is a name a patch's sound file can have in its folder.
+/// Whether `name` is a name a patch's file of sound can have in its folder: a sample's or a wavetable's.
 pub fn is_sample_name(name: &str) -> bool {
-    name.starts_with("ge-sample-") && name.ends_with(".wav") && name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '.'))
+    (name.starts_with("ge-sample-") || name.starts_with("ge-wave-"))
+        && name.ends_with(".wav")
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '.'))
 }
 
-/// The bytes of each of a patch's sound files, by the name it has in the patch folder.
+/// The bytes of each of a patch's files of sound, by the name it has in the patch folder.
 pub fn convert_all(samples: &[SampleFile]) -> Result<Vec<(String, Arc<Converted>)>, String> {
     samples
         .iter()
         .map(|sample| {
-            if !is_sample_name(&sample.file) {
+            // A sample has a sample's name and a wavetable a wavetable's: the patch reads them differently.
+            let is_sound = matches!(sample.source, Source::Sound { .. });
+            if !is_sample_name(&sample.file) || sample.file.starts_with("ge-sample-") != is_sound {
                 return Err(format!("invalid sample file name {:?}", sample.file));
             }
-            Ok((sample.file.clone(), converted(&sample.path)?))
+            let made = match &sample.source {
+                Source::Sound { path } => converted(path)?,
+                source => wavetable(source)?,
+            };
+            Ok((sample.file.clone(), made))
         })
         .collect()
 }
@@ -247,6 +371,109 @@ pub fn write_all(dir: &Path, samples: &[SampleFile]) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A scratch folder with a sound of `cycles` cycles of 2048 samples in it, cycle `n` a
+    /// sine at the level `n + 1` tenths. Returns the folder and the sound's path.
+    fn sound_of_cycles(name: &str, cycles: usize) -> (std::path::PathBuf, String) {
+        let dir = std::env::temp_dir().join(format!("gridelle-wavetables-{name}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let samples = (0..cycles * 2048)
+            .map(|i| 0.1 * (i / 2048 + 1) as f32 * (2.0 * std::f32::consts::PI * i as f32 / 2048.0).sin())
+            .collect();
+        let path = dir.join("cycles.wav");
+        std::fs::write(&path, wav_bytes(&Sound { rate: 44_100, samples })).unwrap();
+        (dir, path.to_string_lossy().into_owned())
+    }
+
+    /// The table in a wavetable's WAV: its samples, without the header.
+    fn table_of(converted: &Converted) -> Vec<f32> {
+        converted.wav[44..].chunks(2).map(|pair| i16::from_le_bytes([pair[0], pair[1]]) as f32 / 32767.0).collect()
+    }
+
+    #[test]
+    fn makes_a_wavetable_of_the_editors_own() {
+        let bank = Source::Bank { id: "basic-shapes".into() };
+        let made = wavetable(&bank).unwrap();
+        assert_eq!((made.frames, made.cycle, made.rate), (33, 0, wavetable::FILE_RATE));
+        assert_eq!(made.wav.len(), 44 + 2 * 33 * wavetable::RECORD);
+        assert_eq!(&made.wav[..4], b"RIFF");
+        // Its first cycle is the sine: at the top level, 64 points of it.
+        let table = table_of(&made);
+        let top = &table[wavetable::offsets()[9] + 1..wavetable::offsets()[9] + 65];
+        let quarter = top[16];
+        assert!(quarter > 0.5 && top[0].abs() < 0.001 && (top[48] + quarter).abs() < 0.001, "a sine: {quarter} at a quarter");
+        // The same bytes every time, and from the cache the second time.
+        assert!(Arc::ptr_eq(&made, &wavetable(&bank).unwrap()));
+        assert_eq!(made.picture.len(), PICTURE_FRAMES);
+        assert!(made.picture.iter().all(|cycle| cycle.len() == PICTURE_POINTS));
+        let info = wavetable_info(&bank).unwrap();
+        assert_eq!((info.frames, info.cycle, info.picture.len()), (33, 0, PICTURE_FRAMES));
+
+        let unknown = wavetable(&Source::Bank { id: "from-the-future".into() }).err().unwrap();
+        assert!(unknown.contains("from-the-future"), "{unknown}");
+    }
+
+    #[test]
+    fn cuts_a_sound_file_into_the_cycles_of_a_wavetable() {
+        let (dir, path) = sound_of_cycles("cut", 5);
+        // Five cycles of 2048, guessed from nothing but the length: more than 4096 samples.
+        let guessed = wavetable(&Source::Wavetable { path: path.clone(), cycle: None }).unwrap();
+        assert_eq!((guessed.frames, guessed.cycle), (5, 2048));
+        assert_eq!(guessed.wav.len(), 44 + 2 * 5 * wavetable::RECORD);
+        // The cycles keep their levels to each other: the last, the loudest, is at full level.
+        let table = table_of(&guessed);
+        let level = |frame: usize| {
+            let at = frame * wavetable::RECORD + wavetable::offsets()[3] + 1;
+            Cycle::from_points(&table[at..at + 2048]).sin[1]
+        };
+        assert!((level(4) - 1.0).abs() < 0.001 && (level(0) - 0.2).abs() < 0.001, "levels {} and {}", level(0), level(4));
+        // Told another length, it is cut into that: ten cycles of 1024, each half a sine.
+        let told = wavetable(&Source::Wavetable { path: path.clone(), cycle: Some(1024) }).unwrap();
+        assert_eq!((told.frames, told.cycle), (10, 1024));
+        // A sound shorter than the cycle it is told to have is one cycle, as long as it is.
+        let whole = wavetable(&Source::Wavetable { path: path.clone(), cycle: Some(8192) }).unwrap();
+        assert_eq!((whole.frames, whole.cycle), (1, 8192));
+
+        assert!(wavetable(&Source::Wavetable { path: "/nowhere/table.wav".into(), cycle: None }).is_err());
+        assert!(wavetable(&Source::Sound { path }).is_err());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn writes_wavetables_under_their_own_names_only() {
+        let (dir, path) = sound_of_cycles("names", 3);
+        let bank = |file: &str| SampleFile { file: file.into(), source: Source::Bank { id: "vowels".into() } };
+        let cut = SampleFile { file: "ge-wave-b.wav".into(), source: Source::Wavetable { path: path.clone(), cycle: None } };
+        write_all(&dir, &[bank("ge-wave-a.wav"), cut, SampleFile::sound("ge-sample-b.wav", &path)]).unwrap();
+        assert_eq!(std::fs::metadata(dir.join("ge-wave-a.wav")).unwrap().len(), 44 + 2 * 33 * wavetable::RECORD as u64);
+        assert_eq!(std::fs::metadata(dir.join("ge-wave-b.wav")).unwrap().len(), 44 + 2 * 3 * wavetable::RECORD as u64);
+        assert_eq!(std::fs::metadata(dir.join("ge-sample-b.wav")).unwrap().len(), 44 + 2 * 3 * 2048);
+        // A wavetable is not written as a sample, nor a sound as a wavetable: the patch reads them differently.
+        assert!(convert_all(&[bank("ge-sample-a.wav")]).is_err());
+        assert!(convert_all(&[SampleFile::sound("ge-wave-a.wav", &path)]).is_err());
+        assert!(is_sample_name("ge-wave-h.wav") && !is_sample_name("ge-wave-a.pd") && !is_sample_name("ge-wavy.wav"));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn reads_what_the_front_end_sends() {
+        let list = r#"[
+            {"file": "ge-sample-a.wav", "source": {"kind": "sound", "path": "/s/kick.wav"}},
+            {"file": "ge-wave-a.wav", "source": {"kind": "wavetable", "path": "tables/growl.wav", "cycle": 1024}},
+            {"file": "ge-wave-b.wav", "source": {"kind": "wavetable", "path": "/t/one.wav"}},
+            {"file": "ge-wave-c.wav", "source": {"kind": "bank", "id": "glass"}}
+        ]"#;
+        let read: Vec<SampleFile> = serde_json::from_str(list).unwrap();
+        assert_eq!(read[0], SampleFile::sound("ge-sample-a.wav", "/s/kick.wav"));
+        assert_eq!(read[1].source, Source::Wavetable { path: "tables/growl.wav".into(), cycle: Some(1024) });
+        assert_eq!(read[2].source, Source::Wavetable { path: "/t/one.wav".into(), cycle: None });
+        assert_eq!(read[3].source, Source::Bank { id: "glass".into() });
+        // A path that is not from the root is taken from a folder; the others are left.
+        let placed: Vec<SampleFile> = read.into_iter().map(|file| file.within(Path::new("/repo"))).collect();
+        assert_eq!(placed[1].source, Source::Wavetable { path: "/repo/tables/growl.wav".into(), cycle: Some(1024) });
+        assert_eq!(placed[0], SampleFile::sound("ge-sample-a.wav", "/s/kick.wav"));
+        assert_eq!(placed[3].source, Source::Bank { id: "glass".into() });
+    }
 
     fn sound(name: &str) -> String {
         format!("{}/tests/sounds/{name}", env!("CARGO_MANIFEST_DIR"))
@@ -362,13 +589,13 @@ mod tests {
     fn writes_a_patchs_sounds_under_the_names_the_patch_uses() {
         let dir = std::env::temp_dir().join(format!("gridelle-samples-write-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let samples = [SampleFile { file: "ge-sample-c.wav".into(), path: sound("tone.flac") }];
+        let samples = [SampleFile::sound("ge-sample-c.wav", &sound("tone.flac"))];
         write_all(&dir, &samples).unwrap();
         let written = decode(dir.join("ge-sample-c.wav").to_str().unwrap()).unwrap();
         assert_eq!((written.rate, written.samples.len()), (44_100, 11_025));
         // A name that could leave the folder, or is not a sample's, is refused.
         for bad in ["../ge-sample-a.wav", "main.pd", "ge-sample-a.wav/x"] {
-            assert!(write_all(&dir, &[SampleFile { file: bad.into(), path: sound("tone.flac") }]).is_err(), "{bad}");
+            assert!(write_all(&dir, &[SampleFile::sound(bad, &sound("tone.flac"))]).is_err(), "{bad}");
         }
         std::fs::remove_dir_all(&dir).unwrap();
     }

@@ -116,9 +116,11 @@ export interface ModuleDef {
   /**
    * How the module uses its sample, where that matters to the patch as a whole: `writes`
    * for the one module that may record onto a sample (a Recorder), `follows` for one that
-   * plays from where the recording is (a Tape Head) and so needs something to record it.
+   * plays from where the recording is (a Tape Head) and so needs something to record it,
+   * `wavetable` for one that reads it as a wavetable (the Wavetable oscillator), which is
+   * another table of the slot: `ge-wave-<slot>`, built for it by the editor.
    */
-  sample?: "writes" | "follows";
+  sample?: "writes" | "follows" | "wavetable";
   /**
    * The editor draws what comes in at this module's first input (a Scope). The compiler
    * numbers such modules and passes the abstraction that number and the voice it is in

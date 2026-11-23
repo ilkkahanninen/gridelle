@@ -31,6 +31,8 @@ export function structureKey(doc: PatchDocument): string {
     doc.pages.flatMap((page, index) =>
       page.knobs.some(Boolean) ? [[page.name || index, page.knobs.map((k) => (k ? [k.module, k.param] : null))]] : [],
     ),
-    (doc.samples ?? []).map((s) => (s ? (s.kind === "file" ? [s.path, s.frames, s.sampleRate] : [s.seconds]) : null)),
+    (doc.samples ?? []).map((s) =>
+      s ? (s.kind === "file" ? [s.path, s.frames, s.sampleRate, s.cycle ?? 0] : s.kind === "tape" ? [s.seconds] : ["bank", s.bank]) : null,
+    ),
   ]);
 }

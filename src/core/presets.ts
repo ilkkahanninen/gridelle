@@ -1,4 +1,4 @@
-import { basicSynth, looper, newPatch, sequence, tapeEcho, voiceEffects } from "./fixtures";
+import { basicSynth, looper, newPatch, sequence, tapeEcho, voiceEffects, wavetable } from "./fixtures";
 import type { PatchDocument } from "./model/types";
 
 /**
@@ -18,9 +18,10 @@ export interface ExamplePreset {
  * The presets that come with the editor. They are written into the presets folder the
  * first time the editor runs, each once ever, and are the user's own from then on: there
  * is no other place the editor keeps presets. They are documents the tests compile and
- * play. Those that play a sound file are left out, since that file would have to come along.
+ * play. Those that play a sound file are left out, since that file would have to come
+ * along; a wavetable of the editor's own is made wherever the preset is opened.
  */
-export const EXAMPLE_PRESETS: ExamplePreset[] = [newPatch, basicSynth, sequence, tapeEcho, looper, voiceEffects].map((doc) => ({
+export const EXAMPLE_PRESETS: ExamplePreset[] = [newPatch, basicSynth, wavetable, sequence, tapeEcho, looper, voiceEffects].map((doc) => ({
   name: doc.name,
   doc,
 }));

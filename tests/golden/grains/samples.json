@@ -1,0 +1,9 @@
+[
+  {
+    "file": "ge-sample-a.wav",
+    "source": {
+      "kind": "sound",
+      "path": "tests/golden/grains/ge-sample-a.wav"
+    }
+  }
+]

@@ -672,6 +672,44 @@ export const dynamics: PatchDocument = settle({
 });
 
 /**
+ * A Wavetable oscillator on one of the editor's own wavetables, an envelope sweeping its
+ * Position, and a second one an octave down on another table, moved by an LFO.
+ */
+export const wavetable: PatchDocument = settle({
+  version: DOCUMENT_VERSION,
+  name: "Wavetable",
+  voices: 4,
+  modules: [
+    { id: "ge1", type: "osc-wavetable", x: 0, y: 0, params: { sample: 0, position: 0.1 } },
+    { id: "ge2", type: "osc-wavetable", x: 0, y: 4, params: { sample: 1, tune: -12, position: 0.5 } },
+    { id: "ge3", type: "mixer", x: 3, y: 0, params: { level1: 0.6, level2: 0.4 } },
+    { id: "ge4", type: "amp", x: 5, y: 0, params: {} },
+    { id: "ge5", type: "env-adsr", x: 3, y: 4, params: { attack: 4, decay: 600, sustain: 0.3, release: 250 } },
+    { id: "ge6", type: "lfo", x: 5, y: 4, params: { rate: 0.3, level: 0.4 } },
+    { id: "ge7", type: "audio-out", x: 6, y: 0, params: {} },
+  ],
+  cables: [
+    { from: { module: "ge1", port: "out" }, to: { module: "ge3", port: "in1" } },
+    { from: { module: "ge2", port: "out" }, to: { module: "ge3", port: "in2" } },
+    { from: { module: "ge3", port: "out" }, to: { module: "ge4", port: "in" } },
+    { from: { module: "ge5", port: "out" }, to: { module: "ge4", port: "cv" } },
+    { from: { module: "ge5", port: "out" }, to: { module: "ge1", port: "scan" } },
+    { from: { module: "ge6", port: "out" }, to: { module: "ge2", port: "scan" } },
+    { from: { module: "ge4", port: "out" }, to: { module: "ge7", port: "left" } },
+  ],
+  pages: [
+    {
+      name: "Wavetable",
+      knobs: [{ module: "ge1", param: "position" }, { module: "ge2", param: "position" }, null, null],
+    },
+  ],
+  samples: [
+    { kind: "wavetable", bank: "resonance" },
+    { kind: "wavetable", bank: "vowels" },
+  ],
+});
+
+/**
  * What a new patch starts as, until the user saves a base of their own over it: a saw
  * through an amp that an envelope opens, into the output. It sounds when a key is pressed,
  * and every part of it is easy to replace.
@@ -713,5 +751,6 @@ export const fixtures = {
   sequence,
   envelopes,
   dynamics,
+  wavetable,
   "new-patch": newPatch,
 } as const;

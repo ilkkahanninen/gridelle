@@ -62,6 +62,9 @@ export const SAMPLE_FILE_ABSTRACTION = "ge-sample-file";
 export const SAMPLE_TAPE_ABSTRACTION = "ge-sample-tape";
 /** The name a slot's sound file has in the patch folder. */
 export const sampleFileName = (slot: number) => `ge-sample-${sampleLetter(slot).toLowerCase()}.wav`;
+/** The helper that loads a slot's wavetable, and the name that has in the patch folder. */
+export const WAVE_FILE_ABSTRACTION = "ge-wave-file";
+export const waveFileName = (slot: number) => `ge-wave-${sampleLetter(slot).toLowerCase()}.wav`;
 
 /** Where `main.pd` sends the number of the voice that got the latest note, for the Scopes. */
 const SCOPE_VOICE = "ge-scope-voice";
@@ -202,11 +205,16 @@ export function emitMain(doc: PatchDocument, analysis: Analysis): string {
   addConstants(patch, analysis, boxes, { x: MARGIN.x + 2 * CELL.x, y: column(5).y });
 
   // The samples the modules work on: a table each, loaded or sized when the patch starts.
-  analysis.samples.forEach(({ slot, sample }, i) => {
-    const at = { x: MARGIN.x + 6 * CELL.x, y: MARGIN.y + i * 35 };
-    if (sample?.kind === "file") patch.obj(`${SAMPLE_FILE_ABSTRACTION} ${slot} ${sampleFileName(slot)}`, at);
-    else patch.obj(`${SAMPLE_TAPE_ABSTRACTION} ${slot} ${pdNumber(sample?.seconds ?? 0)}`, at);
-  });
+  // A Wavetable oscillator reads a table of its own kind, which the editor builds; where
+  // the slot has none to give, a bare table keeps Pd from asking for one.
+  let row = 0;
+  const below = () => ({ x: MARGIN.x + 6 * CELL.x, y: MARGIN.y + row++ * 35 });
+  for (const { slot, table, wave } of analysis.samples) {
+    if (table?.kind === "file") patch.obj(`${SAMPLE_FILE_ABSTRACTION} ${slot} ${sampleFileName(slot)}`, below());
+    else if (table) patch.obj(`${SAMPLE_TAPE_ABSTRACTION} ${slot} ${pdNumber(table.seconds)}`, below());
+    if (wave === "silent") patch.obj(`table ge-wave-${slot} 64`, below());
+    else if (wave) patch.obj(`${WAVE_FILE_ABSTRACTION} ${slot} ${waveFileName(slot)}`, below());
+  }
 
   const params = paramValues(analysis);
   if (params.length > 0) {

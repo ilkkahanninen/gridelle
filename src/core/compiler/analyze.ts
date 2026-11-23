@@ -12,6 +12,7 @@ import {
   type SampleSlot,
 } from "../model/types";
 import { defaultPageName, moduleName } from "../model/ops";
+import { wavetableBank } from "../wavetables/banks";
 import { getModuleDef, SCOPE_SLOTS } from "../modules/registry";
 import type { ModuleDef, ParamDef, Scope, VoiceSignal } from "../modules/types";
 
@@ -33,6 +34,9 @@ export interface Diagnostic {
     | "empty-sample"
     | "long-sample"
     | "two-recorders"
+    | "not-a-wavetable"
+    | "wavetable-as-sample"
+    | "unknown-bank"
     | "no-recorder"
     | "missing-abstraction";
   message: string;
@@ -105,6 +109,18 @@ export interface Analysis {
 export interface UsedSample {
   slot: number;
   sample: SampleSlot | null;
+  /**
+   * The table `ge-sample-<slot>` that the sample modules read and write, when one of them
+   * uses the slot: a sound file to load, or a tape of some seconds (none, where the slot
+   * has nothing such a module can use).
+   */
+  table: { kind: "file"; path: string } | { kind: "tape"; seconds: number } | null;
+  /**
+   * The table `ge-wave-<slot>` that a Wavetable oscillator reads, when one uses the slot:
+   * a wavetable of the editor's own, a sound file to be cut into cycles, or `silent`
+   * where the slot has neither.
+   */
+  wave: { kind: "bank"; id: string } | { kind: "file"; path: string; cycle?: number } | "silent" | null;
 }
 
 /** Beyond this many seconds a position signal is too coarse to play a sample smoothly at other speeds. */
@@ -262,8 +278,40 @@ export function analyze(doc: PatchDocument): Analysis {
     const slot = argumentValues(module)[index];
     if (slot >= 0 && slot < SAMPLE_SLOTS) usedSlots.set(slot, [...(usedSlots.get(slot) ?? []), module]);
   }
-  const samples: UsedSample[] = [...usedSlots.keys()].sort((a, b) => a - b).map((slot) => ({ slot, sample: doc.samples?.[slot] ?? null }));
-  for (const { slot, sample } of samples) {
+  const samples: UsedSample[] = [...usedSlots.keys()].sort((a, b) => a - b).map((slot) => {
+    const sample = doc.samples?.[slot] ?? null;
+    const users = usedSlots.get(slot)!;
+    // A Wavetable oscillator reads another table of the slot than the sample modules do.
+    const scanners = users.filter((m) => m.def.sample === "wavetable");
+    const players = users.filter((m) => m.def.sample !== "wavetable");
+    const warn = (code: Diagnostic["code"], message: string, module: ResolvedModule) =>
+      diagnostics.push({ severity: "warning", code, message, module: module.instance.id });
+
+    let table: UsedSample["table"] = null;
+    if (players.length > 0) {
+      if (sample?.kind === "file") table = { kind: "file", path: sample.path };
+      else if (sample?.kind === "tape") table = { kind: "tape", seconds: sample.seconds };
+      else table = { kind: "tape", seconds: 0 };
+      if (sample?.kind === "wavetable") {
+        warn("wavetable-as-sample", `${called(players[0])} uses sample ${sampleLetter(slot)}, which is a wavetable: only a Wavetable oscillator plays one.`, players[0]);
+      }
+    }
+
+    let wave: UsedSample["wave"] = null;
+    if (scanners.length > 0) {
+      wave = "silent";
+      if (sample?.kind === "wavetable") {
+        if (wavetableBank(sample.bank)) wave = { kind: "bank", id: sample.bank };
+        else warn("unknown-bank", `Sample ${sampleLetter(slot)} is a wavetable this version of Gridelle does not have.`, scanners[0]);
+      } else if (sample?.kind === "file") {
+        wave = { kind: "file", path: sample.path, ...(sample.cycle ? { cycle: sample.cycle } : {}) };
+      } else if (sample?.kind === "tape") {
+        warn("not-a-wavetable", `${called(scanners[0])} uses sample ${sampleLetter(slot)}, which is a tape: it plays a wavetable or a sound file.`, scanners[0]);
+      }
+    }
+    return { slot, sample, table, wave };
+  });
+  for (const { slot, sample, table } of samples) {
     const users = usedSlots.get(slot)!;
     // One module may record onto a sample: two would write over each other at every sample.
     const writers = users.filter((m) => m.def.sample === "writes");
@@ -286,7 +334,7 @@ export function analyze(doc: PatchDocument): Analysis {
         message: `${called(users[0])} uses sample ${sampleLetter(slot)}, which is empty.`,
         module: users[0].instance.id,
       });
-    } else if (sample.kind === "file" && sample.sampleRate > 0 && sample.frames / sample.sampleRate > LONG_SAMPLE_SECONDS) {
+    } else if (table?.kind === "file" && sample.kind === "file" && sample.sampleRate > 0 && sample.frames / sample.sampleRate > LONG_SAMPLE_SECONDS) {
       diagnostics.push({
         severity: "warning",
         code: "long-sample",

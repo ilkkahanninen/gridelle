@@ -37,6 +37,11 @@ describe("compile", () => {
       for (const [file, text] of Object.entries(result.files)) {
         await expect(text).toMatchFileSnapshot(resolve(GOLDEN, name, file));
       }
+      // The sounds are not text: what each is made from is written beside the patch, and
+      // the Rust test that plays the folder makes them from that.
+      if (result.samples.length > 0) {
+        await expect(JSON.stringify(result.samples, null, 2) + "\n").toMatchFileSnapshot(resolve(GOLDEN, name, "samples.json"));
+      }
     });
 
     it("only generates objects the Organelle's Pd has, plus its own abstractions", () => {
@@ -248,7 +253,7 @@ describe("compile", () => {
       expect(result.files["main.pd"]).toContain("ge-sample-tape 1 0.5;");
       expect(Object.keys(result.files)).toEqual(expect.arrayContaining(["ge-sample-file.pd", "ge-sample-tape.pd"]));
       // The folder is complete with the sound file, which the compiler names but does not read.
-      expect(result.samples).toEqual([{ file: "ge-sample-a.wav", path: "tests/golden/sampler/ge-sample-a.wav" }]);
+      expect(result.samples).toEqual([{ file: "ge-sample-a.wav", source: { kind: "sound", path: "tests/golden/sampler/ge-sample-a.wav" } }]);
     });
 
     it("leaves out a sample no module uses, and a patch without sample modules has none", () => {
@@ -268,6 +273,86 @@ describe("compile", () => {
       ]);
       expect(empty.files["voice.pd"]).toContain("ge-sample-player ge1 5;");
       expect(empty.files["main.pd"]).toContain("ge-sample-tape 5 0;");
+    });
+
+    describe("wavetables", () => {
+      const table = fixtures.wavetable;
+      const built = compile(table, abstractionLibrary);
+      const file = { kind: "file", path: "/tables/growl.wav", name: "growl.wav", frames: 44100 * 30, sampleRate: 44100 } as const;
+      const codes = (doc: PatchDocument) => compile(doc, abstractionLibrary).diagnostics.map((d) => [d.code, d.module]);
+
+      it("has a wavetable loaded for each slot an oscillator reads, and names what to make it from", () => {
+        expect(built.files["voice.pd"]).toContain("ge-osc-wavetable ge1 0;");
+        expect(built.files["voice.pd"]).toContain("ge-osc-wavetable ge2 1;");
+        expect(built.files["main.pd"]).toContain("ge-wave-file 0 ge-wave-a.wav;");
+        expect(built.files["main.pd"]).toContain("ge-wave-file 1 ge-wave-b.wav;");
+        expect(built.files["main.pd"]).not.toContain("ge-sample-");
+        expect(Object.keys(built.files)).toEqual(expect.arrayContaining(["ge-wave-file.pd", "ge-osc-wavetable.pd", "ge-osc-mod.pd"]));
+        expect(built.samples).toEqual([
+          { file: "ge-wave-a.wav", source: { kind: "bank", id: "resonance" } },
+          { file: "ge-wave-b.wav", source: { kind: "bank", id: "vowels" } },
+        ]);
+        expect(built.params.map((p) => p.receiver)).toContain("ge1-position");
+        expect(built.params.map((p) => p.receiver).filter((r) => r.endsWith("-sample"))).toEqual([]);
+      });
+
+      it("reads a sound file as a wavetable, in cycles of the length the slot says", () => {
+        const onFile = compile(ops.setSample(table, 0, file), abstractionLibrary);
+        // Long as it is, no warning: a wavetable is not played at a speed.
+        expect(onFile.diagnostics).toEqual([]);
+        expect(onFile.samples[0]).toEqual({ file: "ge-wave-a.wav", source: { kind: "wavetable", path: "/tables/growl.wav" } });
+        const cut = compile(ops.setSample(table, 0, { ...file, cycle: 1024 }), abstractionLibrary);
+        expect(cut.samples[0]).toEqual({ file: "ge-wave-a.wav", source: { kind: "wavetable", path: "/tables/growl.wav", cycle: 1024 } });
+      });
+
+      it("makes both tables of a sound file that is played and read as a wavetable", () => {
+        const both = ops.setParam(ops.addModule(ops.setSample(table, 0, file), "sample-head", { x: 12, y: 0 }).doc, "ge8", "sample", 0);
+        const result = compile(both, abstractionLibrary);
+        expect(result.files["main.pd"]).toContain("ge-sample-file 0 ge-sample-a.wav;");
+        expect(result.files["main.pd"]).toContain("ge-wave-file 0 ge-wave-a.wav;");
+        expect(result.samples.map((s) => [s.file, s.source.kind])).toEqual([
+          ["ge-sample-a.wav", "sound"],
+          ["ge-wave-a.wav", "wavetable"],
+          ["ge-wave-b.wav", "bank"],
+        ]);
+        // Now its length is worth a word: the Play Head plays it.
+        expect(result.diagnostics.map((d) => d.code)).toEqual(["long-sample"]);
+      });
+
+      it("gives an oscillator a silent table where its slot has no wavetable, and says why", () => {
+        const onTape = ops.setSample(table, 0, { kind: "tape", seconds: 2 });
+        expect(codes(onTape)).toEqual([["not-a-wavetable", "ge1"]]);
+        const result = compile(onTape, abstractionLibrary);
+        expect(result.files["main.pd"]).toContain("#X obj 810 30 table ge-wave-0 64;");
+        expect(result.files["main.pd"]).not.toContain("ge-sample-tape");
+        expect(result.samples.map((s) => s.file)).toEqual(["ge-wave-b.wav"]);
+
+        expect(codes(ops.setSample(table, 0, null))).toEqual([["empty-sample", "ge1"]]);
+        expect(compile(ops.setSample(table, 0, null), abstractionLibrary).files["main.pd"]).toContain("table ge-wave-0 64;");
+
+        const unknown = ops.setSample(table, 1, { kind: "wavetable", bank: "from-the-future" });
+        expect(codes(unknown)).toEqual([["unknown-bank", "ge2"]]);
+        expect(compile(unknown, abstractionLibrary).samples.map((s) => s.file)).toEqual(["ge-wave-a.wav"]);
+      });
+
+      it("gives a sample module on a wavetable an empty tape, and says why", () => {
+        const head = ops.setParam(ops.addModule(table, "sample-head", { x: 12, y: 0 }).doc, "ge8", "sample", 1);
+        const result = compile(head, abstractionLibrary);
+        expect(result.diagnostics).toEqual([
+          { severity: "warning", code: "wavetable-as-sample", message: "Play Head uses sample B, which is a wavetable: only a Wavetable oscillator plays one.", module: "ge8" },
+        ]);
+        expect(result.files["main.pd"]).toContain("ge-sample-tape 1 0;");
+        expect(result.files["main.pd"]).toContain("ge-wave-file 1 ge-wave-b.wav;");
+      });
+
+      it("reloads when a wavetable is changed for another, or a sound's cycles for others", () => {
+        const key = structureKey(table);
+        expect(structureKey(ops.setSample(table, 0, { kind: "wavetable", bank: "glass" }))).not.toBe(key);
+        expect(structureKey(ops.setWavetable(table, "ge1", "vowels"))).not.toBe(key);
+        expect(structureKey(ops.setParam(table, "ge1", "position", 0.9))).toBe(key);
+        const onFile = ops.setSample(table, 0, file);
+        expect(structureKey(ops.setSample(onFile, 0, { ...file, cycle: 1024 }))).not.toBe(structureKey(onFile));
+      });
     });
 
     it("warns about a sound too long to play smoothly at other speeds", () => {

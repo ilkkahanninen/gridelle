@@ -128,6 +128,7 @@
 
 .sample-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
 }
 
@@ -136,4 +137,35 @@
   padding: 3px 6px;
   font-size: 13px;
   white-space: nowrap;
+}
+
+/* A wavetable: its cycles as lines, one behind another. */
+.sample-table {
+  fill: none;
+  stroke: var(--category);
+  stroke-width: 1;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.sample-table path {
+  vector-effect: non-scaling-stroke;
+}
+
+.sample-length select {
+  min-width: 0;
+  padding: 1px 3px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: var(--chrome);
+  color: var(--text);
+  font: inherit;
+}
+
+.sample-bank select {
+  flex: 1;
+}
+
+.sample-cycle {
+  flex-wrap: wrap;
 }

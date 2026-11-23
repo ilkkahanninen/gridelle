@@ -62,13 +62,20 @@ export function parseDocument(text: string): PatchDocument {
         (s) =>
           s === null ||
           (isRecord(s) &&
-            ((s.kind === "file" && isText(s.path) && isText(s.name) && isCount(s.frames) && isCount(s.sampleRate)) ||
-              (s.kind === "tape" && isCount(s.seconds)))),
+            ((s.kind === "file" &&
+              isText(s.path) &&
+              isText(s.name) &&
+              isCount(s.frames) &&
+              isCount(s.sampleRate) &&
+              (s.cycle === undefined || isCount(s.cycle))) ||
+              (s.kind === "tape" && isCount(s.seconds)) ||
+              (s.kind === "wavetable" && isText(s.bank)))),
       ));
   if (typeof data.name !== "string" || typeof data.voices !== "number" || !modulesOk || !cablesOk || !pagesOk || !samplesOk) {
     throw new Error("This patch file is damaged and cannot be opened.");
   }
-  return data as unknown as PatchDocument;
+  // A file of an older version says the same in this one.
+  return { ...data, version: DOCUMENT_VERSION } as unknown as PatchDocument;
 }
 
 /**
