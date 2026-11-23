@@ -4,7 +4,7 @@ import type { Cable, ModuleId, PortRef } from "../../core/model/types";
 import { getModuleDef } from "../../core/modules/registry";
 import { visibleDef } from "../../core/modules/shape";
 import { useEditor } from "../../state/store";
-import { useUi } from "../../state/ui";
+import { gridPointer, useUi } from "../../state/ui";
 import { CableLayer } from "./CableLayer";
 import {
   CELL,
@@ -422,6 +422,11 @@ export function GridCanvas() {
       className={classes.join(" ")}
       style={{ backgroundSize: `${gridSize}px ${gridSize}px`, backgroundPosition: `${view.panX}px ${view.panY}px` }}
       onPointerDown={onBackgroundPointerDown}
+      onPointerMove={(e) => {
+        const rect = e.currentTarget.getBoundingClientRect();
+        gridPointer.at = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+      }}
+      onPointerLeave={() => (gridPointer.at = null)}
     >
       <div className="world" style={{ transform: `translate(${view.panX}px, ${view.panY}px) scale(${view.zoom})` }}>
         {doc.modules.map((module) => {

@@ -40,6 +40,33 @@ export interface View {
   zoom: number;
 }
 
+/** Space kept between the edge of the canvas and what `viewShowing` brings into view. */
+const SHOW_MARGIN = 24;
+
+/**
+ * The view moved as little as it takes to show a rectangle of the world, in a canvas of
+ * `viewport` screen pixels. One that does not fit is shown from its top-left corner.
+ * The same view comes back when the rectangle is on show already.
+ */
+export function viewShowing(
+  view: View,
+  viewport: { width: number; height: number },
+  rect: { left: number; top: number; width: number; height: number },
+): View {
+  const pan = (current: number, start: number, size: number, room: number) => {
+    const low = start * view.zoom + current;
+    const fits = size * view.zoom <= room - SHOW_MARGIN * 2;
+    if (!fits || low < SHOW_MARGIN) return SHOW_MARGIN - start * view.zoom;
+    if (low + size * view.zoom > room - SHOW_MARGIN) return room - SHOW_MARGIN - (start + size) * view.zoom;
+    return current;
+  };
+  // Not measured yet: there is nothing to go by.
+  if (viewport.width <= 0 || viewport.height <= 0) return view;
+  const panX = pan(view.panX, rect.left, rect.width, viewport.width);
+  const panY = pan(view.panY, rect.top, rect.height, viewport.height);
+  return panX === view.panX && panY === view.panY ? view : { ...view, panX, panY };
+}
+
 export function tileRect(module: Pick<ModuleInstance, "x" | "y">, def: Pick<ModuleDef, "width" | "height">) {
   return {
     left: module.x * CELL + TILE_INSET,

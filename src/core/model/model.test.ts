@@ -17,7 +17,11 @@ import {
   canPlace,
   connect,
   connectionProblem,
+  copyModules,
+  clipSize,
   disconnect,
+  duplicateModules,
+  pasteModules,
   findFreeCell,
   makeRoom,
   moduleName,
@@ -730,5 +734,114 @@ describe("settling a document whose tiles overlap", () => {
     const tidy = settle(old);
     expect(["ge1", "ge2", "ge3", "ge4"].map((id) => at(tidy, id))).toEqual([[0, 0], [0, 3], [0, 5], [2, 0]]);
     expect(settle(tidy)).toBe(tidy);
+  });
+});
+
+describe("copying and pasting modules", () => {
+  // A saw into a low-pass into an amp, in a row, with an envelope on the amp from the row below.
+  const row = build(["osc-saw", 0, 0], ["filter-lp", 2, 0], ["amp", 5, 0], ["env-adsr", 2, 4]);
+  const chain = [
+    (d: PatchDocument) => connect(d, port("ge1", "out"), port("ge2", "in")),
+    (d: PatchDocument) => connect(d, port("ge2", "out"), port("ge3", "in")),
+    (d: PatchDocument) => connect(d, port("ge4", "out"), port("ge3", "cv")),
+    (d: PatchDocument) => setParam(d, "ge2", "cutoff", 440),
+    (d: PatchDocument) => renameModule(d, "ge2", "Dark"),
+    (d: PatchDocument) => setPrecord(d, "ge1", "pitch", false),
+    (d: PatchDocument) => assignKnob(d, { page: 0, knob: 0 }, { module: "ge2", param: "cutoff" }),
+  ].reduce((d, edit) => edit(d), row);
+  const cables = (d: Pick<PatchDocument, "cables">) =>
+    d.cables.map((c) => `${c.from.module}.${c.from.port}>${c.to.module}.${c.to.port}`);
+  const at = (d: PatchDocument, id: string) => {
+    const module = d.modules.find((m) => m.id === id)!;
+    return [module.x, module.y];
+  };
+  const ids = (...list: string[]) => new Set(list);
+
+  it("copies the modules and the cables between them", () => {
+    const clip = copyModules(chain, ids("ge2", "ge3"))!;
+    expect(clip.modules.map((m) => m.id)).toEqual(["ge2", "ge3"]);
+    expect(cables(clip)).toEqual(["ge2.out>ge3.in"]);
+    expect(copyModules(chain, ids())).toBeNull();
+    expect(copyModules(chain, ids("nope"))).toBeNull();
+  });
+
+  it("pastes them under new ids, with their settings and cabled as they were", () => {
+    const clip = copyModules(chain, ids("ge1", "ge2", "ge3"))!;
+    const pasted = pasteModules(chain, clip, { x: 0, y: 10 });
+    expect(pasted.ids).toEqual(["ge5", "ge6", "ge7"]);
+    expect(cables(pasted.doc).slice(chain.cables.length)).toEqual(["ge5.out>ge6.in", "ge6.out>ge7.in"]);
+    const filter = pasted.doc.modules.find((m) => m.id === "ge6")!;
+    expect(filter).toMatchObject({ type: "filter-lp", name: "Dark", params: { cutoff: 440 } });
+    expect(pasted.doc.modules.find((m) => m.id === "ge5")!.precords).toEqual({ pitch: false });
+    // What was there is as it was, and the knob still has the setting it had.
+    expect(pasted.doc.modules.slice(0, 4)).toEqual(chain.modules);
+    expect(pasted.doc.pages).toBe(chain.pages);
+    expect(findAssignment(pasted.doc, "ge6", "cutoff")).toBeNull();
+  });
+
+  it("keeps the group's shape and puts its corner where asked when that is free", () => {
+    const clip = copyModules(chain, ids("ge2", "ge3", "ge4"))!;
+    expect(clipSize(clip)).toEqual({ width: 4, height: 4 + getModuleDef("env-adsr")!.height });
+    const pasted = pasteModules(chain, clip, { x: 20, y: -3 }).doc;
+    expect([at(pasted, "ge5"), at(pasted, "ge6"), at(pasted, "ge7")]).toEqual([[20, -3], [23, -3], [20, 1]]);
+  });
+
+  it("goes to the nearest room for the whole group when the place is taken", () => {
+    const clip = copyModules(chain, ids("ge1", "ge2", "ge3"))!;
+    const pasted = pasteModules(chain, clip, { x: 1, y: 1 });
+    const [x, y] = at(pasted.doc, pasted.ids[0]);
+    expect(at(pasted.doc, pasted.ids[1])).toEqual([x + 2, y]);
+    expect(at(pasted.doc, pasted.ids[2])).toEqual([x + 5, y]);
+    // Nothing lies on anything else.
+    expect(settle(pasted.doc)).toBe(pasted.doc);
+    // Pasting again at the same place finds other room.
+    const again = pasteModules(pasted.doc, clip, { x: 1, y: 1 });
+    expect(at(again.doc, again.ids[0])).not.toEqual([x, y]);
+    expect(settle(again.doc)).toBe(again.doc);
+  });
+
+  it("pastes into another patch", () => {
+    const clip = copyModules(chain, ids("ge2", "ge3"))!;
+    const other = build(["noise", 0, 0]);
+    const pasted = pasteModules(other, clip, { x: 4, y: 0 });
+    expect(pasted.ids).toEqual(["ge2", "ge3"]);
+    expect(cables(pasted.doc)).toEqual(["ge2.out>ge3.in"]);
+    expect(pasteModules(other, { modules: [], cables: [] }, { x: 0, y: 0 })).toEqual({ doc: other, ids: [] });
+  });
+
+  it("duplicates right below the modules, or as near to that as there is room", () => {
+    const one = duplicateModules(chain, ids("ge1"));
+    expect(at(one.doc, one.ids[0])).toEqual([0, getModuleDef("osc-saw")!.height]);
+    // Below the low-pass is the envelope: the copy of the row goes around it.
+    const three = duplicateModules(chain, ids("ge1", "ge2", "ge3"));
+    expect(three.ids).toHaveLength(3);
+    expect(settle(three.doc)).toBe(three.doc);
+    expect(duplicateModules(chain, ids())).toEqual({ doc: chain, ids: [] });
+  });
+
+  it("copies a mixer at the size it has without the cables left behind", () => {
+    const mixed = connect(build(["osc-saw", 0, 0], ["mixer", 3, 0]), port("ge1", "out"), port("ge2", "in1"));
+    expect(visibleDef(mixed, mixed.modules[1])!.height).toBe(2);
+    expect(clipSize(copyModules(mixed, ids("ge2"))!).height).toBe(1);
+    // Its copy goes below the mixer as it is here, two cells tall.
+    const copy = duplicateModules(mixed, ids("ge2"));
+    expect(at(copy.doc, copy.ids[0])).toEqual([3, 2]);
+    // Copied with its source, it keeps the cable and the size.
+    const both = duplicateModules(mixed, ids("ge1", "ge2")).doc;
+    expect(visibleDef(both, both.modules[3])!.height).toBe(2);
+    expect(settle(both)).toBe(both);
+  });
+
+  it("selects what was pasted, as one undo step", () => {
+    useEditor.getState().load(chain, null);
+    useEditor.getState().paste(copyModules(chain, ids("ge1", "ge2"))!, { x: 0, y: 10 });
+    expect([...useEditor.getState().selection]).toEqual(["ge5", "ge6"]);
+    useEditor.getState().duplicateSelection();
+    expect([...useEditor.getState().selection]).toEqual(["ge7", "ge8"]);
+    expect(cables(useEditor.getState().doc).slice(chain.cables.length)).toEqual(["ge5.out>ge6.in", "ge7.out>ge8.in"]);
+    useEditor.getState().undo();
+    useEditor.getState().undo();
+    expect(useEditor.getState().doc).toBe(chain);
+    expect(useEditor.getState().selection.size).toBe(0);
   });
 });

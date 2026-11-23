@@ -40,6 +40,10 @@ interface EditorState {
   /** Add a module cabled to a port (`ops.planPortDrop`). `null` if there was nothing to cable. */
   addModuleAtPort(type: string, target: ops.PortTarget): ModuleId | null;
   deleteSelection(): void;
+  /** Put a clip's modules in near a cell (`ops.pasteModules`) and select them. Returns their ids. */
+  paste(clip: ops.Clip, near: ops.Cell): ModuleId[];
+  /** Copy the selected modules to right below themselves, and select the copies. Returns their ids. */
+  duplicateSelection(): ModuleId[];
 
   /** Replace the document (New, Open). Clears history and selection. */
   load(doc: PatchDocument, filePath: string | null): void;
@@ -131,6 +135,28 @@ export const useEditor = create<EditorState>((set, get) => ({
     if (selectedCable) apply((doc) => ops.disconnect(doc, selectedCable));
     else if (selection.size > 0) apply((doc) => ops.removeModules(doc, selection));
     set({ selection: new Set(), selectedCable: null });
+  },
+
+  paste(clip, near) {
+    let added: ModuleId[] = [];
+    get().apply((doc) => {
+      const result = ops.pasteModules(doc, clip, near);
+      added = result.ids;
+      return result.doc;
+    });
+    if (added.length > 0) set({ selection: new Set(added), selectedCable: null });
+    return added;
+  },
+
+  duplicateSelection() {
+    let added: ModuleId[] = [];
+    get().apply((doc) => {
+      const result = ops.duplicateModules(doc, get().selection);
+      added = result.ids;
+      return result.doc;
+    });
+    if (added.length > 0) set({ selection: new Set(added), selectedCable: null });
+    return added;
   },
 
   load(doc, filePath) {

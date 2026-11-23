@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { exportToOrganelle, newPatch, savePatch, sendToOrganelle } from "./state/actions";
 import { startPresets } from "./state/presets";
 import { cancelAssign } from "./state/assign";
+import { copySelection, cutSelection, duplicateSelection, pasteClipboard } from "./state/clipboard";
 import { startPreviewSync } from "./state/preview";
 import { useEditor } from "./state/store";
 import { showSidePane, useUi } from "./state/ui";
@@ -49,6 +50,18 @@ function useShortcuts() {
       } else if (command && key === "a") {
         e.preventDefault();
         editor.select(editor.doc.modules.map((m) => m.id));
+      } else if (command && (key === "c" || key === "x")) {
+        // Text that has been selected, as in the settings pane, is what gets copied then.
+        if (window.getSelection()?.isCollapsed === false) return;
+        e.preventDefault();
+        if (key === "c") copySelection();
+        else cutSelection();
+      } else if (command && key === "v") {
+        e.preventDefault();
+        pasteClipboard();
+      } else if (command && key === "d") {
+        e.preventDefault();
+        duplicateSelection();
       } else if (key === "delete" || key === "backspace") {
         e.preventDefault();
         editor.deleteSelection();

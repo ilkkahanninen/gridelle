@@ -51,6 +51,13 @@ export const useUi = create<UiState>((set) => ({
   setView: (view) => set({ view }),
 }));
 
+/**
+ * Where the pointer is over the grid, in pixels from the top-left corner of the canvas,
+ * or `null` while it is somewhere else. It is not in the store: it changes with every
+ * move and nothing is drawn from it. Paste reads it.
+ */
+export const gridPointer: { at: Point | null } = { at: null };
+
 /** Open a side pane, in place of whatever is open on its side. */
 export const showSidePane = (id: SidePaneId) =>
   useUi.setState((s) => ({ sidePanes: { ...s.sidePanes, [PANE_SIDE[id]]: id } }));

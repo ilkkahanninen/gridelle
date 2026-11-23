@@ -35,7 +35,7 @@ interface Rect extends Cell {
 }
 
 /** The cells a module covers, at the size it currently shows (a mixer grows with its cables). */
-function rectOf(doc: PatchDocument, module: ModuleInstance, at: Cell = module): Rect | null {
+function rectOf(doc: Pick<PatchDocument, "cables">, module: ModuleInstance, at: Cell = module): Rect | null {
   const def = visibleDef(doc, module);
   return def ? { x: at.x, y: at.y, width: def.width, height: def.height } : null;
 }
@@ -53,10 +53,17 @@ function isFree(doc: PatchDocument, rect: Rect, ignore: ReadonlySet<ModuleId> = 
   });
 }
 
+/** The `count` smallest unused `ge<n>` ids. */
+function freeIds(doc: PatchDocument, count: number): ModuleId[] {
+  const used = new Set(doc.modules.map((m) => m.id));
+  const ids: ModuleId[] = [];
+  for (let n = 1; ids.length < count; n++) if (!used.has(`ge${n}`)) ids.push(`ge${n}`);
+  return ids;
+}
+
 /** Smallest unused `ge<n>` id. */
 export function nextModuleId(doc: PatchDocument): ModuleId {
-  const used = new Set(doc.modules.map((m) => m.id));
-  for (let n = 1; ; n++) if (!used.has(`ge${n}`)) return `ge${n}`;
+  return freeIds(doc, 1)[0];
 }
 
 /** Whether a new module of `type` fits with its top-left corner at `at`. */
@@ -65,8 +72,8 @@ export function canPlace(doc: PatchDocument, type: string, at: Cell): boolean {
   return !!def && isFree(doc, { ...at, width: def.width, height: def.height });
 }
 
-/** The free spot for `type` closest to `near`, searching outwards in rings. */
-export function findFreeCell(doc: PatchDocument, type: string, near: Cell): Cell {
+/** The cell closest to `near` that `fits`, searching outwards in rings; `null` if none is found. */
+function nearestCell(near: Cell, fits: (cell: Cell) => boolean): Cell | null {
   for (let radius = 0; radius < 200; radius++) {
     let best: Cell | null = null;
     let bestDistance = Infinity;
@@ -75,7 +82,7 @@ export function findFreeCell(doc: PatchDocument, type: string, near: Cell): Cell
         if (Math.max(Math.abs(dx), Math.abs(dy)) !== radius) continue;
         const cell = { x: near.x + dx, y: near.y + dy };
         const distance = dx * dx + dy * dy;
-        if (distance < bestDistance && canPlace(doc, type, cell)) {
+        if (distance < bestDistance && fits(cell)) {
           best = cell;
           bestDistance = distance;
         }
@@ -83,7 +90,12 @@ export function findFreeCell(doc: PatchDocument, type: string, near: Cell): Cell
     }
     if (best) return best;
   }
-  return near;
+  return null;
+}
+
+/** The free spot for `type` closest to `near`. */
+export function findFreeCell(doc: PatchDocument, type: string, near: Cell): Cell {
+  return nearestCell(near, (cell) => canPlace(doc, type, cell)) ?? near;
 }
 
 /** Add a module at `at`. Returns the unchanged document if the type is unknown or the spot is taken. */
@@ -154,6 +166,104 @@ export function removeModules(doc: PatchDocument, ids: ReadonlySet<ModuleId>): P
       })),
     ),
   };
+}
+
+/**
+ * Modules taken from a patch to be put in again, there or in another patch. They are as
+ * they were in the patch they came from, ids and places included; `pasteModules` gives
+ * them new ones.
+ */
+export interface Clip {
+  modules: ModuleInstance[];
+  cables: Cable[];
+}
+
+/**
+ * What a copy of the modules `ids` takes along: each module's settings, name and pre-cord
+ * switches, and the cables between them. A cable to a module that is not copied stays
+ * behind, and so do the Organelle knobs, since a knob holds one setting. `null` when
+ * there is nothing to copy.
+ */
+export function copyModules(doc: PatchDocument, ids: ReadonlySet<ModuleId>): Clip | null {
+  // A module of an unknown type has no tile: it could be neither seen nor placed.
+  const modules = doc.modules.filter((m) => ids.has(m.id) && getModuleDef(m.type));
+  if (modules.length === 0) return null;
+  const copied = new Set(modules.map((m) => m.id));
+  return { modules, cables: doc.cables.filter((c) => copied.has(c.from.module) && copied.has(c.to.module)) };
+}
+
+/** A clip's tiles at the size they have once pasted (a mixer copied without its cables is a small one). */
+function clipRects(clip: Clip): Rect[] {
+  return clip.modules.flatMap((m) => rectOf(clip, m) ?? []);
+}
+
+function boundsOf(rects: Rect[]): Rect {
+  const x = Math.min(...rects.map((r) => r.x));
+  const y = Math.min(...rects.map((r) => r.y));
+  return {
+    x,
+    y,
+    width: Math.max(...rects.map((r) => r.x + r.width)) - x,
+    height: Math.max(...rects.map((r) => r.y + r.height)) - y,
+  };
+}
+
+/** How many cells a clip's modules span together. */
+export function clipSize(clip: Clip): { width: number; height: number } {
+  const rects = clipRects(clip);
+  if (rects.length === 0) return { width: 0, height: 0 };
+  const { width, height } = boundsOf(rects);
+  return { width, height };
+}
+
+/**
+ * Put a clip's modules into the document under new ids, cabled as they were. They stay
+ * in the places they had to each other, and go as a group where there is room for all of
+ * them: with the group's top-left corner at `near`, or as near to it as it fits. Returns
+ * the new ids in the clip's order, and the unchanged document when the clip is empty.
+ */
+export function pasteModules(doc: PatchDocument, clip: Clip, near: Cell): { doc: PatchDocument; ids: ModuleId[] } {
+  const modules = clip.modules.filter((m) => rectOf(clip, m));
+  const rects = clipRects(clip);
+  if (rects.length === 0) return { doc, ids: [] };
+  const bounds = boundsOf(rects);
+  const at = nearestCell(near, (cell) =>
+    rects.every((r) => isFree(doc, { ...r, x: r.x - bounds.x + cell.x, y: r.y - bounds.y + cell.y })),
+  );
+  if (!at) return { doc, ids: [] };
+
+  const ids = freeIds(doc, modules.length);
+  const renamed = new Map(modules.map((m, i) => [m.id, ids[i]]));
+  return {
+    doc: {
+      ...doc,
+      modules: [
+        ...doc.modules,
+        ...modules.map((m, i) => ({ ...m, id: ids[i], x: m.x - bounds.x + at.x, y: m.y - bounds.y + at.y })),
+      ],
+      cables: [
+        ...doc.cables,
+        ...clip.cables.flatMap((c) => {
+          const from = renamed.get(c.from.module);
+          const to = renamed.get(c.to.module);
+          return from && to ? [{ from: { module: from, port: c.from.port }, to: { module: to, port: c.to.port } }] : [];
+        }),
+      ],
+    },
+    ids,
+  };
+}
+
+/**
+ * Copy the modules `ids` and paste them straight away: right below the ones they are
+ * copies of, or as near to that as there is room.
+ */
+export function duplicateModules(doc: PatchDocument, ids: ReadonlySet<ModuleId>): { doc: PatchDocument; ids: ModuleId[] } {
+  const clip = copyModules(doc, ids);
+  if (!clip) return { doc, ids: [] };
+  // Below them as they are here, where a mixer with cables from outside the copy is taller than its copy.
+  const bounds = boundsOf(clip.modules.flatMap((m) => rectOf(doc, m) ?? []));
+  return pasteModules(doc, clip, { x: bounds.x, y: bounds.y + bounds.height });
 }
 
 const samePort = (a: PortRef, b: PortRef) => a.module === b.module && a.port === b.port;
