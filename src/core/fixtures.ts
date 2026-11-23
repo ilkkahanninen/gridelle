@@ -575,6 +575,48 @@ export const grains: PatchDocument = settle({
 });
 
 /**
+ * A Clock and a Sequencer: holding a key plays the sequence from that note, starting from
+ * its first step, and letting go stops it. The clock's ticks also open the envelope, so
+ * each step is a note of its own.
+ */
+export const sequence: PatchDocument = settle({
+  version: DOCUMENT_VERSION,
+  name: "Sequence",
+  voices: 2,
+  modules: [
+    { id: "ge1", type: "clock", x: 0, y: 0, params: { tempo: 140 } },
+    { id: "ge2", type: "sequencer", x: 2, y: 0, params: { steps: 6, step5: -5 } },
+    { id: "ge3", type: "osc-saw", x: 4, y: 0, params: {} },
+    { id: "ge4", type: "filter-lp", x: 6, y: 0, params: { cutoff: 900, res: 0.4 } },
+    { id: "ge5", type: "amp", x: 8, y: 0, params: {} },
+    { id: "ge6", type: "env-adsr", x: 4, y: 3, params: { decay: 120, sustain: 0.3, release: 100 } },
+    { id: "ge7", type: "audio-out", x: 9, y: 0, params: {} },
+  ],
+  cables: [
+    { from: { module: "ge1", port: "out" }, to: { module: "ge2", port: "clock" } },
+    { from: { module: "ge2", port: "out" }, to: { module: "ge3", port: "pitch" } },
+    { from: { module: "ge3", port: "out" }, to: { module: "ge4", port: "in" } },
+    { from: { module: "ge4", port: "out" }, to: { module: "ge5", port: "in" } },
+    { from: { module: "ge1", port: "out" }, to: { module: "ge6", port: "gate" } },
+    { from: { module: "ge6", port: "out" }, to: { module: "ge5", port: "cv" } },
+    // The step moves the filter too, a little.
+    { from: { module: "ge2", port: "value" }, to: { module: "ge4", port: "mod" } },
+    { from: { module: "ge5", port: "out" }, to: { module: "ge7", port: "left" } },
+  ],
+  pages: [
+    {
+      name: "Sequence",
+      knobs: [
+        { module: "ge1", param: "tempo" },
+        { module: "ge1", param: "width" },
+        { module: "ge2", param: "steps" },
+        { module: "ge2", param: "step1" },
+      ],
+    },
+  ],
+});
+
+/**
  * What a new patch starts as, until the user saves a base of their own over it: a saw
  * through an amp that an envelope opens, into the output. It sounds when a key is pressed,
  * and every part of it is easy to replace.
@@ -613,5 +655,6 @@ export const fixtures = {
   looper,
   "tape-echo": tapeEcho,
   grains,
+  sequence,
   "new-patch": newPatch,
 } as const;

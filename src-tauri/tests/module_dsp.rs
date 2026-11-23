@@ -1,8 +1,8 @@
 //! Measures what the module abstractions in `pd-lib/modules` actually do, in real Pd:
 //! oscillator pitch, level, aliasing and modulation, filter frequency responses, the
 //! shapers' curves, mixer sums, the envelope's stages, the LFOs, the effects, the wrappers of
-//! Pd's own filters and reverbs, the pitch, math and logic modules, and that every setting's
-//! input multiplies its knob.
+//! Pd's own filters and reverbs, the pitch, math and logic modules, the clock and the
+//! sequencer, and that every setting's input multiplies its knob.
 //!
 //! Each check loads a few-box test patch around one abstraction and analyses the audio
 //! it renders. libpd is a single global instance, so everything runs from one test.
@@ -83,7 +83,8 @@ fn inlets_of(name: &str) -> &'static [Inlet] {
         "ge-shaper-hard" | "ge-shaper-rectify" => &[Main, Setting, Mod],
         "ge-shaper-crush" => &[Main, Setting, Setting, Mod],
         "ge-amp" => &[Main, Setting],
-        "ge-lfo" => &[Main, Setting, Setting],
+        "ge-lfo" | "ge-clock" => &[Main, Setting, Setting],
+        "ge-sequencer" => &[Main, Mod, Pwm, Setting, Setting, Setting, Setting, Setting, Setting, Setting, Setting, Setting],
         "ge-lfo-random" => &[Setting, Setting, Setting],
         "ge-audio-out" => &[Main, Main, Setting],
         other => panic!("no inlet list for {other}"),
@@ -1767,6 +1768,260 @@ fn logic_modules(pd: &mut Pd, dir: &Path) {
     println!("logic: and, or, not, compare, toggle and divider give what they should");
 }
 
+// --- clock and sequencer -------------------------------------------------------------------
+
+/// The samples at which a gate goes on.
+fn rises(gate: &[f32]) -> Vec<usize> {
+    gate.windows(2).enumerate().filter(|(_, pair)| pair[0] <= 0.5 && pair[1] > 0.5).map(|(n, _)| n + 1).collect()
+}
+
+/// The Clock with a `[sig~]` on Run that `t-gate` sets, on to begin with: 120 beats a minute,
+/// a tick a sixteenth note, on for half of it. Out is on the left and Phase on the right.
+fn with_clock<T>(pd: &mut Pd, dir: &Path, measure: impl FnOnce(&mut Pd) -> T) -> T {
+    with_module(pd, dir, "ge-clock", &["r t-gate", "sig~ 1"], &[[0, 0, 1, 0]], [Some(1), None, None], both_outlets, |pd| {
+        set(pd, &[("tempo", 120.0), ("width", 50.0), ("division", 4.0)]);
+        measure(pd)
+    })
+}
+
+fn clock(pd: &mut Pd, dir: &Path) {
+    with_clock(pd, dir, |pd| {
+        // 120 beats a minute in sixteenths is 8 ticks a second: one every 5512.5 samples.
+        let (gate, phase) = settled(pd, 2.0);
+        assert!(gate.iter().all(|v| *v == 0.0 || *v == 1.0), "clock: Out is 0 or 1");
+        let ticks = rises(&gate);
+        assert!(ticks.len() >= 15, "clock: 8 ticks a second, got {} in 2 s", ticks.len());
+        for pair in ticks.windows(2) {
+            assert!((5512..=5513).contains(&(pair[1] - pair[0])), "clock: a tick every 5512.5 samples, got {}", pair[1] - pair[0]);
+        }
+        let whole = &gate[ticks[0]..*ticks.last().unwrap()];
+        close(mean(whole), 0.5, 0.001, "clock is on for Width of each tick");
+        // Phase rises from 0 to 1 over a tick, and Out is on while it is below Width.
+        let (start, end) = (ticks[0], ticks[1]);
+        assert!(phase[start] < 0.001 && phase[end - 1] > 0.999, "clock: Phase goes from 0 to 1, got {}..{}", phase[start], phase[end - 1]);
+        close(phase[(start + end) / 2], 0.5, 0.001, "clock: Phase is a half in the middle of a tick");
+        assert!(phase[start..end].windows(2).all(|pair| pair[1] > pair[0]), "clock: Phase only rises within a tick");
+        let apart = gate.iter().zip(&phase).filter(|(g, p)| (**g > 0.5) != (**p < 0.5)).count();
+        assert_eq!(apart, 0, "clock: Out is on exactly while Phase is below Width");
+
+        // Width, and its input.
+        let share = |pd: &mut Pd| {
+            let gate = settled(pd, 1.0).0;
+            let ticks = rises(&gate);
+            mean(&gate[ticks[0]..*ticks.last().unwrap()])
+        };
+        set(pd, &[("width", 25.0)]);
+        close(share(pd), 0.25, 0.001, "clock Width 25 %");
+        pd.send_float("t-in2", 0.5);
+        close(share(pd), 0.125, 0.001, "clock Width 25 % x 0.5");
+        pd.send_float("t-in2", 1.0);
+        set(pd, &[("width", 50.0)]);
+
+        // Tempo's input multiplies it.
+        let period = |pd: &mut Pd, seconds: f32| {
+            let ticks = rises(&settled(pd, seconds).0);
+            assert!(ticks.len() >= 2, "clock: two ticks in {seconds} s, got {}", ticks.len());
+            (ticks[1] - ticks[0]) as f32
+        };
+        pd.send_float("t-in1", 0.5);
+        close(period(pd, 1.0), 11025.0, 1.0, "clock Tempo 120 x 0.5 ticks half as often");
+        pd.send_float("t-in1", 1.0);
+
+        // Division is the note value of a tick: at 240 beats a minute there are four beats a second.
+        set(pd, &[("tempo", 240.0)]);
+        let divisions = [0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 1.5, 3.0, 6.0];
+        let mut measured = Vec::new();
+        for (number, ticks_a_beat) in divisions.iter().enumerate() {
+            set(pd, &[("division", number as f32)]);
+            let expected = SAMPLE_RATE / (4.0 * ticks_a_beat);
+            let samples = period(pd, 3.2 * expected / SAMPLE_RATE);
+            close(samples, expected, 1.0, &format!("clock Division {number}: samples to a tick"));
+            measured.push(SAMPLE_RATE / samples);
+        }
+        set(pd, &[("tempo", 120.0), ("division", 4.0)]);
+
+        // It runs while Run is on, and starts from the beginning when Run comes on.
+        render(pd, 0.337);
+        pd.send_float("t-gate", 0.0);
+        let (gate, phase) = render(pd, 0.1);
+        assert_eq!((peak(&gate), peak(&phase)), (0.0, 0.0), "clock: nothing comes out while Run is off");
+        pd.send_float("t-gate", 1.0);
+        let (gate, phase) = render(pd, 0.45);
+        assert_eq!((gate[0], phase[0]), (1.0, 0.0), "clock: a tick starts at the sample Run comes on");
+        let ticks = rises(&gate);
+        for (number, tick) in ticks.iter().enumerate() {
+            close(*tick as f32, 5512.5 * (number + 1) as f32, 1.0, "clock: ticks are counted from where Run came on");
+        }
+        assert_eq!(ticks.len(), 3, "clock: three more ticks in 450 ms");
+        println!("ge-clock: a tick every 5512.5 samples at 120 in sixteenths, from the sample Run comes on; ticks a second at 240 by Division: {measured:.2?}");
+    });
+}
+
+/// What the test sequencer's steps are set to, in semitones.
+const STEPS: [f32; 8] = [0.0, 12.0, 7.0, 3.0, -5.0, 24.0, -24.0, 1.0];
+
+/// The Sequencer with `[sig~]`s on Clock (`t-clock`), Reset (`t-reset`) and Pitch (`t-pitch`,
+/// 60 to begin with), eight steps of `STEPS`. Pitch is on the left and Value on the right.
+fn with_sequencer<T>(pd: &mut Pd, dir: &Path, measure: impl FnOnce(&mut Pd) -> T) -> T {
+    let boxes = ["r t-clock", "sig~ 0", "r t-reset", "sig~ 0", "r t-pitch", "sig~ 60"];
+    let connections = [[0, 0, 1, 0], [2, 0, 3, 0], [4, 0, 5, 0]];
+    with_module(pd, dir, "ge-sequencer", &boxes, &connections, [Some(1), Some(3), Some(5)], both_outlets, |pd| {
+        set_steps(pd, "t1");
+        render(pd, 0.05);
+        measure(pd)
+    })
+}
+
+fn set_steps(pd: &mut Pd, module: &str) {
+    pd.send_float(&format!("{module}-steps"), 8.0);
+    for (number, semitones) in STEPS.iter().enumerate() {
+        pd.send_float(&format!("{module}-step{}", number + 1), *semitones);
+    }
+}
+
+/// One tick of a clock: on for 10 ms and off for 10 ms. Returns the step being played at the
+/// end, in semitones from the pitch of 60, and the Value output.
+fn tick(pd: &mut Pd) -> (f32, f32) {
+    pd.send_float("t-clock", 1.0);
+    render(pd, 0.01);
+    pd.send_float("t-clock", 0.0);
+    let (pitch, value) = render(pd, 0.01);
+    (pitch.last().unwrap() - 60.0, *value.last().unwrap())
+}
+
+/// A rise at Reset, held for 10 ms. Returns the pitch over those 10 ms.
+fn reset(pd: &mut Pd) -> Vec<f32> {
+    pd.send_float("t-reset", 1.0);
+    let pitch = render(pd, 0.01).0;
+    pd.send_float("t-reset", 0.0);
+    render(pd, 0.01);
+    pitch
+}
+
+fn sequencer(pd: &mut Pd, dir: &Path) {
+    with_sequencer(pd, dir, |pd| {
+        // It starts on its first step, and goes one step on each time Clock goes on.
+        let (pitch, value) = render(pd, 0.01);
+        assert!(pitch.iter().all(|p| *p == 60.0 + STEPS[0]), "sequencer starts on its first step");
+        assert_eq!(peak(&value), 0.0, "sequencer: Value of a step of 0 semitones");
+        let played: Vec<(f32, f32)> = (0..10).map(|_| tick(pd)).collect();
+        for (number, (step, value)) in played.iter().enumerate() {
+            let expected = STEPS[(number + 1) % 8];
+            assert_eq!(*step, expected, "sequencer: step after {} ticks", number + 1);
+            close(*value, expected / 24.0, 0.00001, "sequencer: Value is the step over 24");
+        }
+
+        // Reset goes back to the first step, at that sample.
+        let pitch = reset(pd);
+        assert!(pitch.iter().all(|p| *p == 60.0 + STEPS[0]), "sequencer: Reset goes to the first step at once");
+        assert_eq!(tick(pd).0, STEPS[1], "sequencer: the tick after a reset plays the second step");
+
+        // Pitch is added to the step, and a step's input multiplies its knob.
+        pd.send_float("t-pitch", 48.0);
+        close(settled_pitch(pd), 48.0 + STEPS[1], 0.0001, "sequencer adds the step to Pitch");
+        pd.send_float("t-pitch", 60.0);
+        pd.send_float("t-in5", 0.5);
+        close(settled_pitch(pd), 60.0 + STEPS[1] * 0.5, 0.0001, "sequencer: the second step's knob times its input");
+        pd.send_float("t-in5", 1.0);
+
+        // Steps is how many of them it goes round, and its input multiplies it.
+        set(pd, &[("steps", 3.0)]);
+        render(pd, 0.05);
+        reset(pd);
+        let played: Vec<f32> = (0..7).map(|_| tick(pd).0).collect();
+        assert_eq!(played, [1, 2, 0, 1, 2, 0, 1].map(|n| STEPS[n]), "sequencer goes round three steps");
+        set(pd, &[("steps", 8.0)]);
+        pd.send_float("t-in3", 0.25);
+        render(pd, 0.05);
+        reset(pd);
+        let played: Vec<f32> = (0..5).map(|_| tick(pd).0).collect();
+        assert_eq!(played, [1, 0, 1, 0, 1].map(|n| STEPS[n]), "sequencer: Steps 8 x 0.25 is two steps");
+    });
+
+    // A clock that starts on the gate that resets the sequencer goes on at the same moment,
+    // or a block later if it restarts as an LFO does. That rise is the start of the first
+    // step, not the end of it: one within 3 ms of a reset is not counted.
+    for (blocks_late, counted) in [(0, false), (1, false), (2, false), (4, true)] {
+        with_sequencer(pd, dir, |pd| {
+            for _ in 0..3 {
+                tick(pd);
+            }
+            pd.send_float("t-reset", 1.0);
+            if blocks_late > 0 {
+                render(pd, blocks_late as f32 * 64.0 / SAMPLE_RATE - 0.0001);
+            }
+            pd.send_float("t-clock", 1.0);
+            let pitch = render(pd, 0.02).0;
+            let step = if counted { STEPS[1] } else { STEPS[0] };
+            assert!(pitch.iter().all(|p| *p == 60.0 + step), "sequencer: a clock rise {blocks_late} blocks after a reset counts: {counted}");
+            pd.send_float("t-clock", 0.0);
+            pd.send_float("t-reset", 0.0);
+            render(pd, 0.01);
+            assert_eq!(tick(pd).0, STEPS[if counted { 2 } else { 1 }], "sequencer: the next tick after a clock rise {blocks_late} blocks late");
+        });
+    }
+    println!("ge-sequencer: steps in turn on each rise of the clock, round Steps of them; a reset holds the first step for 3 ms");
+}
+
+/// A Clock into a Sequencer, as a patch has them: the sequencer's pitch on the left and the
+/// clock's ticks on the right. With `keyed` both follow a gate that `t-gate` sets, as their
+/// pre-cords do; without, the clock runs free and nothing resets the sequencer.
+fn with_clock_and_sequencer<T>(pd: &mut Pd, dir: &Path, keyed: bool, measure: impl FnOnce(&mut Pd) -> T) -> T {
+    let boxes = ["r t-gate", "sig~ 0", "sig~ 1", "sig~ 60", "ge-clock c1", "ge-sequencer s1", "dac~ 1", "dac~ 2"];
+    let (gate, one, pitch, clock, sequencer) = (1, 2, 3, 4, 5);
+    let mut connections = vec![[0, 0, gate, 0], [one, 0, clock, 1], [one, 0, clock, 2], [clock, 0, sequencer, 0], [pitch, 0, sequencer, 2]];
+    connections.push([if keyed { gate } else { one }, 0, clock, 0]);
+    if keyed {
+        connections.push([gate, 0, sequencer, 1]);
+    }
+    connections.extend((3..12).map(|inlet| [one, 0, sequencer, inlet]));
+    connections.extend([[sequencer, 0, 6, 0], [clock, 0, 7, 0]]);
+    with_patch(pd, dir, &boxes, &connections, |pd| {
+        pd.send_float("c1-tempo", 120.0);
+        pd.send_float("c1-width", 50.0);
+        pd.send_float("c1-division", 4.0);
+        set_steps(pd, "s1");
+        measure(pd)
+    })
+}
+
+/// Each step lasts from one tick of the clock to the next, starting with the first step at
+/// `from`: the pitch is checked a quarter and three quarters of the way through each tick.
+fn steps_follow_ticks(pitch: &[f32], ticks: &[f32], from: usize, what: &str) {
+    let starts: Vec<usize> = std::iter::once(from).chain(rises(ticks).into_iter().filter(|tick| *tick > from)).collect();
+    assert!(starts.len() >= 10, "{what}: ten ticks to check, got {}", starts.len());
+    for (number, pair) in starts.windows(2).enumerate() {
+        for part in [1, 3] {
+            let at = pair[0] + (pair[1] - pair[0]) * part / 4;
+            assert_eq!(pitch[at] - 60.0, STEPS[number % 8], "{what}: tick {number}, {part} quarters in");
+        }
+    }
+}
+
+fn clock_and_sequencer(pd: &mut Pd, dir: &Path) {
+    // Free: from the moment the patch loads, the first step lasts a whole tick.
+    with_clock_and_sequencer(pd, dir, false, |pd| {
+        let (pitch, ticks) = render(pd, 1.5);
+        assert_eq!(ticks[0], 1.0, "a free clock is on from the first sample");
+        steps_follow_ticks(&pitch, &ticks, 0, "free clock and sequencer");
+    });
+    // On a key: the sequence starts from its first step when the key goes down, each time.
+    with_clock_and_sequencer(pd, dir, true, |pd| {
+        let (pitch, ticks) = render(pd, 0.2);
+        assert!(peak(&ticks) == 0.0 && pitch.iter().all(|p| *p == 60.0 + STEPS[0]), "nothing moves before the key");
+        for hold in [1.5, 1.33] {
+            pd.send_float("t-gate", 1.0);
+            let (pitch, ticks) = render(pd, hold);
+            steps_follow_ticks(&pitch, &ticks, 0, "clock and sequencer on a key");
+            pd.send_float("t-gate", 0.0);
+            let (pitch, ticks) = render(pd, 0.21);
+            let stopped = pitch[0];
+            assert!(peak(&ticks) == 0.0 && pitch.iter().all(|p| *p == stopped), "the sequence stops where it is when the key is let go");
+        }
+    });
+    println!("ge-clock into ge-sequencer: each step lasts one whole tick, from the first, free or started by a key");
+}
+
 // --- setting inputs ------------------------------------------------------------------------
 
 /// One render of a module with a knob at `knob` and that setting's input at `input`.
@@ -1799,6 +2054,16 @@ fn with_setting(pd: &mut Pd, dir: &Path, name: &str, inlet: usize, receiver: &st
         with_oscillator(pd, dir, name, measure)
     } else if name == "ge-lfo" {
         with_lfo(pd, dir, measure)
+    } else if name == "ge-clock" {
+        with_clock(pd, dir, measure)
+    } else if name == "ge-sequencer" {
+        // Four ticks in: on the fifth step of eight, or the second of three.
+        with_sequencer(pd, dir, |pd| {
+            for _ in 0..4 {
+                tick(pd);
+            }
+            measure(pd)
+        })
     } else if name.starts_with("ge-math-") || name.starts_with("ge-logic-") {
         with_values(pd, dir, name, |pd| {
             set(pd, &[("amount", 1.0), ("offset", 0.5), ("mix", 0.5), ("value", 1.0), ("range", 0.0)]);
@@ -1889,6 +2154,10 @@ fn setting_inputs(pd: &mut Pd, dir: &Path) {
         ("ge-math-crossfade", 2, "mix", 0.8, 0.5),
         ("ge-math-smooth", 1, "rise", 400.0, 0.25),
         ("ge-logic-compare", 1, "threshold", 1.0, 0.5),
+        ("ge-clock", 1, "tempo", 240.0, 0.5),
+        ("ge-clock", 2, "width", 80.0, 0.5),
+        ("ge-sequencer", 3, "steps", 6.0, 0.5),
+        ("ge-sequencer", 8, "step5", 12.0, 0.5),
     ];
     let mut worst = 0.0f32;
     for &(name, inlet, receiver, knob, input) in cases {
@@ -1997,6 +2266,9 @@ fn modules_do_what_they_are_designed_to() {
     pitch_modules(&mut pd, &dir);
     math_modules(&mut pd, &dir);
     logic_modules(&mut pd, &dir);
+    clock(&mut pd, &dir);
+    sequencer(&mut pd, &dir);
+    clock_and_sequencer(&mut pd, &dir);
     setting_inputs(&mut pd, &dir);
     amp_and_output(&mut pd, &dir);
 

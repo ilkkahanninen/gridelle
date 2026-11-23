@@ -20,6 +20,7 @@ const CATEGORY_NAMES: Record<Category, string> = {
   fx: "Delay & FX",
   math: "Math",
   logic: "Logic",
+  sequence: "Sequence",
 };
 
 /** The categories that have modules, in the order of the selector, each with its modules. */

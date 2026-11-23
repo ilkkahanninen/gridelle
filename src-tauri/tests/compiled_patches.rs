@@ -168,6 +168,32 @@ fn golden_patches_play_in_pd() {
             assert!(echoes.windows(2).all(|pair| pair[1] < pair[0] * 0.6), "{name}: each echo is quieter than the one before: {echoes:?}");
             println!("{name}: echoes after the release at {echoes:.3?}");
         }
+        if name == "sequence" {
+            // A key held: the Sequencer plays its six steps from that note, one to each tick
+            // of the Clock, and goes round. At 140 beats a minute in sixteenths a tick is
+            // 4725 samples. A saw has nothing at the pitch of a note it is not playing,
+            // unless that note is an octave below it.
+            pd.send_list("notes", &[Atom::Float(60.0), Atom::Float(100.0)]);
+            let held: Vec<f32> = render(&mut pd, 0.9).chunks(2).map(|frame| frame[0]).collect();
+            pd.send_list("notes", &[Atom::Float(60.0), Atom::Float(0.0)]);
+            let after = render(&mut pd, 0.6);
+            let hz = |note: f32| 440.0 * 2f32.powf((note - 69.0) / 12.0);
+            let steps = [0.0, 12.0, 7.0, 12.0, -5.0, 12.0];
+            let mut levels = Vec::new();
+            for tick in 0..8 {
+                let step = steps[tick % steps.len()];
+                let during = &held[tick * 4725 + 441..(tick + 1) * 4725 - 441];
+                let heard = level_at(during, hz(60.0 + step));
+                assert!(heard > 0.01, "{name}: tick {tick} plays the key {step} semitones up, level {heard}");
+                if step != 0.0 {
+                    let key = level_at(during, hz(60.0));
+                    assert!(key < heard * 0.2, "{name}: tick {tick} does not play the key itself, level {key} beside {heard}");
+                }
+                levels.push(heard);
+            }
+            assert!(peak(&after[after.len() - 4096..]) < 1e-3, "{name}: the sequence stops when the key is let go");
+            println!("{name}: eight ticks play the six steps and go round, at levels {levels:.3?}");
+        }
         if name == "bare-oscillator" {
             // Four voices, each a saw straight into the output. Before any note they are all
             // on middle C: that note and no other. Each then holds the last note it was

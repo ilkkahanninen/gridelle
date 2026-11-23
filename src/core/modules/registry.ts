@@ -257,6 +257,14 @@ export const SCOPE_TIMES = [5, 20, 100, 500, 2000];
 /** The heights of a Scope's picture, either side of zero, after "Auto" in its Range choice. */
 export const SCOPE_RANGES = [0.1, 1, 10, 100];
 
+/** The steps of a Sequencer, and the tune they play until they are set: semitones from the note. */
+const SEQUENCER_STEPS = [0, 12, 7, 12, 3, 12, 7, 10];
+/**
+ * The note value of a Clock's tick, in the order `ge-clock` numbers them. A beat is a
+ * quarter note, so these are 1/4, 1/2, 1, 2, 4, 8, 1.5, 3 and 6 ticks to a beat.
+ */
+const CLOCK_DIVISIONS = ["1/1", "1/2", "1/4", "1/8", "1/16", "1/32", "1/4 triplet", "1/8 triplet", "1/16 triplet"];
+
 /** Inputs of the mixer's abstraction; the editor shows only as many as are in use. */
 export const MIXER_INPUTS = 8;
 const mixerChannels = Array.from({ length: MIXER_INPUTS }, (_, i) => i + 1);
@@ -585,6 +593,76 @@ const DEFS: ModuleDef[] = [
     pd: "ge-lfo-random",
     scope: "voice",
   },
+  {
+    // Ticks at Tempo, each the note value of Division: Out is on for Width of a tick, and Phase rises
+    // from 0 to 1 over it. It runs while Run is on and starts from the beginning when Run
+    // comes on. Run follows the key gate; with that pre-cord off it rests at 1 and runs free.
+    type: "clock",
+    name: "Clock",
+    category: "sequence",
+    width: 2,
+    height: 2,
+    layout: "rows",
+    inputs: [
+      { id: "run", label: "Run", hint: "gate", precord: "gate", unpatched: 1 },
+      settingInput("tempo", "Tempo"),
+      settingInput("width", "Width"),
+    ],
+    outputs: [
+      { id: "out", label: "Out", hint: "gate" },
+      { id: "phase", label: "Phase", hint: "phase" },
+    ],
+    params: [
+      { id: "tempo", label: "Tempo", min: 20, max: 300, default: 120, curve: "lin", unit: "bpm", step: 1 },
+      { id: "width", label: "Width", min: 5, max: 95, default: 50, curve: "lin", unit: "%" },
+      choice("division", "Division", CLOCK_DIVISIONS, CLOCK_DIVISIONS.indexOf("1/16")),
+    ],
+    pd: "ge-clock",
+    scope: "voice",
+  },
+  (() => {
+    // Goes one step on each time Clock goes on, round and round the first Steps of them.
+    // A step is a number of semitones, added to Pitch; Value is the step alone, over 24.
+    // Reset goes back to the first step and follows the key gate.
+    const steps = SEQUENCER_STEPS.map((_, i) => i + 1);
+    const inputs: PortDef[] = [
+      gateInput("clock", "Clock"),
+      { id: "reset", label: "Reset", hint: "gate", precord: "gate" },
+      { ...pitchInput, unpatched: 60 },
+      settingInput("steps", "Steps"),
+      ...steps.map((n) => settingInput(`step${n}`, `Step ${n}`)),
+    ];
+    return {
+      type: "sequencer",
+      name: "Sequencer",
+      category: "sequence",
+      width: 2,
+      height: rowsHeight(inputs),
+      layout: "rows",
+      inputs,
+      outputs: [
+        { id: "out", label: "Pitch", hint: "pitch" },
+        { id: "value", label: "Value", hint: "mod" },
+      ],
+      params: [
+        { id: "steps", label: "Steps", min: 1, max: steps.length, default: steps.length, curve: "lin", step: 1 },
+        ...steps.map((n, i): ParamDef => ({
+          id: `step${n}`,
+          label: `Step ${n}`,
+          // "Sequencer 1 -24 st" fits the Organelle's screen with the module's name whole.
+          short: `${n}`,
+          min: -24,
+          max: 24,
+          default: SEQUENCER_STEPS[i],
+          curve: "lin",
+          unit: "st",
+          step: 1,
+        })),
+      ],
+      pd: "ge-sequencer",
+      scope: "voice",
+    } satisfies ModuleDef;
+  })(),
   // The pitch modules take and give a pitch as the oscillators do: a note number.
   pitchModule("pitch-transpose", "Transpose", [settingInput("octave", "Octave"), settingInput("semi", "Semitones"), modInput("mod")], [
     { id: "octave", label: "Octave", min: -4, max: 4, default: 0, curve: "lin", step: 1, unit: "oct" },

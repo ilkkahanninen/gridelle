@@ -17,6 +17,12 @@ export const MODULE_DOCS: Record<string, string> = {
   "voice-sum":
     "Adds the voices together. Everything patched after it runs once for all voices instead of once for each, which is where a shared filter or effect goes.",
 
+  // Sequence
+  clock:
+    "A steady tick, for stepping a Sequencer or starting an envelope. Tempo is in beats a minute and Division the note value of a tick. Out is on for Width of each tick, and Phase rises from 0 to 1 over it. It runs while Run is on, from the beginning; Run follows the key, and switched off it runs all the time.",
+  sequencer:
+    "Plays its steps in turn, one for each time Clock goes on, and goes round after Steps of them. A step is a number of semitones added to Pitch, so a key moves the whole tune. Reset goes back to the first step and follows the key. Value is the step alone: 1 for 24 semitones.",
+
   // Samples
   "sample-player":
     "Plays its sample when Trigger goes on. Middle C plays it as recorded and other keys transpose it; with Pitch not following the note, every key does. Start and Length choose the part to play. Position says where it is, from 0 to 1, and Playing is on until it ends.",

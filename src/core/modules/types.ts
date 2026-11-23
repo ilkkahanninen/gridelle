@@ -76,7 +76,8 @@ export type Category =
   | "random"
   | "fx"
   | "math"
-  | "logic";
+  | "logic"
+  | "sequence";
 
 /**
  * - `voice`: lives in every voice unless it sits downstream of a global module.
