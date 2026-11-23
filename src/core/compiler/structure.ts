@@ -22,7 +22,10 @@ export function structureKey(doc: PatchDocument): string {
         .sort(),
     ]),
     doc.cables.map((c) => [c.from.module, c.from.port, c.to.module, c.to.port]),
-    doc.pages.map((page) => [page.name, page.knobs.map((k) => (k ? [k.module, k.param] : null))]),
+    // The pages that are exported: those with a knob in use, each under its name or its number.
+    doc.pages.flatMap((page, index) =>
+      page.knobs.some(Boolean) ? [[page.name || index, page.knobs.map((k) => (k ? [k.module, k.param] : null))]] : [],
+    ),
     (doc.samples ?? []).map((s) => (s ? (s.kind === "file" ? [s.path, s.frames, s.sampleRate] : [s.seconds]) : null)),
   ]);
 }

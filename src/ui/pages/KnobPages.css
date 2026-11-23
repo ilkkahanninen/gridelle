@@ -7,73 +7,96 @@
   min-height: 0;
 }
 
-.pages-head {
+/*
+ * From page to page: back, the page's name, the list of all eight, forward. One strip,
+ * its parts sharing their edges, with the page's colour down its left side.
+ */
+.pages-nav {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.pages h2 {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 600;
-}
-
-.pages-empty {
-  margin: 0;
-  color: var(--text-dim);
-}
-
-.pages-tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-
-.pages-tab {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 2px 9px 2px 7px;
-  border: 1px solid var(--line-strong);
-  border-radius: 999px;
-  background: none;
-  color: var(--text-dim);
-  cursor: pointer;
-}
-
-.pages-tab-current {
-  background: var(--text);
-  border-color: var(--text);
-  color: var(--surface);
-  font-weight: 600;
-}
-
-/* The page's colour, with a dark edge so the light ones show on the current tab. */
-.pages-tab-dot {
-  flex: none;
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: var(--page);
-  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.45);
-}
-
-.pages-name {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.pages-name input {
-  width: 130px;
-  padding: 3px 7px;
+  align-items: stretch;
+  height: 28px;
   border: 1px solid var(--line-strong);
   border-radius: 4px;
   background: var(--surface);
+  overflow: hidden;
+}
+
+.pages-nav > * + * {
+  border-left: 1px solid var(--line-strong);
+}
+
+.pages-nav:focus-within {
+  border-color: var(--accent);
+}
+
+.pages-step,
+.pages-pick {
+  flex: none;
+  width: 26px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: var(--surface-raised);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.pages-step:hover:not(:disabled),
+.pages-pick:hover {
+  background: #383c42;
+}
+
+.pages-step:disabled {
+  color: var(--text-dim);
+  opacity: 0.45;
+  cursor: default;
+}
+
+.pages-caret {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+
+.pages-nav input {
+  flex: 1;
+  min-width: 0;
+  padding: 0 8px;
+  border-top: 0;
+  border-right: 0;
+  border-bottom: 0;
+  border-radius: 0;
+  background: none;
+  /* The page's colour, as on its knobs' numbers. */
+  box-shadow: inset 3px 0 0 var(--page);
+  font-weight: 600;
+  outline: none;
   -webkit-user-select: text;
   user-select: text;
+}
+
+.pages-nav input::placeholder {
+  font-weight: 500;
+}
+
+/* The list of pages is the system's: a select that fills its button and shows nothing of its own. */
+.pages-pick {
+  position: relative;
+}
+
+.pages-pick select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
 }
 
 .pages-knobs {

@@ -27,10 +27,7 @@ interface UiState {
   /** Module type being dragged in from the palette. */
   placing: string | null;
   cableDrag: CableDrag | null;
-  /**
-   * The knob page shown in the Knob pages panel; its knobs are ringed on the tiles. It may
-   * point past the last page after one is removed: use `shownKnobPage`.
-   */
+  /** The knob page shown in the Knob pages panel, 0 to 7; its knobs are ringed on the tiles. */
   knobPage: number;
   /**
    * The Organelle knob waiting for a setting: the next knob clicked on the grid goes on
@@ -58,5 +55,3 @@ export const useUi = create<UiState>((set) => ({
 export const showSidePane = (id: SidePaneId) =>
   useUi.setState((s) => ({ sidePanes: { ...s.sidePanes, [PANE_SIDE[id]]: id } }));
 
-/** The index of the knob page on show, given how many pages the patch has (-1 for none). */
-export const shownKnobPage = (knobPage: number, pageCount: number) => Math.min(knobPage, pageCount - 1);

@@ -8,10 +8,10 @@ import {
   addModule,
   settle,
   addModuleAtPort,
-  addPage,
   assignKnob,
   findAssignment,
-  removePage,
+  pageAt,
+  pageInUse,
   renamePage,
   canMove,
   canPlace,
@@ -207,18 +207,45 @@ describe("parameters", () => {
 });
 
 describe("knob pages", () => {
-  const doc = addPage(build(["filter-lp", 0, 0], ["osc-saw", 2, 0]), "Main");
+  const bare = build(["filter-lp", 0, 0], ["osc-saw", 2, 0]);
+  const doc = renamePage(bare, 0, "Main");
   const cutoff = { module: "ge1", param: "cutoff" };
+  const blank = { name: "", knobs: [null, null, null, null] };
 
-  it("adds, renames and removes pages", () => {
-    expect(doc.pages).toEqual([{ name: "Main", knobs: [null, null, null, null] }]);
-    expect(addPage(doc).pages[1].name).toBe("Page 2");
-    expect(renamePage(doc, 0, "Tone").pages[0].name).toBe("Tone");
-    expect(removePage(doc, 0).pages).toEqual([]);
-    expect(removePage(doc, 5)).toBe(doc);
-    let full = doc;
-    for (let i = 0; i < 20; i++) full = addPage(full);
-    expect(full.pages).toHaveLength(8);
+  it("has eight pages whatever the document holds, blank until they are used", () => {
+    expect(bare.pages).toEqual([]);
+    for (const index of [0, 3, 7]) expect(pageAt(bare, index)).toEqual(blank);
+    expect(pageAt(doc, 0)).toEqual({ ...blank, name: "Main" });
+    expect(pageInUse(pageAt(doc, 0))).toBe(false);
+  });
+
+  it("names a page, holding the pages up to it and none after the last that is used", () => {
+    expect(doc.pages).toEqual([{ ...blank, name: "Main" }]);
+    // A later page: the ones before it are held blank, to keep its place.
+    const fourth = renamePage(bare, 3, "Tone");
+    expect(fourth.pages).toEqual([blank, blank, blank, { ...blank, name: "Tone" }]);
+    // Unnamed again, nothing is held any more: the document is as it was.
+    expect(renamePage(fourth, 3, "").pages).toEqual([]);
+    expect(renamePage(renamePage(doc, 5, "Far"), 5, "").pages).toEqual(doc.pages);
+    // No change, no new document. There are eight pages.
+    expect(renamePage(doc, 0, "Main")).toBe(doc);
+    expect(renamePage(bare, 2, "")).toBe(bare);
+    expect(renamePage(doc, 8, "Ninth")).toBe(doc);
+    expect(renamePage(doc, -1, "None")).toBe(doc);
+  });
+
+  it("puts a knob on any of the eight pages, and lets go of a page when its last knob is cleared", () => {
+    const far = assignKnob(bare, { page: 7, knob: 1 }, cutoff);
+    expect(far.pages).toHaveLength(8);
+    expect(far.pages[7].knobs).toEqual([null, cutoff, null, null]);
+    expect(pageInUse(pageAt(far, 7))).toBe(true);
+    expect(pageInUse(pageAt(far, 6))).toBe(false);
+    expect(assignKnob(far, { page: 7, knob: 1 }, null).pages).toEqual([]);
+    // A named page stays when its knobs are cleared, and so do the pages before a used one.
+    const named = assignKnob(renamePage(bare, 1, "Keep"), { page: 2, knob: 0 }, cutoff);
+    expect(assignKnob(named, { page: 2, knob: 0 }, null).pages).toEqual([blank, { ...blank, name: "Keep" }]);
+    // Removing the module that a page's only knob plays lets go of the page too.
+    expect(removeModules(far, new Set(["ge1"])).pages).toEqual([]);
   });
 
   it("assigns a parameter to a knob and finds it again", () => {
@@ -230,7 +257,7 @@ describe("knob pages", () => {
   });
 
   it("moves a parameter rather than putting it on two knobs", () => {
-    const first = assignKnob(addPage(doc), { page: 0, knob: 0 }, cutoff);
+    const first = assignKnob(doc, { page: 0, knob: 0 }, cutoff);
     const moved = assignKnob(first, { page: 1, knob: 3 }, cutoff);
     expect(moved.pages[0].knobs[0]).toBeNull();
     expect(moved.pages[1].knobs[3]).toEqual(cutoff);
@@ -239,7 +266,8 @@ describe("knob pages", () => {
   it("refuses parameters and slots that do not exist", () => {
     expect(assignKnob(doc, { page: 0, knob: 0 }, { module: "ge1", param: "nope" })).toBe(doc);
     expect(assignKnob(doc, { page: 0, knob: 4 }, cutoff)).toBe(doc);
-    expect(assignKnob(doc, { page: 3, knob: 0 }, cutoff)).toBe(doc);
+    expect(assignKnob(doc, { page: 8, knob: 0 }, cutoff)).toBe(doc);
+    expect(assignKnob(doc, { page: -1, knob: 0 }, cutoff)).toBe(doc);
   });
 
   it("clears a knob", () => {
@@ -259,7 +287,9 @@ describe("knob pages", () => {
     expect(nextFreeKnob(last, 0, 1)).toBe(1);
     const full = assignKnob(last, { page: 0, knob: 1 }, { module: "ge2", param: "tune" });
     expect(nextFreeKnob(full, 0, 1)).toBeNull();
-    expect(nextFreeKnob(full, 5, 0)).toBeNull();
+    // A page that has not been used yet has all its knobs free.
+    expect(nextFreeKnob(full, 5, 0)).toBe(1);
+    expect(nextFreeKnob(full, 8, 0)).toBeNull();
   });
 });
 

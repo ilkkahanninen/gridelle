@@ -508,6 +508,53 @@ describe("compile", () => {
 describe("knob pages", () => {
   const main = compile(basicSynth, abstractionLibrary).files["main.pd"];
 
+  it("exports the pages that have a knob in use, and steps through those", () => {
+    const res = { module: "ge2", param: "res" };
+    const tune = { module: "ge1", param: "tune" };
+    const none = [null, null, null, null];
+    // Of eight pages, the second and the sixth have a knob. The fourth has only a name.
+    const sparse = {
+      ...basicSynth,
+      pages: [
+        { name: "", knobs: none },
+        { name: "", knobs: [null, res, null, null] },
+        { name: "", knobs: none },
+        { name: "Named only", knobs: none },
+        { name: "", knobs: none },
+        { name: "Tuning", knobs: [tune, null, null, null] },
+      ],
+    };
+    const result = compile(sparse, abstractionLibrary);
+    const text = result.files["main.pd"];
+    // Two pages on the Organelle, numbered as it steps through them. One without a name
+    // goes by its number in the editor.
+    expect(text).toContain("mod 2;");
+    expect(text).toContain("screenLine5 Page 2 1/2");
+    expect(text).toContain("screenLine5 Tuning 2/2");
+    expect(text).not.toContain("Named only");
+    expect(text).toContain("ge-knob 0 2 ");
+    expect(text).toContain("ge-knob 1 1 ");
+    expect(result.knobSlots.map((slot) => [slot.receiver, slot.param])).toEqual([
+      ["ge-slot-0-2", "ge2-res"],
+      ["ge-slot-1-1", "ge1-tune"],
+    ]);
+
+    // What is not exported does not reload the preview: a name on an unused page, or its place.
+    const key = structureKey(sparse);
+    const renamed = { ...sparse, pages: sparse.pages.map((page, i) => (i === 3 ? { ...page, name: "Another name" } : page)) };
+    expect(structureKey(renamed)).toBe(key);
+    expect(structureKey({ ...sparse, pages: [...sparse.pages, { name: "Eighth", knobs: none }] })).toBe(key);
+    // What is exported does: a used page's name, and for one without a name, the number it goes by.
+    expect(structureKey({ ...sparse, pages: sparse.pages.map((page, i) => (i === 5 ? { ...page, name: "Pitch" } : page)) })).not.toBe(key);
+    expect(structureKey({ ...sparse, pages: sparse.pages.slice(1) })).not.toBe(key);
+
+    // A patch with no knob in use has no knob pages at all on the Organelle.
+    const unused = compile({ ...basicSynth, pages: [{ name: "Named only", knobs: none }] }, abstractionLibrary);
+    expect(unused.files["main.pd"]).not.toContain("ge-page");
+    expect(unused.files["ge-knob.pd"]).toBeUndefined();
+    expect(unused.knobSlots).toEqual([]);
+  });
+
   it("steps through the pages with Aux", () => {
     expect(main).toContain("#X obj 110 400 r aux;");
     expect(main).toContain("mod 2;");
@@ -550,7 +597,10 @@ describe("knob pages", () => {
       const rendered = text.replace("\\$1", widest);
       expect(rendered.length, rendered).toBeLessThanOrEqual(21);
     }
-    const long = compile({ ...basicSynth, pages: [{ name: "A very long page name indeed, yes", knobs: [null, null, null, null] }] }, abstractionLibrary);
+    const long = compile(
+      { ...basicSynth, pages: [{ name: "A very long page name indeed, yes", knobs: [{ module: "ge2", param: "res" }, null, null, null] }] },
+      abstractionLibrary,
+    );
     const header = /screenLine5 ([^\\]*) \\;/.exec(long.files["main.pd"])![1];
     expect(header.length).toBeLessThanOrEqual(21);
     expect(header.endsWith("1/1")).toBe(true);

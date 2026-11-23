@@ -5,7 +5,7 @@ import { formatParam, fromNormalized, toNormalized } from "../../core/modules/pa
 import type { ModuleDef, ParamDef, PortDef } from "../../core/modules/types";
 import { assignToArmed } from "../../state/assign";
 import { useEditor } from "../../state/store";
-import { shownKnobPage, useUi } from "../../state/ui";
+import { useUi } from "../../state/ui";
 import { Knob } from "../controls/Knob";
 import { GLYPHS } from "../palette/glyphs";
 import { PORT_INSET, portOffset, tileRect } from "./geometry";
@@ -48,9 +48,8 @@ function ParamKnob({ module, param, size }: { module: ModuleInstance; param: Par
   });
   const page = Math.floor(slot / KNOBS_PER_PAGE);
   const hardwareKnob = slot < 0 ? 0 : (slot % KNOBS_PER_PAGE) + 1;
-  const pageName = useEditor((s) => s.doc.pages[page]?.name || `Page ${page + 1}`);
-  const pageCount = useEditor((s) => s.doc.pages.length);
-  const onShownPage = page === shownKnobPage(useUi((s) => s.knobPage), pageCount);
+  const pageName = useEditor((s) => ops.pageAt(s.doc, page).name || ops.defaultPageName(page));
+  const onShownPage = useUi((s) => s.knobPage === page);
   return (
     <div
       className="tile-knob"

@@ -14,6 +14,7 @@ import {
   SAMPLE_SLOTS,
   type Cable,
   type KnobAssignment,
+  type KnobPage,
   type ModuleId,
   type ModuleInstance,
   type PatchDocument,
@@ -144,10 +145,12 @@ export function removeModules(doc: PatchDocument, ids: ReadonlySet<ModuleId>): P
       const from = standIn(cable.from);
       return from ? [{ from, to: cable.to }] : [];
     }),
-    pages: doc.pages.map((page) => ({
-      ...page,
-      knobs: page.knobs.map((k) => (k && ids.has(k.module) ? null : k)),
-    })),
+    pages: trimPages(
+      doc.pages.map((page) => ({
+        ...page,
+        knobs: page.knobs.map((k) => (k && ids.has(k.module) ? null : k)),
+      })),
+    ),
   };
 }
 
@@ -384,20 +387,45 @@ export function paramValue(module: ModuleInstance, param: string): number {
   return module.params[param] ?? def?.default ?? 0;
 }
 
-/** Add an empty knob page at the end. Does nothing once the page limit is reached. */
-export function addPage(doc: PatchDocument, name = `Page ${doc.pages.length + 1}`): PatchDocument {
-  if (doc.pages.length >= MAX_PAGES) return doc;
-  return { ...doc, pages: [...doc.pages, { name, knobs: Array(KNOBS_PER_PAGE).fill(null) }] };
+/*
+ * Knob pages. A patch always has `MAX_PAGES` of them: there is nothing to add or remove.
+ * The document holds them up to the last one that has a name or a knob in use, and the
+ * rest are blank; `pageAt` is how to read one. A page with no knob in use is not exported.
+ */
+
+const blankPage = (): KnobPage => ({ name: "", knobs: Array(KNOBS_PER_PAGE).fill(null) });
+const isBlank = (page: KnobPage) => page.name === "" && page.knobs.every((knob) => !knob);
+
+/** `pages` without the blank ones at its end: two documents that say the same are then the same. */
+function trimPages(pages: KnobPage[]): KnobPage[] {
+  let length = pages.length;
+  while (length > 0 && isBlank(pages[length - 1])) length--;
+  return length === pages.length ? pages : pages.slice(0, length);
 }
 
-export function removePage(doc: PatchDocument, index: number): PatchDocument {
-  if (!doc.pages[index]) return doc;
-  return { ...doc, pages: doc.pages.filter((_, i) => i !== index) };
+const isPage = (index: number) => Number.isInteger(index) && index >= 0 && index < MAX_PAGES;
+
+/** The knob page at `index`, 0 to `MAX_PAGES` - 1: blank where the document holds none. */
+export function pageAt(doc: Pick<PatchDocument, "pages">, index: number): KnobPage {
+  return doc.pages[index] ?? blankPage();
+}
+
+/** Whether a page has a knob in use, which is what gets it exported. */
+export const pageInUse = (page: KnobPage) => page.knobs.some((knob) => !!knob);
+
+/** The name a page goes by where it has none of its own: on the Organelle's screen, and as a hint in the editor. */
+export const defaultPageName = (index: number) => `Page ${index + 1}`;
+
+/** The document's pages with page `index` replaced, which may be one it did not hold until now. */
+function withPage(doc: PatchDocument, index: number, page: KnobPage): KnobPage[] {
+  const pages = Array.from({ length: Math.max(doc.pages.length, index + 1) }, (_, i) => (i === index ? page : pageAt(doc, i)));
+  return trimPages(pages);
 }
 
 export function renamePage(doc: PatchDocument, index: number, name: string): PatchDocument {
-  if (!doc.pages[index] || doc.pages[index].name === name) return doc;
-  return { ...doc, pages: doc.pages.map((page, i) => (i === index ? { ...page, name } : page)) };
+  const page = pageAt(doc, index);
+  if (!isPage(index) || page.name === name) return doc;
+  return { ...doc, pages: withPage(doc, index, { ...page, name }) };
 }
 
 export interface KnobSlot {
@@ -420,8 +448,8 @@ export function findAssignment(doc: PatchDocument, module: ModuleId, param: stri
  * at most one knob, so assigning it somewhere new removes it from where it was.
  */
 export function assignKnob(doc: PatchDocument, slot: KnobSlot, assignment: KnobAssignment | null): PatchDocument {
-  const page = doc.pages[slot.page];
-  if (!page || slot.knob < 0 || slot.knob >= KNOBS_PER_PAGE) return doc;
+  if (!isPage(slot.page) || slot.knob < 0 || slot.knob >= KNOBS_PER_PAGE) return doc;
+  const page = pageAt(doc, slot.page);
   if (assignment) {
     const module = doc.modules.find((m) => m.id === assignment.module);
     if (!module || !getModuleDef(module.type)?.params.some((p) => p.id === assignment.param)) return doc;
@@ -430,21 +458,25 @@ export function assignKnob(doc: PatchDocument, slot: KnobSlot, assignment: KnobA
   if (current?.module === assignment?.module && current?.param === assignment?.param) return doc;
   const isMoved = (k: KnobAssignment | null) =>
     !!k && !!assignment && k.module === assignment.module && k.param === assignment.param;
+  // The page may be one the document did not hold until now.
+  const pages = Array.from({ length: Math.max(doc.pages.length, slot.page + 1) }, (_, i) => pageAt(doc, i));
   return {
     ...doc,
-    pages: doc.pages.map((p, pageIndex) => ({
-      ...p,
-      knobs: p.knobs.map((k, knobIndex) =>
-        pageIndex === slot.page && knobIndex === slot.knob ? assignment : isMoved(k) ? null : k,
-      ),
-    })),
+    pages: trimPages(
+      pages.map((p, pageIndex) => ({
+        ...p,
+        knobs: p.knobs.map((k, knobIndex) =>
+          pageIndex === slot.page && knobIndex === slot.knob ? assignment : isMoved(k) ? null : k,
+        ),
+      })),
+    ),
   };
 }
 
 /** The first empty knob of `page` after knob `after`, going round to the start; `null` if there is none. */
 export function nextFreeKnob(doc: PatchDocument, page: number, after: number): number | null {
-  const knobs = doc.pages[page]?.knobs;
-  if (!knobs) return null;
+  if (!isPage(page)) return null;
+  const knobs = pageAt(doc, page).knobs;
   for (let step = 1; step <= KNOBS_PER_PAGE; step++) {
     const knob = (after + step) % KNOBS_PER_PAGE;
     if (!knobs[knob]) return knob;

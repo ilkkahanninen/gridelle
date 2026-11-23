@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { basicSynth } from "../core/fixtures";
-import * as ops from "../core/model/ops";
 import { armKnob, assignToArmed, cancelAssign } from "./assign";
 import { useEditor } from "./store";
 import { useUi } from "./ui";
@@ -30,7 +29,7 @@ describe("assigning Organelle knobs by clicking", () => {
   });
 
   it("goes on to the next empty knob of the page, one click each", () => {
-    useEditor.getState().apply((d) => ops.addPage(d));
+    // The third page has not been used yet: it is there all the same.
     armKnob({ page: 2, knob: 0 });
     for (const param of ["attack", "decay", "sustain"]) {
       assignToArmed("ge5", param);
@@ -43,7 +42,6 @@ describe("assigning Organelle knobs by clicking", () => {
   });
 
   it("starts from the armed knob and comes round to the ones before it", () => {
-    useEditor.getState().apply((d) => ops.addPage(d));
     armKnob({ page: 2, knob: 2 });
     assignToArmed("ge5", "attack");
     expect(armed()).toEqual({ page: 2, knob: 3 });
@@ -75,8 +73,8 @@ describe("assigning Organelle knobs by clicking", () => {
     expect(doc()).toBe(basicSynth);
   });
 
-  it("gives up when the armed knob is no longer there", () => {
-    armKnob({ page: 5, knob: 0 });
+  it("gives up when the armed knob is not one of the eight pages' knobs", () => {
+    armKnob({ page: 8, knob: 0 });
     expect(assignToArmed("ge6", "decay")).toBe(true);
     expect(doc()).toBe(basicSynth);
     expect(armed()).toBeNull();

@@ -11,6 +11,7 @@ import {
   type PatchDocument,
   type SampleSlot,
 } from "../model/types";
+import { defaultPageName } from "../model/ops";
 import { getModuleDef, SCOPE_SLOTS } from "../modules/registry";
 import type { ModuleDef, ParamDef, Scope, VoiceSignal } from "../modules/types";
 
@@ -74,6 +75,7 @@ export interface KnobBinding {
 }
 
 export interface ResolvedPage {
+  /** The page's name, or "Page 3" for the third page when it has none. */
   name: string;
   /** One entry per hardware knob; `null` where the knob is unused. */
   knobs: (KnobBinding | null)[];
@@ -96,6 +98,7 @@ export interface Analysis {
    * (`null` for an empty slot, which the patch gives a silent table).
    */
   samples: UsedSample[];
+  /** The knob pages that are exported, in order: those with a knob in use. */
   pages: ResolvedPage[];
 }
 
@@ -314,8 +317,8 @@ export function analyze(doc: PatchDocument): Analysis {
     error("page-count", `A patch can have at most ${MAX_PAGES} knob pages.`);
   }
   const assigned = new Set<string>();
-  const pages: ResolvedPage[] = doc.pages.map((page) => ({
-    name: page.name,
+  const resolved: ResolvedPage[] = doc.pages.map((page, index) => ({
+    name: page.name || defaultPageName(index),
     knobs: Array.from({ length: KNOBS_PER_PAGE }, (_, i) => {
       const knob = page.knobs[i];
       if (!knob) return null;
@@ -327,7 +330,7 @@ export function analyze(doc: PatchDocument): Analysis {
         diagnostics.push({
           severity: "warning",
           code: "bad-knob",
-          message: `Knob ${i + 1} on page “${page.name}” is assigned to something that no longer exists, so it is ignored.`,
+          message: `Knob ${i + 1} on page “${page.name || defaultPageName(index)}” is assigned to something that no longer exists, so it is ignored.`,
         });
         return null;
       }
@@ -335,6 +338,8 @@ export function analyze(doc: PatchDocument): Analysis {
       return { module, param };
     }),
   }));
+  // A page with no knob in use is not exported: the Organelle steps through those that have one.
+  const pages = resolved.filter((page) => page.knobs.some(Boolean));
 
   return { diagnostics, modules: [...byId.values()], wires, precords, constants, taps, samples, pages };
 }
