@@ -11,7 +11,7 @@ import {
   type PatchDocument,
   type SampleSlot,
 } from "../model/types";
-import { defaultPageName } from "../model/ops";
+import { defaultPageName, moduleName } from "../model/ops";
 import { getModuleDef, SCOPE_SLOTS } from "../modules/registry";
 import type { ModuleDef, ParamDef, Scope, VoiceSignal } from "../modules/types";
 
@@ -117,6 +117,9 @@ export function argumentValues({ instance, def }: Pick<ResolvedModule, "instance
     .map((param) => Math.min(param.max, Math.max(param.min, Math.round(instance.params[param.id] ?? param.default))));
 }
 
+/** What a module goes by in a message: its own name, or its type's. */
+const called = ({ instance, def }: Pick<ResolvedModule, "instance" | "def">) => moduleName(instance, def);
+
 /** Ids become Pd symbols and receiver prefixes, so keep them to a safe alphabet. */
 const ID_PATTERN = /^ge[0-9a-z]+$/;
 
@@ -169,7 +172,7 @@ export function analyze(doc: PatchDocument): Analysis {
     if (fed.has(key)) {
       error(
         "input-in-use",
-        `${to.def.name} input "${to.def.inputs[inlet - firstInlet(to.def)].label}" has more than one cable.`,
+        `${called(to)} input "${to.def.inputs[inlet - firstInlet(to.def)].label}" has more than one cable.`,
         to.instance.id,
       );
       continue;
@@ -211,7 +214,7 @@ export function analyze(doc: PatchDocument): Analysis {
   };
   for (const id of byId.keys()) visit(id, []);
   if (inLoop.size > 0) {
-    const names = [...inLoop].map((id) => byId.get(id)!.def.name).join(" → ");
+    const names = [...inLoop].map((id) => called(byId.get(id)!)).join(" → ");
     error("feedback-loop", `These modules form a feedback loop, which is not supported yet: ${names}.`, [...inLoop][0]);
   }
 
@@ -272,7 +275,7 @@ export function analyze(doc: PatchDocument): Analysis {
       diagnostics.push({
         severity: "warning",
         code: "no-recorder",
-        message: `${follower.def.name} plays behind the recording of sample ${sampleLetter(slot)}, which nothing records.`,
+        message: `${called(follower)} plays behind the recording of sample ${sampleLetter(slot)}, which nothing records.`,
         module: follower.instance.id,
       });
     }
@@ -280,7 +283,7 @@ export function analyze(doc: PatchDocument): Analysis {
       diagnostics.push({
         severity: "warning",
         code: "empty-sample",
-        message: `${users[0].def.name} uses sample ${sampleLetter(slot)}, which is empty.`,
+        message: `${called(users[0])} uses sample ${sampleLetter(slot)}, which is empty.`,
         module: users[0].instance.id,
       });
     } else if (sample.kind === "file" && sample.sampleRate > 0 && sample.frames / sample.sampleRate > LONG_SAMPLE_SECONDS) {

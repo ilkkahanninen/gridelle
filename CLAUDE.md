@@ -71,6 +71,8 @@ The patch's samples (`samples`, set with `ops.setSample`) are described under Sa
 
 A new document field touches `types.ts`, the hand-written shape check in `serialize.ts` (plus `DOCUMENT_VERSION` if older builds cannot read the result), and `structureKey` if it changes the emitted patch.
 
+A module can have a name of its own (`ModuleInstance.name`, set with `ops.renameModule` from the field at the top of the settings pane). `ops.moduleName` is what a module is called: that name, or its type's when it has none. It is what the tile shows, what names the module's settings in the Knob pages panel and on the Organelle's screen (`slotLabel`), and what diagnostics call it. The name is in `structureKey` only for a module with a setting on a knob, since nothing else of it is exported.
+
 Module ids are `ge<n>` and must match `/^ge[0-9a-z]+$/`. The id is also the module's Pd creation argument and the prefix of its parameter receivers (`ge3-cutoff`); the `ge` prefix keeps them clear of the names the Organelle host uses (`knob1`, `notes`, `aux`, `vol`, …). Generated plumbing uses names with a hyphen straight after `ge` (`ge-page`, `ge-slot-<page>-<knob>` with a 0-based page and 1-based knob, the `ge-*` abstractions), which no module id can produce.
 
 ### Modules: a registry entry plus a hand-written Pd abstraction

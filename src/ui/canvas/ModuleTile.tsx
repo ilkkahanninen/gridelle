@@ -190,7 +190,7 @@ export const ModuleTile = memo(function ModuleTile({
     >
       <div className="tile-name">
         {!narrow && <Glyph type={def.type} className="tile-glyph-name" />}
-        <span>{def.name}</span>
+        <span>{ops.moduleName(module, def)}</span>
       </div>
       {narrow && <Glyph type={def.type} className="tile-glyph-body" />}
       {def.tap && <ScopeView module={module} />}

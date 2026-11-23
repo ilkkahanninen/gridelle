@@ -555,6 +555,35 @@ describe("knob pages", () => {
     expect(unused.knobSlots).toEqual([]);
   });
 
+  it("names a setting on the Organelle's screen by the module's own name, where it has one", () => {
+    // basic-synth has the Low-pass (ge2) on the first page and the ADSRs on the second.
+    const named = ops.renameModule(basicSynth, "ge2", "Bass filter");
+    const text = compile(named, abstractionLibrary).files["main.pd"];
+    // The name is cut to what the line has room for, as the type's name is.
+    expect(text).toContain("Bass Cutoff \\$1 Hz;");
+    expect(text).toContain("Bass filter Res \\$1;");
+    expect(text).toContain("Bass fil Mod \\$1 st;");
+    expect(text).not.toContain("Low-p");
+    expect(main).toContain("Low-p Cutoff \\$1 Hz;");
+    // Other modules keep the names of their types.
+    expect(text).toContain("Saw Tune \\$1 st;");
+    // A name nothing of which the screen can show falls back to the type's.
+    expect(compile(ops.renameModule(basicSynth, "ge2", "§§"), abstractionLibrary).files["main.pd"]).toContain("Low-p Cutoff");
+
+    // The patch reloads for a new name of a module with a setting on a knob, and for no other.
+    const key = structureKey(basicSynth);
+    expect(structureKey(named)).not.toBe(key);
+    expect(structureKey(ops.renameModule(basicSynth, "ge2", "  "))).toBe(key);
+    const off = ops.assignKnob(basicSynth, { page: 0, knob: 3 }, null);
+    expect(ops.findAssignment(off, "ge1", "tune")).toBeNull();
+    expect(structureKey(ops.renameModule(off, "ge1", "Lead"))).toBe(structureKey(off));
+  });
+
+  it("says which module a problem is in by its own name", () => {
+    const empty = ops.renameModule(ops.setParam(fixtures.sampler, "ge1", "sample", 5), "ge1", "Kick");
+    expect(compile(empty, abstractionLibrary).diagnostics.map((d) => d.message)).toEqual(["Kick uses sample F, which is empty."]);
+  });
+
   it("steps through the pages with Aux", () => {
     expect(main).toContain("#X obj 110 400 r aux;");
     expect(main).toContain("mod 2;");

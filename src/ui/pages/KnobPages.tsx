@@ -95,11 +95,11 @@ export function KnobPages() {
                     onClick={() => useEditor.getState().select([module.id])}
                   >
                     <span className="pages-swatch" />
-                    {def.name} {param.label}
+                    {ops.moduleName(module, def)} {param.label}
                   </button>
                   <button
                     className="pages-clear"
-                    aria-label={`Take ${def.name} ${param.label} off knob ${k + 1}`}
+                    aria-label={`Take ${ops.moduleName(module, def)} ${param.label} off knob ${k + 1}`}
                     title="Take off this knob"
                     onClick={() => apply((doc) => ops.assignKnob(doc, { page: index, knob: k }, null))}
                   >

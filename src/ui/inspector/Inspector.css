@@ -21,6 +21,41 @@
   gap: 8px;
 }
 
+/* A module's name, to type over: it reads as a heading until it is pointed at or in use. */
+.inspector-name {
+  width: 190px;
+  min-width: 0;
+  padding: 2px 6px;
+  margin-left: -6px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: none;
+  font-size: 16px;
+  font-weight: 600;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.inspector-name::placeholder {
+  color: var(--text);
+  opacity: 1;
+}
+
+.inspector-name:hover,
+.inspector-name:focus {
+  border-color: var(--line-strong);
+  background: var(--surface);
+}
+
+.inspector-name:focus::placeholder {
+  color: var(--text-dim);
+}
+
+/* What kind of module it is, beside a name that no longer says. */
+.inspector-type {
+  color: var(--text-dim);
+}
+
 .inspector h2 {
   margin: 0;
   font-size: 16px;

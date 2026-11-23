@@ -1,5 +1,12 @@
 import * as ops from "../../core/model/ops";
-import { MAX_VOICES, MIN_VOICES, SAMPLE_PARAM, sampleLetter, type ModuleInstance } from "../../core/model/types";
+import {
+  MAX_MODULE_NAME,
+  MAX_VOICES,
+  MIN_VOICES,
+  SAMPLE_PARAM,
+  sampleLetter,
+  type ModuleInstance,
+} from "../../core/model/types";
 import { MODULE_DOCS } from "../../core/modules/docs";
 import { visibleDef } from "../../core/modules/shape";
 import type { ModuleDef, ParamDef } from "../../core/modules/types";
@@ -55,7 +62,20 @@ function ModuleInspector({ module, def }: { module: ModuleInstance; def: ModuleD
     <>
       <header className={`inspector-title category-${def.category}`}>
         <span className="inspector-swatch" />
-        <h2>{def.name}</h2>
+        {/* The module's name: its type's until it is given one of its own. */}
+        <input
+          className="inspector-name"
+          type="text"
+          aria-label="Module name"
+          value={module.name ?? ""}
+          placeholder={def.name}
+          maxLength={MAX_MODULE_NAME}
+          spellCheck={false}
+          onChange={(e) =>
+            useEditor.getState().apply((doc) => ops.renameModule(doc, module.id, e.target.value), `module-name:${module.id}`)
+          }
+        />
+        {module.name?.trim() && <span className="inspector-type">{def.name}</span>}
       </header>
 
       {MODULE_DOCS[def.type] && (

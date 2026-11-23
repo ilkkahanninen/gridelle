@@ -12,6 +12,12 @@ export interface ModuleInstance {
   id: ModuleId;
   /** Key into the module registry, e.g. `osc-saw`. */
   type: string;
+  /**
+   * A name of the user's own for this module, shown on its tile and wherever its settings
+   * are named: the Knob pages panel and the Organelle's screen. Without one the module
+   * goes by the name of its type. See `ops.moduleName`.
+   */
+  name?: string;
   /** Top-left grid cell. */
   x: number;
   y: number;
@@ -51,6 +57,9 @@ export interface KnobPage {
 
 /** Samples a patch can have: the letters A to H in the editor, 0 to 7 in the patch. */
 export const SAMPLE_SLOTS = 8;
+/** The longest a module's own name may be: what its tile has room for. */
+export const MAX_MODULE_NAME = 20;
+
 /** A sample's letter in the editor. */
 export const sampleLetter = (slot: number) => String.fromCharCode(65 + slot);
 /** The id of the parameter that says which sample a module works on. */

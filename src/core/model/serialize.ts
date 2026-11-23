@@ -38,6 +38,7 @@ export function parseDocument(text: string): PatchDocument {
         Number.isInteger(m.x) &&
         Number.isInteger(m.y) &&
         isNumberMap(m.params) &&
+        (m.name === undefined || typeof m.name === "string") &&
         (m.precords === undefined || (isRecord(m.precords) && Object.values(m.precords).every((b) => typeof b === "boolean"))),
     );
   const cablesOk = Array.isArray(data.cables) && data.cables.every((c) => isRecord(c) && isPortRef(c.from) && isPortRef(c.to));

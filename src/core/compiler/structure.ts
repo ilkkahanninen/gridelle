@@ -7,14 +7,19 @@ import { getModuleDef } from "../modules/registry";
  * the knob pages control. Parameter values, tile positions and the patch name
  * are left out, because a running patch can take new values without being reloaded.
  * The exceptions are the values that are built into the patch (`ParamDef.argument`),
- * and the samples, which are loaded when it starts.
+ * and the samples, which are loaded when it starts. A module's own name counts only
+ * while the patch shows it.
  */
 export function structureKey(doc: PatchDocument): string {
+  // A module's own name is in the patch where one of its settings is on a knob: the
+  // Organelle's screen names it. Elsewhere a name changes nothing that is exported.
+  const onKnobs = new Set(doc.pages.flatMap((page) => page.knobs.flatMap((knob) => (knob ? [knob.module] : []))));
   return JSON.stringify([
     doc.voices,
     doc.modules.map((m) => [
       m.id,
       m.type,
+      onKnobs.has(m.id) ? (m.name?.trim() ?? "") : "",
       (getModuleDef(m.type)?.params ?? []).filter((p) => p.argument).map((p) => m.params[p.id] ?? p.default),
       Object.entries(m.precords ?? {})
         .filter(([, enabled]) => !enabled)

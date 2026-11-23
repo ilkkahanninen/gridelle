@@ -20,12 +20,14 @@ import {
   disconnect,
   findFreeCell,
   makeRoom,
+  moduleName,
   moveModules,
   nextFreeKnob,
   nextModuleId,
   planPortDrop,
   type PortTarget,
   removeModules,
+  renameModule,
   sampleAt,
   setParam,
   setSample,
@@ -203,6 +205,48 @@ describe("parameters", () => {
     const patched = connect(doc, port("ge1", "out"), port("ge2", "pitch"));
     expect(patched).not.toBe(doc);
     expect(togglePrecord(patched, "ge2", "pitch")).toBe(patched);
+  });
+});
+
+describe("a module's own name", () => {
+  const doc = build(["filter-lp", 0, 0], ["osc-saw", 2, 0]);
+  const def = getModuleDef("filter-lp")!;
+
+  it("is its type's name until it is given one, and again when that is taken away", () => {
+    expect(doc.modules[0].name).toBeUndefined();
+    expect(moduleName(doc.modules[0], def)).toBe("Low-pass");
+    const named = renameModule(doc, "ge1", "Bass filter");
+    expect(named.modules[0]).toEqual({ ...doc.modules[0], name: "Bass filter" });
+    expect(moduleName(named.modules[0], def)).toBe("Bass filter");
+    expect(named.modules[1]).toBe(doc.modules[1]);
+    // No name is no field at all: the document is as it was.
+    expect(renameModule(named, "ge1", "")).toEqual(doc);
+  });
+
+  it("is kept as typed, though spaces alone are no name", () => {
+    // A space at the end has to survive, or the next word could not be typed.
+    const typing = renameModule(doc, "ge1", "Bass ");
+    expect(typing.modules[0].name).toBe("Bass ");
+    expect(moduleName(typing.modules[0], def)).toBe("Bass");
+    expect(moduleName(renameModule(doc, "ge1", "   ").modules[0], def)).toBe("Low-pass");
+  });
+
+  it("is no longer than a tile has room for", () => {
+    expect(renameModule(doc, "ge1", "x".repeat(50)).modules[0].name).toBe("x".repeat(20));
+  });
+
+  it("changes nothing when it is the same, or the module is not there", () => {
+    const named = renameModule(doc, "ge1", "Bass filter");
+    expect(renameModule(named, "ge1", "Bass filter")).toBe(named);
+    expect(renameModule(doc, "ge1", "")).toBe(doc);
+    expect(renameModule(doc, "ge9", "Nobody")).toBe(doc);
+  });
+
+  it("is saved with the patch, and a file with a name that is not text is refused", () => {
+    const named = renameModule(doc, "ge1", "Bass filter");
+    expect(parseDocument(serializeDocument(named))).toEqual(named);
+    const broken = { ...doc, modules: [{ ...doc.modules[0], name: 5 }] };
+    expect(() => parseDocument(JSON.stringify(broken))).toThrow(/damaged/);
   });
 });
 

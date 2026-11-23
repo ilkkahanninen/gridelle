@@ -1,3 +1,4 @@
+import { moduleName } from "../model/ops";
 import { toNormalized } from "../modules/params";
 import type { ParamDef } from "../modules/types";
 import { pdNumber, type Box, type PdPatch, type Position } from "../pd/patch";
@@ -71,13 +72,14 @@ function valueWidth(param: ParamDef): number {
 }
 
 /**
- * `Low-pass Cutoff`, shortened so that label, value and unit fit on one screen line: with
+ * `Low-pass Cutoff`, or `Bass filter Cutoff` for a module the user has named, shortened so that label, value and unit fit on one screen line: with
  * the parameter's short name if it has one (`Low-pass Res`), then by trimming the module's.
  */
 function slotLabel(binding: KnobBinding): string {
   const unit = binding.param.unit ? ` ${binding.param.unit}` : "";
   const room = SCREEN_COLUMNS - valueWidth(binding.param) - unit.length - 1;
-  const module = screenText(binding.module.def.name);
+  // The module's own name if it has one; the name of its type if nothing of that can be shown.
+  const module = screenText(moduleName(binding.module.instance, binding.module.def)) || screenText(binding.module.def.name);
   const full = `${module} ${screenText(binding.param.label)}`;
   if (full.length <= room) return full;
   const label = screenText(binding.param.short ?? binding.param.label);

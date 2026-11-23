@@ -7,8 +7,10 @@
 import { getModuleDef } from "../modules/registry";
 import { clampParam } from "../modules/params";
 import { visibleDef } from "../modules/shape";
+import type { ModuleDef } from "../modules/types";
 import {
   KNOBS_PER_PAGE,
+  MAX_MODULE_NAME,
   MAX_PAGES,
   MAX_TAPE_SECONDS,
   SAMPLE_SLOTS,
@@ -369,6 +371,27 @@ export function setSample(doc: PatchDocument, slot: number, sample: SampleSlot |
   while (samples.length > 0 && samples[samples.length - 1] === null) samples.pop();
   const { samples: _dropped, ...rest } = doc;
   return samples.length > 0 ? { ...rest, samples } : rest;
+}
+
+/**
+ * What a module is called: the name the user gave it, or the name of its type, which is
+ * also what a name of nothing but spaces comes to.
+ */
+export function moduleName(module: Pick<ModuleInstance, "name">, def: Pick<ModuleDef, "name">): string {
+  return module.name?.trim() || def.name;
+}
+
+/**
+ * Give a module a name of its own, or with an empty one take it back to the name of its
+ * type. The name is kept as typed, up to the longest a name may be.
+ */
+export function renameModule(doc: PatchDocument, id: ModuleId, name: string): PatchDocument {
+  const module = doc.modules.find((m) => m.id === id);
+  const next = [...name].slice(0, MAX_MODULE_NAME).join("");
+  if (!module || (module.name ?? "") === next) return doc;
+  const { name: _old, ...unnamed } = module;
+  const renamed: ModuleInstance = next ? { ...unnamed, name: next } : unnamed;
+  return { ...doc, modules: doc.modules.map((m) => (m === module ? renamed : m)) };
 }
 
 /**
