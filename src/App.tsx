@@ -87,13 +87,14 @@ function App() {
     <div className="app">
       <TopBar />
       <div className="middle">
+        <OpenSidePane side="left" />
         <div className="main">
           <Palette />
           <div className="workspace">
             <GridCanvas />
           </div>
         </div>
-        <OpenSidePane />
+        <OpenSidePane side="right" />
       </div>
       <Dock />
     </div>

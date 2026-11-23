@@ -7,7 +7,7 @@ import { emptyDocument } from "../core/model/types";
 import { abstractionLibrary } from "../core/pdlib";
 import { useOrganelle } from "./organelle";
 import { hasUnsavedChanges, useEditor } from "./store";
-import { useUi } from "./ui";
+import { showSidePane } from "./ui";
 
 const text = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
@@ -87,7 +87,7 @@ export async function sendToOrganelle(): Promise<void> {
   const { address, status } = useOrganelle.getState();
   if (status.kind === "sending") return;
   // Progress and the outcome show in the Organelle pane. Without an address it asks for one.
-  useUi.setState({ sidePane: "organelle" });
+  showSidePane("organelle");
   if (!address.trim()) return;
 
   const { doc } = useEditor.getState();

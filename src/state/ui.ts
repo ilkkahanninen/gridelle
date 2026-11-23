@@ -14,8 +14,11 @@ export interface CableDrag {
   detached: Cable | null;
 }
 
-/** The panes that open at the right of the window from the tabs of the top bar. */
-export type SidePaneId = "samples" | "organelle";
+/** The panes that open at the sides of the window from the tabs of the top bar. */
+export type SidePaneId = "patches" | "samples" | "organelle";
+export type PaneSide = "left" | "right";
+/** Which side each pane opens on. One can be open on each side. */
+export const PANE_SIDE: Record<SidePaneId, PaneSide> = { patches: "left", samples: "right", organelle: "right" };
 
 interface UiState {
   view: View;
@@ -34,8 +37,8 @@ interface UiState {
    * it. See `state/assign.ts`.
    */
   assigning: KnobSlot | null;
-  /** The pane that is open at the right of the window (see `ui/shell/SidePanes.tsx`), or `null`. */
-  sidePane: SidePaneId | null;
+  /** The pane that is open at each side of the window (see `ui/shell/SidePanes.tsx`), or `null`. */
+  sidePanes: Record<PaneSide, SidePaneId | null>;
   setView(view: View): void;
 }
 
@@ -46,9 +49,13 @@ export const useUi = create<UiState>((set) => ({
   cableDrag: null,
   knobPage: 0,
   assigning: null,
-  sidePane: null,
+  sidePanes: { left: null, right: null },
   setView: (view) => set({ view }),
 }));
+
+/** Open a side pane, in place of whatever is open on its side. */
+export const showSidePane = (id: SidePaneId) =>
+  useUi.setState((s) => ({ sidePanes: { ...s.sidePanes, [PANE_SIDE[id]]: id } }));
 
 /** The index of the knob page on show, given how many pages the patch has (-1 for none). */
 export const shownKnobPage = (knobPage: number, pageCount: number) => Math.min(knobPage, pageCount - 1);

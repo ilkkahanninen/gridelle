@@ -1,4 +1,3 @@
-import { newPatch, openPatch, savePatch } from "../../state/actions";
 import { usePreview } from "../../state/preview";
 import { hasUnsavedChanges, useEditor } from "../../state/store";
 import { SidePaneTabs } from "./SidePanes";
@@ -41,28 +40,17 @@ function EngineStatus() {
 export function TopBar() {
   const name = useEditor((s) => s.doc.name);
   const unsaved = useEditor(hasUnsavedChanges);
-  const canUndo = useEditor((s) => s.past.length > 0);
-  const canRedo = useEditor((s) => s.future.length > 0);
-  const { undo, redo } = useEditor.getState();
 
   return (
     <header className="topbar">
+      <SidePaneTabs side="left" />
       <div className="topbar-title">
         <strong>{name || "Untitled"}</strong>
         {unsaved && <span className="topbar-unsaved" title="Unsaved changes" aria-label="Unsaved changes" />}
       </div>
-      <div className="topbar-group">
-        <button className="button" onClick={() => void newPatch()}>New</button>
-        <button className="button" onClick={() => void openPatch()}>Open…</button>
-        <button className="button" onClick={() => void savePatch()}>Save</button>
-      </div>
-      <div className="topbar-group">
-        <button className="button" onClick={undo} disabled={!canUndo}>Undo</button>
-        <button className="button" onClick={redo} disabled={!canRedo}>Redo</button>
-      </div>
       <div className="topbar-spacer" />
       <EngineStatus />
-      <SidePaneTabs />
+      <SidePaneTabs side="right" />
     </header>
   );
 }

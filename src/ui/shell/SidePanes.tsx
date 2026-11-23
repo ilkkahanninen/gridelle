@@ -1,12 +1,13 @@
 import type { ComponentType } from "react";
-import { useUi, type SidePaneId } from "../../state/ui";
+import { PANE_SIDE, useUi, type PaneSide, type SidePaneId } from "../../state/ui";
 import { SamplesPane } from "../samples/SamplesPane";
 import { OrganellePane } from "./OrganellePane";
+import { PatchesPane } from "./PatchesPane";
 
 /**
- * A pane that opens at the right of the window, from a tab in the top bar above it. To
- * add one: an id (`SidePaneId` in `state/ui.ts`), its tab's name, and the component that
- * fills the pane.
+ * A pane that opens at one side of the window, from a tab in the top bar above it. To add
+ * one: an id and its side (`SidePaneId` and `PANE_SIDE` in `state/ui.ts`), its tab's name,
+ * and the component that fills the pane.
  */
 interface SidePane {
   id: SidePaneId;
@@ -15,43 +16,47 @@ interface SidePane {
 }
 
 export const SIDE_PANES: SidePane[] = [
+  { id: "patches", label: "Patches", Pane: PatchesPane },
   { id: "samples", label: "Samples", Pane: SamplesPane },
   { id: "organelle", label: "Organelle", Pane: OrganellePane },
 ];
 
-const PANE_ID = "side-pane";
+const on = (side: PaneSide) => SIDE_PANES.filter((pane) => PANE_SIDE[pane.id] === side);
 
-function Tab({ pane }: { pane: SidePane }) {
-  const open = useUi((s) => s.sidePane === pane.id);
+function Tab({ pane, side }: { pane: SidePane; side: PaneSide }) {
+  const open = useUi((s) => s.sidePanes[side] === pane.id);
   return (
     <button
       className={`pane-tab${open ? " pane-tab-open" : ""}`}
       aria-expanded={open}
-      aria-controls={open ? PANE_ID : undefined}
-      onClick={() => useUi.setState({ sidePane: open ? null : pane.id })}
+      aria-controls={open ? `side-pane-${side}` : undefined}
+      onClick={() => useUi.setState((s) => ({ sidePanes: { ...s.sidePanes, [side]: open ? null : pane.id } }))}
     >
       {pane.label}
     </button>
   );
 }
 
-/** The tabs of the side panes, at the right end of the top bar. A click on the open one closes it. */
-export function SidePaneTabs() {
+/** The tabs of one side's panes, at that end of the top bar. A click on the open one closes it. */
+export function SidePaneTabs({ side }: { side: PaneSide }) {
   return (
-    <div className="pane-tabs" role="group" aria-label="Panes">
-      {SIDE_PANES.map((pane) => (
-        <Tab key={pane.id} pane={pane} />
+    <div className="pane-tabs" role="group" aria-label={side === "left" ? "Panes on the left" : "Panes on the right"}>
+      {on(side).map((pane) => (
+        <Tab key={pane.id} pane={pane} side={side} />
       ))}
     </div>
   );
 }
 
-/** The side pane that is open, under its tab and beside the module browser and the grid. Nothing when none is. */
-export function OpenSidePane() {
-  const pane = useUi((s) => SIDE_PANES.find((p) => p.id === s.sidePane));
+/**
+ * The pane that is open on one side, under its tab: it takes its width from the module
+ * browser and the grid, which move over. Nothing when none is open there.
+ */
+export function OpenSidePane({ side }: { side: PaneSide }) {
+  const pane = useUi((s) => on(side).find((p) => p.id === s.sidePanes[side]));
   if (!pane) return null;
   return (
-    <aside className="side-pane" id={PANE_ID} aria-label={pane.label}>
+    <aside className={`side-pane side-pane-${side}`} id={`side-pane-${side}`} aria-label={pane.label}>
       <pane.Pane />
     </aside>
   );

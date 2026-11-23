@@ -1,0 +1,47 @@
+.patches-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.patches-pane section {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 7px;
+}
+
+.patches-pane h3 {
+  margin: 0;
+  font-size: 14.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.patches-pane p {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
+/* The file's name, and under it the folder it is in, on as many lines as that takes. */
+.patches-file {
+  display: flex;
+  flex-direction: column;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.patches-file span {
+  overflow-wrap: anywhere;
+}
+
+.patches-file span:first-child {
+  color: var(--text);
+}
+
+.patches-pane .patches-unsaved {
+  color: var(--accent);
+}
