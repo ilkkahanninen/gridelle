@@ -7,7 +7,7 @@ import { useUi } from "./state/ui";
 import { GridCanvas } from "./ui/canvas/GridCanvas";
 import { Palette } from "./ui/palette/Palette";
 import { Dock } from "./ui/shell/Dock";
-import { OpenSidePane, SidePaneTabs } from "./ui/shell/SidePanes";
+import { OpenSidePane } from "./ui/shell/SidePanes";
 import { TopBar } from "./ui/shell/TopBar";
 import "@fontsource/barlow-semi-condensed/400.css";
 import "@fontsource/barlow-semi-condensed/500.css";
@@ -86,12 +86,13 @@ function App() {
   return (
     <div className="app">
       <TopBar />
-      <div className="browser">
-        <Palette />
-        <SidePaneTabs />
-      </div>
-      <div className="workspace">
-        <GridCanvas />
+      <div className="middle">
+        <div className="main">
+          <Palette />
+          <div className="workspace">
+            <GridCanvas />
+          </div>
+        </div>
         <OpenSidePane />
       </div>
       <Dock />

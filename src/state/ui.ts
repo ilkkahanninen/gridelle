@@ -14,6 +14,9 @@ export interface CableDrag {
   detached: Cable | null;
 }
 
+/** The panes that open at the right of the window from the tabs of the top bar. */
+export type SidePaneId = "samples" | "organelle";
+
 interface UiState {
   view: View;
   /** Size of the canvas viewport in screen pixels. */
@@ -31,8 +34,8 @@ interface UiState {
    * it. See `state/assign.ts`.
    */
   assigning: KnobSlot | null;
-  /** The id of the pane that is open right of the grid (see `ui/shell/SidePanes.tsx`), or `null`. */
-  sidePane: string | null;
+  /** The pane that is open at the right of the window (see `ui/shell/SidePanes.tsx`), or `null`. */
+  sidePane: SidePaneId | null;
   setView(view: View): void;
 }
 

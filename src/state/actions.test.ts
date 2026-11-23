@@ -9,6 +9,7 @@ import { sendPatch } from "../bridge/organelle";
 import { sendToOrganelle } from "./actions";
 import { useOrganelle } from "./organelle";
 import { useEditor } from "./store";
+import { useUi } from "./ui";
 
 const send = vi.mocked(sendPatch);
 const ask = vi.mocked(confirm);
@@ -18,7 +19,8 @@ describe("sendToOrganelle", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useEditor.getState().load(basicSynth, null);
-    useOrganelle.setState({ address: "192.168.1.20", panelOpen: false, status: { kind: "idle" } });
+    useOrganelle.setState({ address: "192.168.1.20", status: { kind: "idle" } });
+    useUi.setState({ sidePane: null });
     send.mockResolvedValue({ path: "/sdcard/Patches/Basic_Synth", started: true });
   });
 
@@ -30,14 +32,15 @@ describe("sendToOrganelle", () => {
     expect([address, folder, replace]).toEqual(["192.168.1.20", "Basic_Synth", false]);
     expect(Object.keys(files)).toEqual(expect.arrayContaining(["main.pd", "voice.pd", "ge-voice.pd"]));
     expect(status()).toEqual({ kind: "sent", message: "Basic_Synth is running on the Organelle." });
-    expect(useOrganelle.getState().panelOpen).toBe(true);
+    expect(useUi.getState().sidePane).toBe("organelle");
   });
 
   it("asks for the address instead of sending when there is none", async () => {
     useOrganelle.setState({ address: "  " });
     await sendToOrganelle();
     expect(send).not.toHaveBeenCalled();
-    expect(useOrganelle.getState()).toMatchObject({ panelOpen: true, status: { kind: "idle" } });
+    expect(useOrganelle.getState().status).toEqual({ kind: "idle" });
+    expect(useUi.getState().sidePane).toBe("organelle");
   });
 
   it("says how to start the patch when the Organelle did not start it", async () => {

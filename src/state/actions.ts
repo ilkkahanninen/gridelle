@@ -7,6 +7,7 @@ import { emptyDocument } from "../core/model/types";
 import { abstractionLibrary } from "../core/pdlib";
 import { useOrganelle } from "./organelle";
 import { hasUnsavedChanges, useEditor } from "./store";
+import { useUi } from "./ui";
 
 const text = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
@@ -80,13 +81,13 @@ export async function exportToOrganelle(): Promise<void> {
 
 /**
  * Compile the patch, put it on the Organelle over the network and start it there.
- * Progress and the outcome go to the panel under the Send button, not to dialogs.
+ * Progress and the outcome go to the Organelle pane, which this opens, not to dialogs.
  */
 export async function sendToOrganelle(): Promise<void> {
   const { address, status } = useOrganelle.getState();
   if (status.kind === "sending") return;
-  useOrganelle.setState({ panelOpen: true });
-  // Without an address the panel, now open, asks for one.
+  // Progress and the outcome show in the Organelle pane. Without an address it asks for one.
+  useUi.setState({ sidePane: "organelle" });
   if (!address.trim()) return;
 
   const { doc } = useEditor.getState();

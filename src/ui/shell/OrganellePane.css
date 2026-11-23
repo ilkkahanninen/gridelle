@@ -1,0 +1,58 @@
+.organelle-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.organelle-pane section,
+.organelle-pane form {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 7px;
+}
+
+.organelle-pane h3 {
+  margin: 0;
+  font-size: 14.5px;
+  font-weight: 600;
+}
+
+.organelle-pane p {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
+.organelle-pane label {
+  margin-top: 3px;
+  color: var(--text-dim);
+}
+
+.organelle-pane input {
+  min-width: 0;
+  padding: 4px 7px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: var(--surface);
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* How the last send went. Errors are worth copying. */
+.organelle-pane .send-status {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.organelle-pane .send-status:empty {
+  display: none;
+}
+
+.organelle-pane .send-status-sent {
+  color: var(--text);
+}
+
+.organelle-pane .send-status-error {
+  color: var(--danger);
+}

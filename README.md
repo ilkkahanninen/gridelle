@@ -32,7 +32,7 @@ cd src-tauri && cargo test --test engine_audio -- --ignored
 ## Send over Wi-Fi
 
 With the Organelle on the same network and its web server running, **Send to Organelle**
-(⇧⌘E) puts the patch in the device's `Patches` folder and starts it. Enter the Organelle's
+(⇧⌘E, or the Organelle tab at the top right) puts the patch in the device's `Patches` folder and starts it. Enter the Organelle's
 IP address or host name the first time; it is remembered.
 
 A patch folder Gridelle made earlier is replaced without asking; a same-named folder that

@@ -107,27 +107,36 @@ input {
 .app {
   height: 100%;
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
 }
 
-/* The strip above the grid: the module browser, and at its right end the tabs of the side panes. */
-.browser {
-  display: flex;
+/* Between the top bar and the dock: the module browser over the grid, and a side pane when one is open. */
+.middle {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  min-height: 0;
+  border-block: 1px solid var(--line);
+}
+
+.main {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   min-width: 0;
-  background: var(--chrome);
-  border-top: 1px solid var(--line);
+  min-height: 0;
 }
 
 /*
- * A side pane's tab stands on the line between the strip and the grid. The open one
+ * A side pane's tab stands on the line under the top bar, at its right end. The open one
  * covers that line and is the pane's colour, so that tab and pane are one shape.
  */
 .pane-tabs {
   flex: none;
+  align-self: flex-end;
   display: flex;
   align-items: flex-end;
   gap: 4px;
-  padding: 0 12px;
+  /* Down through the top bar's padding to its lower edge. */
+  margin-bottom: -8px;
 }
 
 .pane-tab {
@@ -155,7 +164,7 @@ input {
   color: var(--text);
 }
 
-/* The open side pane, right of the grid. What is in it is its own business. */
+/* The open side pane, from the top bar down to the dock. What is in it is its own business. */
 .side-pane {
   width: 250px;
   overflow-y: auto;
@@ -166,10 +175,8 @@ input {
 
 .workspace {
   display: grid;
-  /* The grid, and a side pane when one is open. */
-  grid-template-columns: minmax(0, 1fr) auto;
   min-height: 0;
-  border-block: 1px solid var(--line);
+  border-top: 1px solid var(--line);
 }
 
 /* Buttons */
@@ -269,13 +276,6 @@ input {
 
 .status-error {
   color: var(--danger);
-}
-
-.status-light {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--hint-mod);
 }
 
 /* Dock */

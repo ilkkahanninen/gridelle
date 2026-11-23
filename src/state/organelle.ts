@@ -9,8 +9,6 @@ export type SendStatus =
 interface OrganelleState {
   /** Where the Organelle is on the network: an IP address or a host name. Remembered between runs. */
   address: string;
-  /** Whether the panel under the Send button is showing. */
-  panelOpen: boolean;
   /** How the current or last send went. */
   status: SendStatus;
   setAddress(address: string): void;
@@ -30,7 +28,6 @@ function rememberedAddress(): string {
 
 export const useOrganelle = create<OrganelleState>((set) => ({
   address: rememberedAddress(),
-  panelOpen: false,
   status: { kind: "idle" },
 
   setAddress(address) {

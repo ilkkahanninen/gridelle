@@ -1,10 +1,9 @@
-import { exportToOrganelle, newPatch, openPatch, savePatch } from "../../state/actions";
+import { newPatch, openPatch, savePatch } from "../../state/actions";
 import { usePreview } from "../../state/preview";
 import { hasUnsavedChanges, useEditor } from "../../state/store";
-import { SendToOrganelle } from "./SendPanel";
+import { SidePaneTabs } from "./SidePanes";
 
-const ORGANELLE_SAMPLE_RATE = 44100;
-
+/** What keeps the preview from playing the patch as it is. Nothing while all is well. */
 function EngineStatus() {
   const engine = usePreview((s) => s.engine);
   const loadError = usePreview((s) => s.loadError);
@@ -36,12 +35,7 @@ function EngineStatus() {
       </span>
     );
   }
-  return (
-    <span className="status" title="The preview runs the same Pd patch that Export writes.">
-      <span className="status-light" /> Live at {engine.sampleRate / 1000} kHz
-      {engine.sampleRate !== ORGANELLE_SAMPLE_RATE && " (the Organelle runs at 44.1 kHz)"}
-    </span>
-  );
+  return null;
 }
 
 export function TopBar() {
@@ -68,14 +62,7 @@ export function TopBar() {
       </div>
       <div className="topbar-spacer" />
       <EngineStatus />
-      <button
-        className="button"
-        title="Write the patch as a folder, for the Organelle's USB drive (⌘E)"
-        onClick={() => void exportToOrganelle()}
-      >
-        Export…
-      </button>
-      <SendToOrganelle />
+      <SidePaneTabs />
     </header>
   );
 }
