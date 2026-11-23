@@ -540,6 +540,44 @@ const DEFS: ModuleDef[] = [
     scope: "voice",
   },
   {
+    // The ADSR without its middle: up to 1 in Attack while Gate is on, and down in Release.
+    type: "env-ar",
+    name: "AR",
+    category: "envelope",
+    width: 2,
+    height: 2,
+    layout: "rows",
+    inputs: [{ id: "gate", label: "Gate", hint: "gate", precord: "gate" }, settingInput("attack", "Attack"), settingInput("release", "Release")],
+    outputs: [{ id: "out", label: "Out", hint: "mod" }],
+    params: [
+      { id: "attack", label: "Attack", min: 0.5, max: 5000, default: 5, curve: "exp", unit: "ms" },
+      { id: "release", label: "Release", min: 1, max: 10000, default: 300, curve: "exp", unit: "ms" },
+    ],
+    pd: "ge-env-ar",
+    scope: "voice",
+  },
+  {
+    // One shot for each rise of Trigger, however long it stays on: up in Attack, down in
+    // Decay. With Loop it starts again when it is over, for as long as Trigger is on.
+    type: "env-ad",
+    name: "AD",
+    category: "envelope",
+    width: 2,
+    height: 2,
+    layout: "rows",
+    inputs: [{ id: "trig", label: "Trigger", hint: "gate", precord: "gate" }, settingInput("attack", "Attack"), settingInput("decay", "Decay")],
+    outputs: [{ id: "out", label: "Out", hint: "mod" }],
+    params: [
+      { id: "attack", label: "Attack", min: 0.5, max: 5000, default: 2, curve: "exp", unit: "ms" },
+      { id: "decay", label: "Decay", min: 1, max: 10000, default: 250, curve: "exp", unit: "ms" },
+      // Curved is the envelope squared: a fall that is quick at first, as a struck thing rings.
+      choice("shape", "Shape", ["Linear", "Curved"]),
+      choice("loop", "Loop", ["Off", "On"]),
+    ],
+    pd: "ge-env-ad",
+    scope: "voice",
+  },
+  {
     // How loud its input is, as a modulation signal: the rms level, times Level. Smooth is
     // how long it takes to reach each new measurement (Pd's `env~` makes 86 a second).
     type: "follower",

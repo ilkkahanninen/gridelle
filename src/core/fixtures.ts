@@ -617,6 +617,32 @@ export const sequence: PatchDocument = settle({
 });
 
 /**
+ * The two short envelopes. An AR opens the amp for as long as a key is held; an AD,
+ * curved and looping while the key is down, sweeps the filter again and again.
+ */
+export const envelopes: PatchDocument = settle({
+  version: DOCUMENT_VERSION,
+  name: "Envelopes",
+  voices: 3,
+  modules: [
+    { id: "ge1", type: "osc-saw", x: 0, y: 0, params: {} },
+    { id: "ge2", type: "filter-lp", x: 2, y: 0, params: { cutoff: 300, res: 0.5, mod: 48 } },
+    { id: "ge3", type: "amp", x: 4, y: 0, params: {} },
+    { id: "ge4", type: "env-ad", x: 2, y: 3, params: { attack: 5, decay: 120, shape: 1, loop: 1 } },
+    { id: "ge5", type: "env-ar", x: 4, y: 3, params: { attack: 10, release: 120 } },
+    { id: "ge6", type: "audio-out", x: 5, y: 0, params: {} },
+  ],
+  cables: [
+    { from: { module: "ge1", port: "out" }, to: { module: "ge2", port: "in" } },
+    { from: { module: "ge2", port: "out" }, to: { module: "ge3", port: "in" } },
+    { from: { module: "ge4", port: "out" }, to: { module: "ge2", port: "mod" } },
+    { from: { module: "ge5", port: "out" }, to: { module: "ge3", port: "cv" } },
+    { from: { module: "ge3", port: "out" }, to: { module: "ge6", port: "left" } },
+  ],
+  pages: [],
+});
+
+/**
  * What a new patch starts as, until the user saves a base of their own over it: a saw
  * through an amp that an envelope opens, into the output. It sounds when a key is pressed,
  * and every part of it is easy to replace.
@@ -656,5 +682,6 @@ export const fixtures = {
   "tape-echo": tapeEcho,
   grains,
   sequence,
+  envelopes,
   "new-patch": newPatch,
 } as const;

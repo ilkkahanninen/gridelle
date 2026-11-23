@@ -55,6 +55,10 @@ export const MODULE_DOCS: Record<string, string> = {
   // Envelopes
   "env-adsr":
     "An envelope from 0 to 1 that starts when Gate goes on. Attack is the time to rise, Decay the time to fall to Sustain, and Release the time to fall to 0 after the key. Into an Amp, it gives a note its beginning and end. The inputs are read when a stage starts.",
+  "env-ar":
+    "An envelope of two stages: it rises to 1 in Attack when Gate goes on, stays there while it is on, and falls to 0 in Release. For an organ's on and off, or a slow swell. The inputs are read when a stage starts.",
+  "env-ad":
+    "A one-shot envelope: each time Trigger goes on it rises to 1 in Attack and falls back in Decay, however long the gate lasts. For drums and plucks, and for the ticks of a clock. With Loop on it starts again for as long as Trigger stays on. Shape set to curved makes the fall quick at first.",
   follower:
     "Follows how loud In is and gives that as a signal: about 0.7 for a full-level sine. Smooth is how slowly it follows, and Level scales the result.",
 

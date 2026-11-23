@@ -1,6 +1,6 @@
 //! Measures what the module abstractions in `pd-lib/modules` actually do, in real Pd:
 //! oscillator pitch, level, aliasing and modulation, filter frequency responses, the
-//! shapers' curves, mixer sums, the envelope's stages, the LFOs, the effects, the wrappers of
+//! shapers' curves, mixer sums, the envelopes' stages, the LFOs, the effects, the wrappers of
 //! Pd's own filters and reverbs, the pitch, math and logic modules, the clock and the
 //! sequencer, and that every setting's input multiplies its knob.
 //!
@@ -83,7 +83,7 @@ fn inlets_of(name: &str) -> &'static [Inlet] {
         "ge-shaper-hard" | "ge-shaper-rectify" => &[Main, Setting, Mod],
         "ge-shaper-crush" => &[Main, Setting, Setting, Mod],
         "ge-amp" => &[Main, Setting],
-        "ge-lfo" | "ge-clock" => &[Main, Setting, Setting],
+        "ge-lfo" | "ge-clock" | "ge-env-ar" | "ge-env-ad" => &[Main, Setting, Setting],
         "ge-sequencer" => &[Main, Mod, Pwm, Setting, Setting, Setting, Setting, Setting, Setting, Setting, Setting, Setting],
         "ge-lfo-random" => &[Setting, Setting, Setting],
         "ge-audio-out" => &[Main, Main, Setting],
@@ -876,6 +876,127 @@ fn envelope(pd: &mut Pd, dir: &Path) {
         render(pd, 0.4);
 
         println!("ge-env-adsr: stages are knob x input, read at key down (A, D, S) and key up (R)");
+    });
+}
+
+/// An envelope with a `[sig~]` on its gate that `t-gate` sets, and its two times at 100 and 200 ms.
+fn with_short_envelope<T>(pd: &mut Pd, dir: &Path, name: &str, second: &str, measure: impl FnOnce(&mut Pd) -> T) -> T {
+    with_module(pd, dir, name, &["r t-gate", "sig~"], &[[0, 0, 1, 0]], [Some(1), None, None], to_left, |pd| {
+        set(pd, &[("attack", 100.0), (second, 200.0), ("shape", 0.0), ("loop", 0.0)]);
+        render(pd, 0.05);
+        measure(pd)
+    })
+}
+
+/// The AR rises while its gate is on and falls when it goes off; the AD does both for each
+/// rise of its trigger, whatever the gate does after that.
+fn short_envelopes(pd: &mut Pd, dir: &Path) {
+    // A stage starts on a block boundary, up to 1.5 ms late, which is 0.015 on a 100 ms ramp.
+    let tolerance = 0.03;
+    // The inputs are signals: let them reach the envelope before a key goes down.
+    let inputs = |pd: &mut Pd, first: f32, second: f32| {
+        pd.send_float("t-in1", first);
+        pd.send_float("t-in2", second);
+        render(pd, 0.05);
+    };
+
+    with_short_envelope(pd, dir, "ge-env-ar", "release", |pd| {
+        assert_eq!(peak(&render(pd, 0.2).0), 0.0, "AR is silent before a key is played");
+        let (held, tail) = play(pd, 0.5, 0.4);
+        close(level_at(&held, 50.0), 0.5, tolerance, "AR: attack of 100 ms is half way at 50 ms");
+        close(level_at(&held, 300.0), 1.0, 0.001, "AR stays at 1 while the gate is on");
+        close(level_at(&tail, 100.0), 0.5, tolerance, "AR: release of 200 ms is half way at 100 ms");
+        assert_eq!(level_at(&tail, 300.0), 0.0, "AR is silent after its release");
+
+        // Each input scales its own stage.
+        inputs(pd, 0.5, 0.25);
+        let (held, tail) = play(pd, 0.3, 0.3);
+        close(level_at(&held, 25.0), 0.5, tolerance, "AR: attack 100 ms x 0.5");
+        close(level_at(&tail, 25.0), 0.5, tolerance, "AR: release 200 ms x 0.25");
+        assert_eq!(level_at(&tail, 60.0), 0.0, "AR: silent after 50 ms");
+        inputs(pd, -1.0, -1.0);
+        let (held, tail) = play(pd, 0.1, 0.1);
+        close(level_at(&held, 5.0), 1.0, 0.001, "AR: a negative attack is immediate");
+        assert_eq!(level_at(&tail, 5.0), 0.0, "AR: a negative release is immediate");
+        assert!(held.iter().chain(&tail).all(|v| (0.0..=1.0).contains(v)), "AR stays within 0..1");
+
+        // A key let go during the attack falls from where the envelope is, and one played
+        // again during the release rises from there.
+        inputs(pd, 1.0, 1.0);
+        let (held, tail) = play(pd, 0.05, 0.05);
+        let top = *held.last().unwrap();
+        close(top, 0.5, tolerance, "AR: half way up after 50 ms");
+        assert!(peak(&tail) <= top + 0.02, "AR: a short note falls from where it got to, not from 1");
+        let before = *tail.last().unwrap();
+        pd.send_float("t-gate", 1.0);
+        let again = render(pd, 0.2).0;
+        let lowest = again.iter().cloned().fold(f32::MAX, f32::min);
+        assert!(lowest >= before - 0.01, "AR: a retrigger rises from {before}, not from zero (went down to {lowest})");
+        pd.send_float("t-gate", 0.0);
+        render(pd, 0.3);
+        println!("ge-env-ar: up in Attack while the gate is on, down in Release, each knob x input");
+    });
+
+    with_short_envelope(pd, dir, "ge-env-ad", "decay", |pd| {
+        assert_eq!(peak(&render(pd, 0.2).0), 0.0, "AD is silent before a trigger");
+        // The whole shape comes from the rise alone: a gate held long, and one of 20 ms.
+        for gate in [0.5, 0.02] {
+            let (held, tail) = play(pd, gate, 0.5 - gate + 0.1);
+            let shape: Vec<f32> = held.into_iter().chain(tail).collect();
+            close(level_at(&shape, 50.0), 0.5, tolerance, "AD: attack of 100 ms is half way at 50 ms");
+            close(level_at(&shape, 100.0), 1.0, tolerance, "AD peaks at 1 after its attack");
+            close(level_at(&shape, 200.0), 0.5, tolerance, "AD: decay of 200 ms is half way at 200 ms");
+            assert_eq!(level_at(&shape, 320.0), 0.0, "AD is over after attack and decay, with the gate {gate} s long");
+            assert_eq!(peak(&shape[(0.32 * SAMPLE_RATE) as usize..]), 0.0, "AD stays at 0 until the next trigger");
+        }
+
+        // Each input scales its own stage, and a time below 0 is no time.
+        inputs(pd, 0.5, 0.25);
+        let (held, _) = play(pd, 0.3, 0.1);
+        close(level_at(&held, 25.0), 0.5, tolerance, "AD: attack 100 ms x 0.5");
+        close(level_at(&held, 75.0), 0.5, tolerance, "AD: decay 200 ms x 0.25, after the shorter attack");
+        assert_eq!(level_at(&held, 110.0), 0.0, "AD: over after 100 ms");
+        inputs(pd, -1.0, 1.0);
+        let (held, _) = play(pd, 0.3, 0.1);
+        close(level_at(&held, 4.0), 0.98, tolerance, "AD: a negative attack is immediate");
+        inputs(pd, 1.0, 1.0);
+
+        // Curved is the square of it.
+        set(pd, &[("shape", 1.0)]);
+        let (held, _) = play(pd, 0.4, 0.1);
+        close(level_at(&held, 50.0), 0.25, tolerance, "AD curved: a quarter half way up");
+        close(level_at(&held, 100.0), 1.0, tolerance, "AD curved still peaks at 1");
+        close(level_at(&held, 200.0), 0.25, tolerance, "AD curved: a quarter half way down");
+        set(pd, &[("shape", 0.0)]);
+        render(pd, 0.05);
+
+        // A trigger during the decay rises from where the envelope is.
+        play(pd, 0.19, 0.01);
+        pd.send_float("t-gate", 1.0);
+        let again = render(pd, 0.1).0;
+        close(again[0], 0.5, tolerance, "AD: half way down when it is triggered again");
+        assert!(again.windows(2).all(|pair| pair[1] >= pair[0] - 0.02), "AD: a retrigger rises from there, not from zero");
+        pd.send_float("t-gate", 0.0);
+        render(pd, 0.4);
+
+        // Loop: it starts again when it is over, while the trigger is on, and then finishes.
+        set(pd, &[("loop", 1.0)]);
+        let (held, tail) = play(pd, 0.75, 0.5);
+        for cycle in 0..2 {
+            let start = 300.0 * cycle as f32;
+            close(level_at(&held, start + 50.0), 0.5, tolerance, &format!("AD loop: cycle {cycle} half way up"));
+            close(level_at(&held, start + 100.0), 1.0, tolerance, &format!("AD loop: cycle {cycle} at its peak"));
+            close(level_at(&held, start + 200.0), 0.5, tolerance, &format!("AD loop: cycle {cycle} half way down"));
+        }
+        // The key went up 150 ms into the third cycle: it runs out, and no fourth starts.
+        close(level_at(&tail, 50.0), 0.5, tolerance, "AD loop: the cycle in progress is finished");
+        assert_eq!(peak(&tail[(0.16 * SAMPLE_RATE) as usize..]), 0.0, "AD loop stops when the trigger is off");
+
+        // With no time at all in a cycle it still only fires once a block.
+        inputs(pd, 0.0, 0.0);
+        let (held, tail) = play(pd, 0.1, 0.1);
+        assert!(held.iter().chain(&tail).all(|v| v.is_finite() && (0.0..=1.0).contains(v)), "AD loop of no length stays within 0..1");
+        println!("ge-env-ad: one shot for each trigger whatever the gate does; curved is its square; loops while the trigger is on");
     });
 }
 
@@ -2250,6 +2371,7 @@ fn modules_do_what_they_are_designed_to() {
     chebyshev(&mut pd, &dir);
     mixer(&mut pd, &dir);
     envelope(&mut pd, &dir);
+    short_envelopes(&mut pd, &dir);
     lfo(&mut pd, &dir);
     random(&mut pd, &dir);
     all_pass(&mut pd, &dir);
