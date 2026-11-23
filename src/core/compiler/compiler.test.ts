@@ -161,130 +161,33 @@ describe("compile", () => {
     for (const inlet of [1, 2, 3, 4]) expect(files["main.pd"]).toContain(`#X connect ${one} 0 ${envelope} ${inlet};`);
   });
 
-  it("mutes what leaves a voice unless its key is held or one of its envelopes is running", () => {
-    const voice = compile(basicSynth, abstractionLibrary).files["voice.pd"];
-    const names = objectBoxes(voice).map((b) => b.name);
-    const at = (name: string, from = 0) => names.indexOf(name, from);
-    // The key gate (outlet 1 of ge-voice) and both envelopes go through max~ ...
-    const first = at("max~");
-    const second = at("max~", first + 1);
-    const envelopes = [at("ge-env-adsr"), at("ge-env-adsr", at("ge-env-adsr") + 1)];
-    expect(voice).toContain(`#X connect ${at("ge-voice")} 1 ${first} 0;`);
-    expect(voice).toContain(`#X connect ${envelopes[0]} 0 ${first} 1;`);
-    expect(voice).toContain(`#X connect ${first} 0 ${second} 0;`);
-    expect(voice).toContain(`#X connect ${envelopes[1]} 0 ${second} 1;`);
-    // ... into a switch with a short fade (the higher of two low-passes), which multiplies
-    // the voice's one outlet.
-    const fade = names.lastIndexOf("max~");
-    expect(fade).toBeGreaterThan(second);
-    expect(names.filter((name) => name === "lop~")).toHaveLength(2);
-    const outlet = at("outlet~");
-    const heard = names.lastIndexOf("*~");
-    expect(voice).toContain(`#X connect ${at("ge-amp")} 0 ${heard} 0;`);
-    expect(voice).toContain(`#X connect ${fade} 0 ${heard} 1;`);
-    expect(voice).toContain(`#X connect ${heard} 0 ${outlet} 0;`);
-    // Nothing else feeds the outlet.
-    expect(voice.match(new RegExp(`#X connect \\d+ \\d+ ${outlet} 0;`, "g"))).toHaveLength(1);
-  });
-
-  it("uses the key gate alone for a voice without envelopes", () => {
-    const voice = compile(fixtures["bare-oscillator"], abstractionLibrary).files["voice.pd"];
-    const names = objectBoxes(voice).map((b) => b.name);
-    // The only max~ is the one that joins the two fades.
-    expect(names.filter((name) => name === "max~")).toHaveLength(1);
-    expect(voice).toContain(`#X connect ${names.indexOf("ge-voice")} 1 ${names.indexOf("*~")} 0;`);
-    expect(names.filter((name) => name === "outlet~")).toHaveLength(1);
-  });
-
-  it("feeds a module with a tail only while the voice plays, and hears the voice until it has rung out", () => {
-    // Saw -> All-pass -> Phaser -> Chorus -> Delay -> Reverb, a Sine beside them into a Mixer after the Reverb.
-    const voice = compile(fixtures["voice-effects"], abstractionLibrary).files["voice.pd"];
-    const names = objectBoxes(voice).map((b) => b.name);
-    const wires = [...voice.matchAll(/#X connect (\d+) (\d+) (\d+) (\d+);/g)].map((m) => m.slice(1).map(Number));
-    const into = (box: number, inlet: number) => wires.filter((w) => w[2] === box && w[3] === inlet).map((w) => w[0]);
-    const one = (name: string) => names.indexOf(name);
-
-    // `playing` is the first fade (the key gate alone: no envelopes here), `heard` the max~ that
-    // joins it with the fade of the four effects' levels.
-    expect(names.filter((name) => name === "abs~")).toHaveLength(4);
-    // A fade is a max~ of two low-passes that both follow the same switch, a clip~.
-    const afterSwitch = (box: number) => names[box] === "lop~" && into(box, 0).every((b) => names[b] === "clip~");
-    const fades = names.flatMap((name, i) => (name === "max~" && [0, 1].every((inlet) => into(i, inlet).every(afterSwitch)) ? [i] : []));
-    expect(fades).toHaveLength(2);
-    const [playing, ringing] = fades;
-    const heard = names.findIndex((name, i) => name === "max~" && into(i, 0).includes(playing) && into(i, 1).includes(ringing));
-    expect(heard).toBeGreaterThan(-1);
-
-    // The all-pass is not part of the ringing part, so its audio enters the phaser through a gate...
-    const [gate] = into(one("ge-fx-phaser"), 0);
-    expect(names[gate]).toBe("*~");
-    expect(into(gate, 0)).toEqual([one("ge-filter-allpass")]);
-    expect(into(gate, 1)).toEqual([playing]);
-    // ... and so does the sine's into the mixer, which is after the reverb.
-    const [sineGate] = into(one("ge-mixer"), 1);
-    expect(names[sineGate]).toBe("*~");
-    expect(into(sineGate, 0)).toEqual([one("ge-osc-sine")]);
-    expect(into(sineGate, 1)).toEqual([playing]);
-    // Between two effects nothing is gated, or the tail of the first would be cut.
-    expect(into(one("ge-fx-chorus"), 0)).toEqual([one("ge-fx-phaser")]);
-
-    // Both things that leave the voice come from the ringing part: they are heard until it is quiet.
-    const outlets = names.flatMap((name, i) => (name === "outlet~" ? [i] : []));
-    expect(outlets).toHaveLength(2);
-    for (const outlet of outlets) {
-      const [audible] = into(outlet, 0);
-      expect(into(audible, 1)).toEqual([heard]);
+  it("never mutes a voice: what its modules make is what leaves it", () => {
+    // A synth voice, an oscillator alone, and a row of effects behind an oscillator.
+    for (const fixture of [basicSynth, fixtures["bare-oscillator"], fixtures["voice-effects"]]) {
+      const voice = compile(fixture, abstractionLibrary).files["voice.pd"];
+      const names = objectBoxes(voice).map((b) => b.name);
+      const wires = [...voice.matchAll(/#X connect (\d+) (\d+) (\d+) (\d+);/g)].map((m) => m.slice(1).map(Number));
+      // Nothing is in a voice but its note handling, its modules and the values that
+      // unpatched inputs rest at: no switch, no fade, nothing that listens for silence.
+      const others = names.filter((name) => !name.startsWith("ge-") && !["inlet", "outlet~", "sig~"].includes(name));
+      expect(others, fixture.name).toEqual([]);
+      // Each outlet is fed by one module, directly.
+      const outlets = names.flatMap((name, box) => (name === "outlet~" ? [box] : []));
+      expect(outlets.length, fixture.name).toBeGreaterThan(0);
+      for (const outlet of outlets) {
+        const feeding = wires.filter((w) => w[2] === outlet);
+        expect(feeding).toHaveLength(1);
+        expect(names[feeding[0][0]]).toMatch(/^ge-(?!voice$)/);
+      }
     }
-  });
-
-  it("treats sound that has been through a math module as sound still", () => {
-    // Saw x LFO into a delay: the product has no audio port, but it is the saw all the same.
-    const tremolo = doc({
-      modules: [
-        { id: "ge1", type: "osc-saw", x: 0, y: 0, params: {} },
-        { id: "ge2", type: "lfo", x: 0, y: 3, params: {} },
-        { id: "ge3", type: "math-multiply", x: 2, y: 0, params: {} },
-        { id: "ge4", type: "math-scale", x: 2, y: 3, params: {} },
-        { id: "ge5", type: "fx-delay", x: 4, y: 0, params: {} },
-        { id: "ge6", type: "audio-out", x: 6, y: 0, params: {} },
-      ],
-      cables: [
-        { from: { module: "ge1", port: "out" }, to: { module: "ge3", port: "a" } },
-        { from: { module: "ge2", port: "uni" }, to: { module: "ge3", port: "b" } },
-        { from: { module: "ge3", port: "out" }, to: { module: "ge5", port: "in" } },
-        { from: { module: "ge2", port: "out" }, to: { module: "ge4", port: "in" } },
-        { from: { module: "ge4", port: "out" }, to: { module: "ge5", port: "time" } },
-        { from: { module: "ge5", port: "out" }, to: { module: "ge6", port: "left" } },
-      ],
-    });
-    const voice = compile(tremolo, abstractionLibrary).files["voice.pd"];
-    const names = objectBoxes(voice).map((b) => b.name);
-    const [product, scaled, delay] = ["ge-math-multiply", "ge-math-scale", "ge-fx-delay"].map((name) => names.indexOf(name));
-    // The product goes into the delay through a gate; the scaled LFO goes straight into its Time.
-    expect(voice).not.toContain(`#X connect ${product} 0 ${delay} 0;`);
-    expect(voice).toContain(`#X connect ${scaled} 0 ${delay} 1;`);
-  });
-
-  it("lets a modulation signal into a module with a tail as it is", () => {
-    const wobble = doc({
-      modules: [
-        { id: "ge1", type: "osc-saw", x: 0, y: 0, params: {} },
-        { id: "ge2", type: "lfo", x: 0, y: 3, params: {} },
-        { id: "ge3", type: "fx-delay", x: 2, y: 0, params: {} },
-        { id: "ge4", type: "audio-out", x: 4, y: 0, params: {} },
-      ],
-      cables: [
-        { from: { module: "ge1", port: "out" }, to: { module: "ge3", port: "in" } },
-        { from: { module: "ge2", port: "uni" }, to: { module: "ge3", port: "time" } },
-        { from: { module: "ge3", port: "out" }, to: { module: "ge4", port: "left" } },
-      ],
-    });
-    const voice = compile(wobble, abstractionLibrary).files["voice.pd"];
-    const names = objectBoxes(voice).map((b) => b.name);
-    const [lfo, delay, saw] = ["ge-lfo", "ge-fx-delay", "ge-osc-saw"].map((name) => names.indexOf(name));
-    // The LFO's second outlet goes straight into the delay's Time input; the saw does not go straight in.
-    expect(voice).toContain(`#X connect ${lfo} 1 ${delay} 1;`);
-    expect(voice).not.toContain(`#X connect ${saw} 0 ${delay} 0;`);
+    // The oscillator alone goes straight out; one effect goes straight into the next.
+    const bare = compile(fixtures["bare-oscillator"], abstractionLibrary).files["voice.pd"];
+    const bareNames = objectBoxes(bare).map((b) => b.name);
+    expect(bare).toContain(`#X connect ${bareNames.indexOf("ge-osc-saw")} 0 ${bareNames.indexOf("outlet~")} 0;`);
+    const effects = compile(fixtures["voice-effects"], abstractionLibrary).files["voice.pd"];
+    const names = objectBoxes(effects).map((b) => b.name);
+    expect(effects).toContain(`#X connect ${names.indexOf("ge-filter-allpass")} 0 ${names.indexOf("ge-fx-phaser")} 0;`);
+    expect(effects).toContain(`#X connect ${names.indexOf("ge-osc-sine")} 0 ${names.indexOf("ge-mixer")} 1;`);
   });
 
   it("names the objects from Pd's extra folder without shipping them", () => {
@@ -431,16 +334,6 @@ describe("compile", () => {
       // Where its Position counts from is a choice like any other: no reload.
       expect(structureKey(ops.setParam(fixtures.grains, "ge1", "from", 1))).toBe(structureKey(fixtures.grains));
       expect(cloud.params.map((p) => p.receiver)).toContain("ge1-from");
-    });
-
-    it("keeps a voice alive while a Sample Player plays on, by its Playing output", () => {
-      // The Player's third outlet joins the key gate in what keeps the voice playing.
-      const voice = result.files["voice.pd"].split("\n");
-      const boxes = voice.filter((line) => line.startsWith("#X obj") || line.startsWith("#X msg"));
-      const player = boxes.findIndex((line) => line.includes("ge-sample-player ge1"));
-      const held = voice.filter((line) => line.startsWith(`#X connect ${player} 2 `));
-      expect(held).toHaveLength(1);
-      expect(boxes[Number(held[0].split(" ")[4])]).toContain("max~");
     });
   });
 

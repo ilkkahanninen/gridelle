@@ -19,6 +19,18 @@ fn peak(buf: &[f32]) -> f32 {
 }
 
 /// Render `seconds` of audio and return it (interleaved stereo).
+/// The fixtures with nothing between a sound that never stops and the output.
+const DRONES: [&str; 3] = ["bare-oscillator", "voice-effects", "grains"];
+
+/// How much of a signal is at `hz`.
+fn level_at(signal: &[f32], hz: f32) -> f32 {
+    let w = 2.0 * std::f32::consts::PI * hz / SAMPLE_RATE as f32;
+    let (sin, cos) = signal.iter().enumerate().fold((0.0f64, 0.0f64), |(s, c), (n, v)| {
+        (s + (*v * (w * n as f32).sin()) as f64, c + (*v * (w * n as f32).cos()) as f64)
+    });
+    (2.0 * (sin * sin + cos * cos).sqrt() / signal.len() as f64) as f32
+}
+
 fn render(pd: &mut Pd, seconds: f32) -> Vec<f32> {
     let block = Pd::block_size() * 2;
     let blocks = (seconds * SAMPLE_RATE as f32 / Pd::block_size() as f32).ceil() as usize;
@@ -53,8 +65,15 @@ fn golden_patches_play_in_pd() {
         let host = pd.open(&repo().join("pd-lib/host.pd")).unwrap();
         let main = pd.open(&repo().join("tests/golden").join(name).join("main.pd")).unwrap();
 
+        // A voice is never muted, so a patch is as quiet as it is made: one with nothing
+        // between its sound and the output sounds from the start, and for ever.
+        let drone = DRONES.contains(&name.as_str());
         let rest = render(&mut pd, 0.2);
-        assert!(peak(&rest) < 1e-4, "{name}: silent before any note, peak {}", peak(&rest));
+        if drone {
+            assert!(peak(&rest) > 0.02, "{name}: a drone sounds before any note, peak {}", peak(&rest));
+        } else {
+            assert!(peak(&rest) < 1e-4, "{name}: silent before any note, peak {}", peak(&rest));
+        }
 
         // A chord, to exercise voice allocation.
         for pitch in [48.0, 55.0, 64.0] {
@@ -73,8 +92,10 @@ fn golden_patches_play_in_pd() {
         }
         let released = render(&mut pd, 2.0);
         let tail = &released[released.len() - 4096..];
-        // A looper is the one patch that is meant to go on: it has its own check below.
-        if name != "looper" {
+        // A looper goes on by what it has recorded: it has its own check below.
+        if drone {
+            assert!(peak(tail) > 0.02, "{name}: a drone goes on after the keys are let go, peak {}", peak(tail));
+        } else if name != "looper" {
             assert!(peak(tail) < 1e-3, "{name}: releases to silence, tail peak {}", peak(tail));
         }
         if name == "audio-input" {
@@ -147,17 +168,20 @@ fn golden_patches_play_in_pd() {
             assert!(echoes.windows(2).all(|pair| pair[1] < pair[0] * 0.6), "{name}: each echo is quieter than the one before: {echoes:?}");
             println!("{name}: echoes after the release at {echoes:.3?}");
         }
-        if name == "voice-effects" {
-            // The delay and reverb inside the voices ring on after the keys are up: the voice
-            // stays audible until they are quiet. (Interleaved stereo: 4410 frames are 100 ms.)
-            let ringing = &released[2 * 4410..2 * 3 * 4410];
-            assert!(peak(ringing) > 0.003, "{name}: echoes are heard after the keys are let go, peak {}", peak(ringing));
-        }
         if name == "bare-oscillator" {
-            // Nothing in this patch ends a note but the voice itself going idle, which is a
-            // fade of a few milliseconds. (Interleaved stereo: 2205 frames are 50 ms.)
-            let soon = &released[2 * 2205..2 * 4410];
-            assert!(peak(soon) < 1e-3, "{name}: silent 50 ms after the keys are let go, peak {}", peak(soon));
+            // Four voices, each a saw straight into the output. Before any note they are all
+            // on middle C: that note and no other. Each then holds the last note it was
+            // given: after a chord of three, those three and the one voice still on middle C.
+            let left_of = |buffer: &[f32]| buffer.chunks(2).map(|frame| frame[0]).collect::<Vec<f32>>();
+            let (before, after) = (left_of(&rest), left_of(tail));
+            let hz = |note: f32| 440.0 * 2f32.powf((note - 69.0) / 12.0);
+            assert!(level_at(&before, hz(60.0)) > 0.1, "{name}: middle C before any note, {}", level_at(&before, hz(60.0)));
+            for note in [48.0, 55.0, 64.0] {
+                assert!(level_at(&before, hz(note)) < 0.01, "{name}: no note {note} before it is played, {}", level_at(&before, hz(note)));
+                assert!(level_at(&after, hz(note)) > 0.03, "{name}: note {note} is held after its key is up, {}", level_at(&after, hz(note)));
+            }
+            assert!(level_at(&after, hz(60.0)) > 0.03, "{name}: the voice that got no note is still on middle C");
+            println!("{name}: middle C at {:.3} before any note; held after the chord: {:.3?}", level_at(&before, hz(60.0)), [48.0, 55.0, 60.0, 64.0].map(|n| level_at(&after, hz(n))));
         }
 
         if name == "basic-synth" {

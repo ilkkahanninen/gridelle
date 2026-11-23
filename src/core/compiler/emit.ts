@@ -97,84 +97,12 @@ function addConstants(patch: PdPatch, analysis: Analysis, boxes: Map<ModuleId, B
 }
 
 /**
- * A switch with a fade: 1 while `source` is above 0.001, else 0. Two low-passes turn the
- * switch into a fade, and the higher of them is used: the quick one on the way up, so that
- * a note's attack is not softened (under a millisecond), the slow one on the way down, so
- * that a sound cut off in mid-wave does not click (about 5 ms).
- */
-function addFade(patch: PdPatch, source: [box: Box, outlet: number], at: Position): Box {
-  const scaled = patch.obj("*~ 1000", at);
-  const open = patch.obj("clip~ 0 1", { x: at.x, y: at.y + 30 });
-  const quick = patch.obj("lop~ 600", { x: at.x, y: at.y + 60 });
-  const slow = patch.obj("lop~ 200", { x: at.x + 70, y: at.y + 60 });
-  const fade = patch.obj("max~", { x: at.x, y: at.y + 90 });
-  patch.connect(source[0], source[1], scaled, 0);
-  patch.connect(scaled, 0, open, 0);
-  patch.connect(open, 0, quick, 0);
-  patch.connect(open, 0, slow, 0);
-  patch.connect(quick, 0, fade, 0);
-  patch.connect(slow, 0, fade, 1);
-  return fade;
-}
-
-/** The highest of some signals, as a chain of `[max~]`. */
-function addHighest(patch: PdPatch, signals: [box: Box, outlet: number][], at: Position): [box: Box, outlet: number] {
-  return signals.slice(1).reduce((highest, signal, i) => {
-    const either = patch.obj("max~", { x: at.x + i * 60, y: at.y });
-    patch.connect(highest[0], highest[1], either, 0);
-    patch.connect(signal[0], signal[1], either, 1);
-    return [either, 0] as [Box, number];
-  }, signals[0]);
-}
-
-/**
- * The life of a voice, as two signals that are 1 or 0 with a short fade between.
- *
- * - `playing`: the key is held, or one of the voice's envelopes (`holdsVoice`) has not
- *   finished. "Not finished" is above 0.001: the last 60 dB down of a release are faded out.
- * - `heard`: playing, or a module with a tail (a delay, a reverb) is still ringing: the
- *   level of its first output, rectified and smoothed, is above 0.001.
- *
- * What leaves the voice is multiplied by one of them (see `emitVoice`). Without this an
- * oscillator with no Amp behind it would sound for ever, and before its first note at
- * pitch 0, which is 8 Hz.
- */
-function addVoiceLife(patch: PdPatch, voice: Box, modules: ResolvedModule[], boxes: Map<ModuleId, Box>, at: Position) {
-  const output = (m: ResolvedModule): [Box, number] => [boxes.get(m.instance.id)!, 0];
-  // The output that holds the voice: the first, or the one `holdsVoice` names.
-  const holding = (m: ResolvedModule): [Box, number] => [
-    boxes.get(m.instance.id)!,
-    Math.max(0, m.def.outputs.findIndex((port) => port.id === m.def.holdsVoice)),
-  ];
-  const holders = modules.filter((m) => m.def.holdsVoice && m.def.outputs.length > 0);
-  const playing = addFade(patch, addHighest(patch, [[voice, VOICE_OUTLET.gate], ...holders.map(holding)], at), { x: at.x, y: at.y + 30 });
-
-  const ringers = modules.filter((m) => m.def.tail && m.def.outputs.length > 0);
-  if (ringers.length === 0) return { playing, heard: playing };
-  const right = { x: at.x + 200, y: at.y };
-  const levels = ringers.map((m, i): [Box, number] => {
-    const size = patch.obj("abs~", { x: right.x + i * 60, y: right.y - 60 });
-    const level = patch.obj("lop~ 20", { x: right.x + i * 60, y: right.y - 30 });
-    patch.connect(...output(m), size, 0);
-    patch.connect(size, 0, level, 0);
-    return [level, 0];
-  });
-  const ringing = addFade(patch, addHighest(patch, levels, right), { x: right.x, y: right.y + 30 });
-  const heard = patch.obj("max~", { x: at.x + 100, y: at.y + 150 });
-  patch.connect(playing, 0, heard, 0);
-  patch.connect(ringing, 0, heard, 1);
-  return { playing, heard };
-}
-
-/**
  * One voice: the per-voice modules, fed by `ge-voice`, with an `outlet~` per crossing.
  *
- * A voice that is not playing must not be heard (`addVoiceLife`), so each crossing is
- * multiplied by `playing`. Modules with a tail complicate that: their echoes should ring
- * on after the key is up, but an oscillator that never stops must not go on feeding them.
- * So the modules with a tail and everything after them in the voice form the ringing part:
- * sound entering it from the rest of the voice is multiplied by `playing`, and what leaves
- * the voice from it by `heard`. Modulation enters it as it is.
+ * A voice is never muted. Its modules run all the time, as on a modular, and what
+ * leaves it is what they make: an oscillator with no Amp behind it sounds for ever, on
+ * middle C until the voice gets its first note (`ge-voice`) and on its last note after that.
+ * Giving a note a beginning and an end is the patch's own business.
  */
 export function emitVoice(analysis: Analysis): string {
   const modules = analysis.modules.filter((m) => m.scope === "voice");
@@ -186,57 +114,10 @@ export function emitVoice(analysis: Analysis): string {
 
   const top = MARGIN.y + 110;
   const boxes = addModules(patch, analysis, modules, top, "$1");
-  const inside = analysis.wires.filter((wire) => boxes.has(wire.from) && boxes.has(wire.to));
-  const leaving = crossings(analysis);
 
-  // The ringing part: modules with a tail, and whatever they feed.
-  const ringing = new Set(modules.filter((m) => m.def.tail).map((m) => m.instance.id));
-  for (let grew = true; grew; ) {
-    grew = false;
-    for (const wire of inside) {
-      if (ringing.has(wire.from) && !ringing.has(wire.to)) {
-        ringing.add(wire.to);
-        grew = true;
-      }
-    }
-  }
-  // What may carry sound: the modules with an audio output, and whatever they feed, since
-  // a Multiply or a Scale passes on what it is given. An LFO through a Scale stays modulation.
-  const sounding = new Set(modules.filter((m) => m.def.outputs.some((port) => port.hint === "audio")).map((m) => m.instance.id));
-  for (let grew = true; grew; ) {
-    grew = false;
-    for (const wire of inside) {
-      if (sounding.has(wire.from) && !sounding.has(wire.to)) {
-        sounding.add(wire.to);
-        grew = true;
-      }
-    }
-  }
-
-  const lifeY = bottom(modules, top) + 100;
-  const life =
-    leaving.length > 0 || ringing.size > 0
-      ? addVoiceLife(patch, voice, modules, boxes, { x: MARGIN.x + (leaving.length + 1) * CELL.x, y: lifeY })
-      : null;
-
-  // One multiplier for each output that feeds the ringing part from outside it.
-  const gated = new Map<string, Box>();
-  const whilePlaying = (from: ModuleId, outlet: number): [Box, number] => {
-    const key = `${from}:${outlet}`;
-    let gate = gated.get(key);
-    if (!gate) {
-      gate = patch.obj("*~", { x: MARGIN.x + (leaving.length + 4 + gated.size) * CELL.x, y: lifeY });
-      patch.connect(boxes.get(from)!, outlet, gate, 0);
-      patch.connect(life!.playing, 0, gate, 1);
-      gated.set(key, gate);
-    }
-    return [gate, 0];
-  };
-
-  for (const wire of inside) {
-    const entersRinging = ringing.has(wire.to) && !ringing.has(wire.from) && sounding.has(wire.from);
-    const [source, outlet] = entersRinging ? whilePlaying(wire.from, wire.outlet) : [boxes.get(wire.from)!, wire.outlet];
-    patch.connect(source, outlet, boxes.get(wire.to)!, wire.inlet);
+  for (const wire of analysis.wires) {
+    const [from, to] = [boxes.get(wire.from), boxes.get(wire.to)];
+    if (from && to) patch.connect(from, wire.outlet, to, wire.inlet);
   }
   for (const precord of analysis.precords) {
     patch.connect(voice, VOICE_OUTLET[precord.signal], boxes.get(precord.to)!, precord.inlet);
@@ -244,13 +125,10 @@ export function emitVoice(analysis: Analysis): string {
   addConstants(patch, analysis, boxes, { x: MARGIN.x + 2 * CELL.x, y: MARGIN.y + 40 });
 
   // Pd numbers outlets by horizontal position, so lay them out left to right in order.
-  leaving.forEach((crossing, i) => {
-    const x = MARGIN.x + i * CELL.x;
-    const audible = patch.obj("*~", { x, y: lifeY + 190 });
-    const outlet = patch.obj("outlet~", { x, y: lifeY + 230 });
-    patch.connect(boxes.get(crossing.from)!, crossing.outlet, audible, 0);
-    patch.connect(ringing.has(crossing.from) ? life!.heard : life!.playing, 0, audible, 1);
-    patch.connect(audible, 0, outlet, 0);
+  const below = bottom(modules, top) + 100;
+  crossings(analysis).forEach((crossing, i) => {
+    const outlet = patch.obj("outlet~", { x: MARGIN.x + i * CELL.x, y: below });
+    patch.connect(boxes.get(crossing.from)!, crossing.outlet, outlet, 0);
   });
 
   return patch.toString();

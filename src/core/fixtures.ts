@@ -190,8 +190,9 @@ export const shapers: PatchDocument = settle({
 });
 
 /**
- * An oscillator with nothing between it and the output. It must be heard only while a key
- * is held: before any note the voice's pitch is 0, which would tick at 8 Hz.
+ * An oscillator with nothing between it and the output: a drone. Every voice sounds all
+ * the time, on middle C until it gets a note (not on pitch 0, which would tick at 8 Hz)
+ * and on its last note after that.
  */
 export const bareOscillator: PatchDocument = {
   version: DOCUMENT_VERSION,
@@ -206,9 +207,8 @@ export const bareOscillator: PatchDocument = {
 };
 
 /**
- * Every effect inside the voices, behind an oscillator with no Amp. The voices have to be
- * silent before the first note, and after the last one once the echoes have rung out: the
- * oscillators never stop, so they must not go on feeding the effects.
+ * Every effect inside the voices, behind an oscillator with no Amp: a drone through
+ * effects, each voice with its own.
  */
 export const voiceEffects: PatchDocument = settle({
   version: DOCUMENT_VERSION,
@@ -444,7 +444,9 @@ export const scoped: PatchDocument = settle({
 
 /**
  * A sound file played from the keys, mixed with the same sound scanned by an LFO through a
- * Play Head. A second Play Head reads a blank tape, so both kinds of sample are loaded.
+ * Play Head, which an Amp lets through while the Player plays (its Playing output), since
+ * nothing else would stop it. A second Play Head reads a blank tape, so both kinds of
+ * sample are loaded.
  * The file is the tone in the fixture's golden folder: a quarter of a second of 441 Hz.
  */
 export const sampler: PatchDocument = settle({
@@ -459,11 +461,15 @@ export const sampler: PatchDocument = settle({
     { id: "ge5", type: "voice-sum", x: 6, y: 0, params: {} },
     { id: "ge6", type: "audio-out", x: 7, y: 0, params: {} },
     { id: "ge7", type: "sample-head", x: 4, y: 3, params: { sample: 1 } },
+    { id: "ge8", type: "amp", x: 4, y: 5, params: {} },
   ],
   cables: [
     { from: { module: "ge1", port: "out" }, to: { module: "ge4", port: "in1" } },
     { from: { module: "ge2", port: "uni" }, to: { module: "ge3", port: "position" } },
-    { from: { module: "ge3", port: "out" }, to: { module: "ge4", port: "in2" } },
+    // The Play Head never stops by itself: the Amp lets it through while the Player plays.
+    { from: { module: "ge3", port: "out" }, to: { module: "ge8", port: "in" } },
+    { from: { module: "ge1", port: "playing" }, to: { module: "ge8", port: "cv" } },
+    { from: { module: "ge8", port: "out" }, to: { module: "ge4", port: "in2" } },
     { from: { module: "ge4", port: "out" }, to: { module: "ge5", port: "in" } },
     { from: { module: "ge5", port: "out" }, to: { module: "ge6", port: "left" } },
   ],

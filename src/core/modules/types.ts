@@ -113,18 +113,6 @@ export interface ModuleDef {
    */
   normalled?: [from: string, to: string][];
   /**
-   * While this module's first output is above zero, its voice keeps sounding after the
-   * key is let go: an envelope's release. With the id of an output, it is that output
-   * that holds the voice (a Sample Player's Playing). See `emitVoice`.
-   */
-  holdsVoice?: boolean | string;
-  /**
-   * The module goes on sounding after its input has stopped: a delay, a reverb. Inside a
-   * voice it is fed only while the voice is playing, and the voice is heard until the
-   * module has rung out. See `emitVoice`.
-   */
-  tail?: boolean;
-  /**
    * How the module uses its sample, where that matters to the patch as a whole: `writes`
    * for the one module that may record onto a sample (a Recorder), `follows` for one that
    * plays from where the recording is (a Tape Head) and so needs something to record it.

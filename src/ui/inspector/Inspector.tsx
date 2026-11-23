@@ -156,7 +156,11 @@ function PatchInspector() {
       </section>
       {/* The width of the pane, like what a module's pane says of the module. */}
       <section className="inspector-doc">
-        <p>Each voice runs its own copy of the modules. Modules placed after a Voice Sum run once for all voices.</p>
+        <p>
+          Each voice runs its own copy of the modules, all the time: an oscillator sounds whether or not a key is down, on middle C
+          until its voice gets a note. An Amp with an envelope gives notes a beginning and an end. Modules placed after a Voice Sum
+          run once for all voices.
+        </p>
       </section>
 
       {diagnostics.length > 0 && (

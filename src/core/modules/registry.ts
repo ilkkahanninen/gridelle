@@ -231,7 +231,6 @@ const effect = (type: string, name: string, params: ParamDef[], outputs: PortDef
     params,
     pd: `ge-${type}`,
     scope: "voice",
-    tail: true,
   };
 };
 
@@ -318,7 +317,7 @@ const DEFS: ModuleDef[] = [
   },
   {
     // Plays its sample from a trigger. Middle C is the sample as recorded. Once plays to
-    // the end whatever the key does, and holds its voice until then; Loop goes round.
+    // the end whatever the key does; Loop goes round.
     type: "sample-player",
     name: "Sample Player",
     category: "sample",
@@ -349,7 +348,6 @@ const DEFS: ModuleDef[] = [
     pd: "ge-sample-player",
     scope: "voice",
     layout: "rows",
-    holdsVoice: "playing",
   },
   {
     // The sample at the position patched in, 0 to 1 and round again: for scrubbing with
@@ -532,7 +530,6 @@ const DEFS: ModuleDef[] = [
     ],
     pd: "ge-env-adsr",
     scope: "voice",
-    holdsVoice: true,
   },
   {
     // How loud its input is, as a modulation signal: the rms level, times Level. Smooth is

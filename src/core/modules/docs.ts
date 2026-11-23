@@ -48,7 +48,7 @@ export const MODULE_DOCS: Record<string, string> = {
 
   // Envelopes
   "env-adsr":
-    "An envelope from 0 to 1 that starts when Gate goes on. Attack is the time to rise, Decay the time to fall to Sustain, and Release the time to fall to 0 after the key. A voice keeps sounding until it has ended. The inputs are read when a stage starts.",
+    "An envelope from 0 to 1 that starts when Gate goes on. Attack is the time to rise, Decay the time to fall to Sustain, and Release the time to fall to 0 after the key. Into an Amp, it gives a note its beginning and end. The inputs are read when a stage starts.",
   follower:
     "Follows how loud In is and gives that as a signal: about 0.7 for a full-level sine. Smooth is how slowly it follows, and Level scales the result.",
 
