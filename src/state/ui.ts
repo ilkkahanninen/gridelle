@@ -15,10 +15,10 @@ export interface CableDrag {
 }
 
 /** The panes that open at the sides of the window from the tabs of the top bar. */
-export type SidePaneId = "patches" | "samples" | "organelle";
+export type SidePaneId = "presets" | "samples" | "organelle";
 export type PaneSide = "left" | "right";
 /** Which side each pane opens on. One can be open on each side. */
-export const PANE_SIDE: Record<SidePaneId, PaneSide> = { patches: "left", samples: "right", organelle: "right" };
+export const PANE_SIDE: Record<SidePaneId, PaneSide> = { presets: "left", samples: "right", organelle: "right" };
 
 interface UiState {
   view: View;
@@ -49,7 +49,8 @@ export const useUi = create<UiState>((set) => ({
   cableDrag: null,
   knobPage: 0,
   assigning: null,
-  sidePanes: { left: null, right: null },
+  // The editor starts with the presets to pick from.
+  sidePanes: { left: "presets", right: null },
   setView: (view) => set({ view }),
 }));
 

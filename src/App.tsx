@@ -1,9 +1,10 @@
 import { useEffect } from "react";
-import { exportToOrganelle, newPatch, openPatch, savePatch, sendToOrganelle } from "./state/actions";
+import { exportToOrganelle, newPatch, savePatch, sendToOrganelle } from "./state/actions";
+import { startPresets } from "./state/presets";
 import { cancelAssign } from "./state/assign";
 import { startPreviewSync } from "./state/preview";
 import { useEditor } from "./state/store";
-import { useUi } from "./state/ui";
+import { showSidePane, useUi } from "./state/ui";
 import { GridCanvas } from "./ui/canvas/GridCanvas";
 import { Palette } from "./ui/palette/Palette";
 import { Dock } from "./ui/shell/Dock";
@@ -27,10 +28,11 @@ function useShortcuts() {
 
       if (command && key === "s") {
         e.preventDefault();
-        void savePatch(e.shiftKey);
+        void savePatch();
       } else if (command && key === "o") {
+        // Opening is picking from the Presets pane.
         e.preventDefault();
-        void openPatch();
+        showSidePane("presets");
       } else if (command && key === "n") {
         e.preventDefault();
         void newPatch();
@@ -80,6 +82,8 @@ function useAssignCancel() {
 
 function App() {
   useEffect(() => startPreviewSync(), []);
+  // The presets that come with the editor are files in the presets folder from its first run on.
+  useEffect(() => void startPresets(), []);
   useShortcuts();
   useAssignCancel();
 

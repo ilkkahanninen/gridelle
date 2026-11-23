@@ -568,6 +568,29 @@ export const grains: PatchDocument = settle({
   samples: [{ kind: "file", path: "tests/golden/grains/ge-sample-a.wav", name: "tone.wav", frames: 11025, sampleRate: 44100 }],
 });
 
+/**
+ * What a new patch starts as, until the user saves a base of their own over it: a saw
+ * through an amp that an envelope opens, into the output. It sounds when a key is pressed,
+ * and every part of it is easy to replace.
+ */
+export const newPatch: PatchDocument = settle({
+  version: DOCUMENT_VERSION,
+  name: "New patch",
+  voices: 4,
+  modules: [
+    { id: "ge1", type: "osc-saw", x: 0, y: 0, params: {} },
+    { id: "ge2", type: "amp", x: 2, y: 0, params: {} },
+    { id: "ge3", type: "env-adsr", x: 0, y: 3, params: {} },
+    { id: "ge4", type: "audio-out", x: 3, y: 0, params: {} },
+  ],
+  cables: [
+    { from: { module: "ge1", port: "out" }, to: { module: "ge2", port: "in" } },
+    { from: { module: "ge3", port: "out" }, to: { module: "ge2", port: "cv" } },
+    { from: { module: "ge2", port: "out" }, to: { module: "ge4", port: "left" } },
+  ],
+  pages: [],
+});
+
 export const fixtures = {
   "basic-synth": basicSynth,
   "shared-filter": sharedFilter,
@@ -584,4 +607,5 @@ export const fixtures = {
   looper,
   "tape-echo": tapeEcho,
   grains,
+  "new-patch": newPatch,
 } as const;

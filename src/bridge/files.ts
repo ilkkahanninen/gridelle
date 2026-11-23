@@ -1,19 +1,45 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
-import { ask, message, open, save } from "@tauri-apps/plugin-dialog";
-import { FILE_EXTENSION } from "../core/model/serialize";
+import { ask, message, open } from "@tauri-apps/plugin-dialog";
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import type { SoundFile } from "./engine";
 
-const FILTERS = [{ name: "Gridelle patch", extensions: [FILE_EXTENSION] }];
-
-/** Ask where to open a patch from. Resolves to `null` if the user cancels. */
-export async function pickPatchToOpen(): Promise<string | null> {
-  const path = await open({ multiple: false, directory: false, filters: FILTERS });
-  return typeof path === "string" ? path : null;
+/** A preset the user has saved: its name, which is its file's name without the ending, and where it is. */
+export interface PresetFile {
+  name: string;
+  path: string;
 }
 
-/** Ask where to save a patch. Resolves to `null` if the user cancels. */
-export async function pickPatchSavePath(suggestedName: string): Promise<string | null> {
-  return save({ defaultPath: `${suggestedName}.${FILE_EXTENSION}`, filters: FILTERS });
+export interface PresetList {
+  /** Where presets are kept: the Gridelle folder in the user's Documents. */
+  dir: string;
+  presets: PresetFile[];
+}
+
+const DESKTOP_ONLY = "Saved presets need the desktop app.";
+
+/** The saved presets, by name. */
+export const listPresets = (): Promise<PresetList> =>
+  isTauri() ? invoke<PresetList>("presets_list") : Promise.reject(DESKTOP_ONLY);
+
+/**
+ * Save a preset under `name` (see `presetFileName`). Resolves to the file's path. Rejects
+ * with `"exists"` when there is a preset of that name already and `overwrite` is false.
+ */
+export const savePreset = (name: string, contents: string, overwrite: boolean): Promise<string> =>
+  isTauri() ? invoke<string>("preset_save", { name, contents, overwrite }) : Promise.reject(DESKTOP_ONLY);
+
+export const deletePreset = (path: string) => invoke<void>("preset_delete", { path });
+
+/**
+ * Write the presets that come with the editor into the presets folder: each once ever, so
+ * that one the user has deleted since stays deleted. Nothing happens outside the desktop app.
+ */
+export const seedPresets = (examples: { name: string; contents: string }[]): Promise<void> =>
+  isTauri() ? invoke<void>("presets_seed", { examples }) : Promise.resolve();
+
+/** Show the folder the presets are in, in the file manager. It is made if it is not there yet. */
+export async function showPresetFolder(): Promise<void> {
+  await revealItemInDir(await invoke<string>("presets_folder"));
 }
 
 /** Ask for the folder to export into, e.g. the `Patches` folder of the Organelle's USB drive. */
@@ -27,7 +53,6 @@ export async function pickExportFolder(): Promise<string | null> {
 }
 
 export const readTextFile = (path: string) => invoke<string>("read_text_file", { path });
-export const writeTextFile = (path: string, contents: string) => invoke<void>("write_text_file", { path, contents });
 
 /**
  * Write a patch folder named `folder` inside `parent`, with the sound files the patch

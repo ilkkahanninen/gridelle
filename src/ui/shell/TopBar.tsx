@@ -43,14 +43,17 @@ export function TopBar() {
 
   return (
     <header className="topbar">
-      <SidePaneTabs side="left" />
+      <div className="topbar-side">
+        <SidePaneTabs side="left" />
+      </div>
       <div className="topbar-title">
         <strong>{name || "Untitled"}</strong>
         {unsaved && <span className="topbar-unsaved" title="Unsaved changes" aria-label="Unsaved changes" />}
       </div>
-      <div className="topbar-spacer" />
-      <EngineStatus />
-      <SidePaneTabs side="right" />
+      <div className="topbar-side topbar-side-right">
+        <EngineStatus />
+        <SidePaneTabs side="right" />
+      </div>
     </header>
   );
 }

@@ -1,6 +1,7 @@
 pub mod engine;
 pub mod samples;
 pub mod organelle;
+pub mod presets;
 
 use std::collections::HashMap;
 
@@ -93,9 +94,42 @@ fn read_text_file(path: String) -> Result<String, String> {
     std::fs::read_to_string(&path).map_err(|e| e.to_string())
 }
 
+/// Where the user's presets are kept: a Gridelle folder in their Documents.
+fn presets_dir(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    let documents = app.path().document_dir().map_err(|e| format!("The Documents folder could not be found ({e})."))?;
+    Ok(documents.join("Gridelle"))
+}
+
+/// The saved presets, and the directory they are in.
 #[tauri::command(async)]
-fn write_text_file(path: String, contents: String) -> Result<(), String> {
-    std::fs::write(&path, contents).map_err(|e| e.to_string())
+fn presets_list(app: AppHandle) -> Result<presets::Presets, String> {
+    presets::list(&presets_dir(&app)?)
+}
+
+/// Save a preset under `name` and answer its path. Fails with "exists" when there is one
+/// of that name already, unless `overwrite` is set.
+#[tauri::command(async)]
+fn preset_save(app: AppHandle, name: String, contents: String, overwrite: bool) -> Result<String, String> {
+    presets::save(&presets_dir(&app)?, &name, &contents, overwrite)
+}
+
+/// Write the presets that come with the editor into the presets directory: each once ever.
+#[tauri::command(async)]
+fn presets_seed(app: AppHandle, examples: Vec<presets::Example>) -> Result<(), String> {
+    presets::seed(&presets_dir(&app)?, &examples)
+}
+
+/// The presets directory, made if it is not there: for showing it in the file manager.
+#[tauri::command(async)]
+fn presets_folder(app: AppHandle) -> Result<String, String> {
+    let dir = presets_dir(&app)?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("The folder {} could not be made ({e}).", dir.display()))?;
+    Ok(dir.to_string_lossy().into_owned())
+}
+
+#[tauri::command(async)]
+fn preset_delete(app: AppHandle, path: String) -> Result<(), String> {
+    presets::delete(&presets_dir(&app)?, &path)
 }
 
 /// A single path component made only of characters that are safe in a patch folder.
@@ -184,8 +218,12 @@ pub fn run() {
             engine_peak,
             engine_scope,
             sample_info,
+            presets_list,
+            preset_save,
+            preset_delete,
+            presets_folder,
+            presets_seed,
             read_text_file,
-            write_text_file,
             export_patch,
             organelle_send
         ])

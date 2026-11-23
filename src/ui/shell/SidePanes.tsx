@@ -2,7 +2,7 @@ import type { ComponentType } from "react";
 import { PANE_SIDE, useUi, type PaneSide, type SidePaneId } from "../../state/ui";
 import { SamplesPane } from "../samples/SamplesPane";
 import { OrganellePane } from "./OrganellePane";
-import { PatchesPane } from "./PatchesPane";
+import { PresetsPane } from "./PresetsPane";
 
 /**
  * A pane that opens at one side of the window, from a tab in the top bar above it. To add
@@ -16,7 +16,7 @@ interface SidePane {
 }
 
 export const SIDE_PANES: SidePane[] = [
-  { id: "patches", label: "Patches", Pane: PatchesPane },
+  { id: "presets", label: "Presets", Pane: PresetsPane },
   { id: "samples", label: "Samples", Pane: SamplesPane },
   { id: "organelle", label: "Organelle", Pane: OrganellePane },
 ];

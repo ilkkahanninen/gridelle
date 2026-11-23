@@ -29,6 +29,16 @@ The engine test against a real audio device is opt-in (it plays at -40 dB):
 cd src-tauri && cargo test --test engine_audio -- --ignored
 ```
 
+## Presets
+
+Patches are opened and saved in the Presets pane (the tab at the top left). **Save** (⌘S)
+writes the patch as `<its name>.gridelle` in the `Gridelle` folder of your Documents, and the
+pane lists what is there; a click opens one. The first time it runs, Gridelle puts a few
+presets of its own in that folder. They are yours from then on: change them, or delete
+them, and they stay deleted. **New patch** (⌘N) starts from the preset of that name; save a
+patch of your own over it to have new patches start from that instead. To bring in a patch
+saved elsewhere, copy its file into the folder ("Show folder" in the pane).
+
 ## Send over Wi-Fi
 
 With the Organelle on the same network and its web server running, **Send to Organelle**

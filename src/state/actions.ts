@@ -1,11 +1,14 @@
 import * as files from "../bridge/files";
+import type { PresetFile } from "../bridge/files";
 import { sendPatch, type SendReport } from "../bridge/organelle";
 import { compile } from "../core/compiler";
 import { settle } from "../core/model/ops";
 import { exportFolderName, parseDocument, serializeDocument } from "../core/model/serialize";
-import { emptyDocument } from "../core/model/types";
 import { abstractionLibrary } from "../core/pdlib";
+import { newPatch as builtInNewPatch } from "../core/fixtures";
+import { NEW_PATCH_NAME, presetFileName } from "../core/presets";
 import { useOrganelle } from "./organelle";
+import { refreshPresets, usePresets } from "./presets";
 import { hasUnsavedChanges, useEditor } from "./store";
 import { showSidePane } from "./ui";
 
@@ -18,34 +21,83 @@ async function mayDiscard(): Promise<boolean> {
   return files.confirm(`“${state.doc.name}” has unsaved changes. Discard them?`, "Discard changes");
 }
 
-export async function newPatch(): Promise<void> {
-  if (await mayDiscard()) useEditor.getState().load(emptyDocument(), null);
-}
-
-export async function openPatch(): Promise<void> {
+/**
+ * Open a preset. The one that new patches are copies of opens as such a copy, saved
+ * nowhere: saving it then asks before it replaces that preset.
+ */
+export async function openPreset(preset: PresetFile): Promise<void> {
   if (!(await mayDiscard())) return;
-  const path = await files.pickPatchToOpen();
-  if (!path) return;
   try {
     // A patch from an older build may have tiles that overlap now that some modules are larger.
-    useEditor.getState().load(settle(parseDocument(await files.readTextFile(path))), path);
+    const doc = settle(parseDocument(await files.readTextFile(preset.path)));
+    useEditor.getState().load(doc, preset.name === NEW_PATCH_NAME ? null : preset.path);
   } catch (e) {
-    await files.showError(`Could not open the patch. ${text(e)}`);
+    await files.showError(`Could not open the preset. ${text(e)}`);
   }
 }
 
-export async function savePatch(saveAs = false): Promise<void> {
+/**
+ * Start a new patch: a copy of the "New patch" preset, or of the one the editor comes
+ * with when that preset is not there or cannot be read.
+ */
+export async function newPatch(): Promise<void> {
+  if (!(await mayDiscard())) return;
+  const base = usePresets.getState().saved.find((preset) => preset.name === NEW_PATCH_NAME);
+  let doc = builtInNewPatch;
+  if (base) {
+    try {
+      doc = settle(parseDocument(await files.readTextFile(base.path)));
+    } catch {
+      // The built-in one, then.
+    }
+  }
+  useEditor.getState().load(doc, null);
+}
+
+/** The name a file was saved under: the last part of its path, without the ending. */
+const savedName = (path: string) =>
+  path
+    .slice(Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\")) + 1)
+    .replace(/\.[^.]*$/, "")
+    .normalize("NFC");
+
+/**
+ * Save the patch among the presets, in a file named after it. Saving the preset that is
+ * open, under the name it has, just writes it. A name that another preset has asks first.
+ * A patch that was renamed since it was opened is saved as a new preset beside the old.
+ */
+export async function savePatch(): Promise<void> {
   const { doc, filePath, markSaved } = useEditor.getState();
-  const path = (!saveAs && filePath) || (await files.pickPatchSavePath(exportFolderName(doc.name)));
-  if (!path) return;
+  const name = presetFileName(doc.name);
+  const contents = serializeDocument(doc);
   try {
-    await files.writeTextFile(path, serializeDocument(doc));
+    let path: string;
+    try {
+      path = await files.savePreset(name, contents, filePath !== null && savedName(filePath) === name);
+    } catch (e) {
+      if (text(e) !== "exists") throw e;
+      if (!(await files.confirm(`A preset named “${name}” is already saved. Replace it?`, "Replace"))) return;
+      path = await files.savePreset(name, contents, true);
+    }
     // Only mark saved if the document did not change while the file was being written.
     if (useEditor.getState().doc === doc) markSaved(path);
     else useEditor.setState({ filePath: path, savedDoc: doc });
+    await refreshPresets();
   } catch (e) {
-    await files.showError(`Could not save the patch. ${text(e)}`);
+    await files.showError(`Could not save the preset. ${text(e)}`);
   }
+}
+
+/** Delete a saved preset, after asking. If it is the one that is open, the patch stays, saved nowhere. */
+export async function deletePreset(preset: PresetFile): Promise<void> {
+  if (!(await files.confirm(`Delete the preset “${preset.name}”? Its file is removed from the presets folder.`, "Delete"))) return;
+  try {
+    await files.deletePreset(preset.path);
+    if (useEditor.getState().filePath === preset.path) useEditor.setState({ filePath: null });
+  } catch (e) {
+    await files.showError(text(e));
+  }
+  await refreshPresets();
 }
 
 /** Compile the patch and write it as an Organelle patch folder. */
