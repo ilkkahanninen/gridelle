@@ -236,6 +236,38 @@ input {
   text-decoration: underline;
 }
 
+/*
+ * A name that reads as a heading and can be typed over: a module's or the patch's. It
+ * shows as a field when it is pointed at or in use. Its placeholder is what the thing
+ * is called without a name of its own, so it reads as the name too.
+ */
+.heading-field {
+  min-width: 0;
+  padding: 2px 6px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: none;
+  font-size: 16px;
+  font-weight: 600;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.heading-field::placeholder {
+  color: var(--text);
+  opacity: 1;
+}
+
+.heading-field:hover,
+.heading-field:focus {
+  border-color: var(--line-strong);
+  background: var(--surface);
+}
+
+.heading-field:focus::placeholder {
+  color: var(--text-dim);
+}
+
 /* Top bar */
 
 /* The patch's name in the middle of the window, whatever stands either side of it. */
@@ -260,20 +292,40 @@ input {
   justify-content: flex-end;
 }
 
+/*
+ * The patch's name, as wide as its text so that it stays in the middle: the field shares
+ * a grid cell with an unseen copy of the text, which is what gives the cell its width.
+ */
 .topbar-title {
   position: relative;
-  display: flex;
+  display: inline-grid;
   align-items: center;
   min-width: 0;
-  max-width: 320px;
-  font-size: 16px;
+  max-width: 420px;
+  /* No taller than the tabs beside it, which give the bar its height. */
+  height: 24px;
 }
 
-.topbar-title strong {
-  font-weight: 600;
+.topbar-title::before {
+  content: attr(data-text);
+  grid-area: 1 / 1;
+  visibility: hidden;
+  white-space: pre;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  padding: 0 8px;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 24px;
+}
+
+.topbar-title input {
+  grid-area: 1 / 1;
+  /* The cell's width is the text's: the field has none of its own to add. */
+  width: 100%;
+  min-width: 0;
+  height: 24px;
+  padding-block: 0;
+  text-align: center;
 }
 
 /* Beside the name, not part of what is centred: the name does not move when it appears. */

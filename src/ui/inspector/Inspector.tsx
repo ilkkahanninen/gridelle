@@ -64,7 +64,7 @@ function ModuleInspector({ module, def }: { module: ModuleInstance; def: ModuleD
         <span className="inspector-swatch" />
         {/* The module's name: its type's until it is given one of its own. */}
         <input
-          className="inspector-name"
+          className="heading-field inspector-name"
           type="text"
           aria-label="Module name"
           value={module.name ?? ""}
@@ -127,19 +127,19 @@ function PatchInspector() {
   return (
     <>
       <header className="inspector-title">
-        <h2>Patch</h2>
+        {/* The patch's name, to type over like a module's. */}
+        <input
+          className="heading-field inspector-name inspector-name-patch"
+          type="text"
+          aria-label="Patch name"
+          value={name}
+          placeholder="Untitled"
+          maxLength={40}
+          spellCheck={false}
+          onChange={(e) => apply((doc) => ({ ...doc, name: e.target.value }), "patch-name")}
+        />
       </header>
       <section>
-        <label className="inspector-field">
-          <span>Name</span>
-          <input
-            type="text"
-            value={name}
-            maxLength={40}
-            spellCheck={false}
-            onChange={(e) => apply((doc) => ({ ...doc, name: e.target.value }), "patch-name")}
-          />
-        </label>
         <label className="inspector-field">
           <span>Voices</span>
           <input
@@ -153,9 +153,10 @@ function PatchInspector() {
             }}
           />
         </label>
-        <p className="inspector-note">
-          Each voice runs its own copy of the modules. Modules placed after a Voice Sum run once for all voices.
-        </p>
+      </section>
+      {/* The width of the pane, like what a module's pane says of the module. */}
+      <section className="inspector-doc">
+        <p>Each voice runs its own copy of the modules. Modules placed after a Voice Sum run once for all voices.</p>
       </section>
 
       {diagnostics.length > 0 && (

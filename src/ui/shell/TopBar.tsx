@@ -40,14 +40,28 @@ function EngineStatus() {
 export function TopBar() {
   const name = useEditor((s) => s.doc.name);
   const unsaved = useEditor(hasUnsavedChanges);
+  const apply = useEditor((s) => s.apply);
 
   return (
     <header className="topbar">
       <div className="topbar-side">
         <SidePaneTabs side="left" />
       </div>
-      <div className="topbar-title">
-        <strong>{name || "Untitled"}</strong>
+      <div className="topbar-title" data-text={name || "Untitled"}>
+        <input
+          className="heading-field"
+          type="text"
+          aria-label="Patch name"
+          value={name}
+          placeholder="Untitled"
+          size={1}
+          maxLength={40}
+          spellCheck={false}
+          onChange={(e) => apply((doc) => ({ ...doc, name: e.target.value }), "patch-name")}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === "Escape") e.currentTarget.blur();
+          }}
+        />
         {unsaved && <span className="topbar-unsaved" title="Unsaved changes" aria-label="Unsaved changes" />}
       </div>
       <div className="topbar-side topbar-side-right">
