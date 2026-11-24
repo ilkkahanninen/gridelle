@@ -1,0 +1,11 @@
+#N canvas 0 0 420 240 12;
+#X obj 30 20 inlet~;
+#X obj 30 160 outlet~;
+#X obj 140 70 *~ 0.5;
+#X obj 140 100 +~ 0.5;
+#X obj 140 160 outlet~;
+#X text 30 200 Inlet: the voice's place among its note's voices \, from the voice. Outlets: that place from -1 to 1 - and from 0 to 1.;
+#X connect 0 0 1 0;
+#X connect 0 0 2 0;
+#X connect 2 0 3 0;
+#X connect 3 0 4 0;

@@ -1,7 +1,7 @@
 //! Plays the helpers behind the voices' settings in real Pd: `ge-mono`, which picks one note
-//! at a time from the held keys (by priority, legato or not), `ge-unison`, which sends a note
-//! on to each of its voices, and `ge-voice`, which takes a legato note without starting the
-//! gate again and detunes itself by its share of Detune.
+//! at a time from the held keys (by priority, legato or not), `ge-voice`, which takes a
+//! legato note without starting the gate again, and `ge-unison-place`, which gives a unison
+//! group's copy its place among the copies, for a Unison Index.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -127,34 +127,21 @@ fn mono(pd: &mut Pd, dir: &Path, events: &Receiver<PdEvent>) {
     println!("ge-mono: last, lowest and highest, back to a held key, legato only after a note");
 }
 
-fn unison(pd: &mut Pd, dir: &Path, events: &Receiver<PdEvent>) {
-    let patch = open(pd, dir, &["r t-in", "ge-unison 3", "s t-out"], &[[0, 0, 1, 0], [1, 0, 2, 0]]);
-    sent(events);
-    pd.send_list("t-in", &floats(&[1.0, 60.0, 100.0, 1.0]));
-    assert_eq!(sent(events), vec![vec![3.0, 60.0, 100.0, 1.0], vec![4.0, 60.0, 100.0, 1.0], vec![5.0, 60.0, 100.0, 1.0]]);
-    // A note-off of the first place, as [poly] gives it.
-    pd.send_list("t-in", &floats(&[0.0, 64.0, 0.0, 0.0]));
-    assert_eq!(sent(events), vec![vec![0.0, 64.0, 0.0, 0.0], vec![1.0, 64.0, 0.0, 0.0], vec![2.0, 64.0, 0.0, 0.0]]);
-    pd.close(patch);
-    println!("ge-unison: a note on to each of its voices");
-}
-
 fn voice(pd: &mut Pd, dir: &Path) {
-    // The third of three voices of a note: the pitch on the left, the gate on the right.
-    let patch = open(pd, dir, &["r t-voice", "ge-voice 2 3", "dac~ 1 2"], &[[0, 0, 1, 0], [1, 0, 2, 0], [1, 1, 2, 1]]);
+    // A voice: the pitch on the left, the gate on the right.
+    let patch = open(pd, dir, &["r t-voice", "ge-voice", "dac~ 1 2"], &[[0, 0, 1, 0], [1, 0, 2, 0], [1, 1, 2, 1]]);
     let note = |pd: &mut Pd, values: [f32; 3]| pd.send_list("t-voice", &floats(&values));
-    pd.send_float("ge-detune", 30.0);
     let (pitch, _) = render(pd, 0.02);
-    assert!((pitch.last().unwrap() - 60.3).abs() < 1e-4, "the outermost voice, 30 cents up: {}", pitch.last().unwrap());
+    assert_eq!(*pitch.last().unwrap(), 60.0, "60 until the first note");
 
     note(pd, [64.0, 100.0, 0.0]);
     let (pitch, gate) = render(pd, 0.02);
-    assert!((pitch[0] - 64.3).abs() < 1e-4, "the pitch at once: {}", pitch[0]);
+    assert_eq!(pitch[0], 64.0, "the pitch at once");
     assert!(gate[..60].iter().all(|g| *g == 0.0) && gate[70..].iter().all(|g| *g == 1.0), "the gate on after 1.5 ms");
 
     note(pd, [67.0, 90.0, 1.0]);
     let (pitch, gate) = render(pd, 0.02);
-    assert!((pitch[0] - 67.3).abs() < 1e-4, "legato: the new pitch at once: {}", pitch[0]);
+    assert_eq!(pitch[0], 67.0, "legato: the new pitch at once");
     assert!(gate.iter().all(|g| *g == 1.0), "legato: the gate stays on");
 
     note(pd, [69.0, 90.0, 0.0]);
@@ -164,18 +151,23 @@ fn voice(pd: &mut Pd, dir: &Path) {
     note(pd, [69.0, 0.0, 0.0]);
     let (pitch, gate) = render(pd, 0.02);
     assert!(gate.iter().all(|g| *g == 0.0), "off");
-    assert!((pitch[0] - 69.3).abs() < 1e-4, "the pitch stays after the note");
+    assert_eq!(pitch[0], 69.0, "the pitch stays after the note");
     pd.close(patch);
+    println!("ge-voice: legato keeps the gate on, and anything else starts the note again");
+}
 
-    // The first and the middle voice of three, and a voice with no Unison, which Detune leaves alone.
-    for (args, expected) in [("0 3", 59.5), ("1 3", 60.0), ("0 1", 60.0), ("", 60.0)] {
-        let patch = open(pd, dir, &[&format!("ge-voice {args}"), "dac~ 1 2"], &[[0, 0, 1, 0]]);
-        pd.send_float("ge-detune", 50.0);
-        let (pitch, _) = render(pd, 0.02);
-        assert!((pitch.last().unwrap() - expected).abs() < 1e-4, "ge-voice {args}: {} for {expected}", pitch.last().unwrap());
+/// A unison group's copy's place among the copies (`ge-unison-place`, from the copy's number
+/// and their count), through a Unison Index: from -1 to 1 on the left, 0 to 1 on the right.
+fn place(pd: &mut Pd, dir: &Path) {
+    for (args, expected) in [("0 3", -1.0), ("1 3", 0.0), ("2 3", 1.0), ("1 4", -1.0 / 3.0), ("3 4", 1.0), ("0 1", 0.0), ("", 0.0)] {
+        let patch = open(pd, dir, &[&format!("ge-unison-place {args}"), "ge-unison-index t1", "dac~ 1 2"], &[[0, 0, 1, 0], [1, 0, 2, 0], [1, 1, 2, 1]]);
+        let (place, unipolar) = render(pd, 0.02);
+        let (place, unipolar) = (*place.last().unwrap(), *unipolar.last().unwrap());
+        assert!((place - expected).abs() < 1e-6, "ge-unison-place {args}: {place} for {expected}");
+        assert!((unipolar - (expected + 1.0) / 2.0).abs() < 1e-6, "ge-unison-place {args}: 0-1 gives {unipolar}");
         pd.close(patch);
     }
-    println!("ge-voice: legato keeps the gate on; voices spread over plus and minus Detune");
+    println!("ge-unison-place: the copies evenly from -1 to 1, one alone in the middle");
 }
 
 #[test]
@@ -189,8 +181,8 @@ fn the_voices_play_notes_as_they_are_set_to() {
     events.try_iter().for_each(drop);
 
     mono(&mut pd, &dir, &events);
-    unison(&mut pd, &dir, &events);
     voice(&mut pd, &dir);
+    place(&mut pd, &dir);
 
     pd.unbind(out);
     drop(pd);

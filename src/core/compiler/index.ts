@@ -1,11 +1,13 @@
 import type { ModuleId, PatchDocument } from "../model/types";
-import { KEYBOARD_ABSTRACTION, MONO_ABSTRACTION, UNISON_ABSTRACTION, VOICE_ABSTRACTION } from "../modules/registry";
+import { KEYBOARD_ABSTRACTION, MONO_ABSTRACTION, PLACE_ABSTRACTION, VOICE_ABSTRACTION } from "../modules/registry";
 import { objectClasses } from "../pd/inspect";
 import { isPdObject } from "../pd/vanilla049";
 import { analyze, type Diagnostic } from "./analyze";
 import {
+  emitGroup,
   emitMain,
   emitVoice,
+  groupFile,
   paramValues,
   SAMPLE_FILE_ABSTRACTION,
   SAMPLE_TAPE_ABSTRACTION,
@@ -96,10 +98,13 @@ export function compile(doc: PatchDocument, library: AbstractionLibrary): Compil
     [
       VOICE_ABSTRACTION,
       ...(analysis.voicing.mode === "mono" ? [MONO_ABSTRACTION] : []),
-      ...(analysis.voicing.unison > 1 ? [UNISON_ABSTRACTION] : []),
       ...analysis.modules.map((m) => m.def.pd),
+      // A Unison Index in a group gets its copy's place from a helper.
+      ...(analysis.modules.some((m) => m.def.voiceInlets?.includes("unison") && analysis.groups.some((g) => g.group.id === m.container))
+        ? [PLACE_ABSTRACTION]
+        : []),
       ...(usesKnobs(analysis) ? [KNOB_ABSTRACTION] : []),
-      ...(analysis.precords.some((p) => analysis.modules.find((m) => m.instance.id === p.to)?.scope === "global") ? [KEYBOARD_ABSTRACTION] : []),
+      ...(analysis.keyboard ? [KEYBOARD_ABSTRACTION] : []),
       ...analysis.samples.flatMap(({ table, wave }) => [
         ...(table ? [table.kind === "file" ? SAMPLE_FILE_ABSTRACTION : SAMPLE_TAPE_ABSTRACTION] : []),
         ...(wave && wave !== "silent" ? [WAVE_FILE_ABSTRACTION] : []),
@@ -124,6 +129,8 @@ export function compile(doc: PatchDocument, library: AbstractionLibrary): Compil
   const files: Record<string, string> = {
     [ENTRY_FILE]: emitMain(doc, analysis),
     [VOICE_FILE]: emitVoice(analysis),
+    // A unison group's copies, from a file of their own.
+    ...Object.fromEntries(analysis.groups.map((group) => [`${groupFile(group.group.id)}.pd`, emitGroup(analysis, group)])),
   };
   for (const name of needed) files[`${name}.pd`] = library[name];
 

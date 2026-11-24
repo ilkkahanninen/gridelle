@@ -6,13 +6,13 @@
 
 import { getModuleDef } from "../modules/registry";
 import { clampParam } from "../modules/params";
-import { AREA_BORDER, interior, isVoiceNotes, overlaps, placementOf, tileArea } from "./area";
+import { AREA_BORDER, containerAt, containerOf, contains, groupParent, groupsOf, interior, isVoiceNotes, MAIN, overlaps, tileArea } from "./area";
+import { AREA, Boxes, holderOf, layoutAllowed, TOP, type Way } from "./layout";
 import { DEFAULT_BANK, wavetableBank } from "../wavetables/banks";
 import type { ModuleDef, PortDef } from "../modules/types";
 import {
   KNOBS_PER_PAGE,
   MAX_CYCLE,
-  MAX_DETUNE,
   MAX_VOICES,
   MIN_VOICES,
   NOTE_PRIORITIES,
@@ -32,6 +32,10 @@ import {
   type PatchDocument,
   type PortRef,
   type SampleSlot,
+  type UnisonGroup,
+  DEFAULT_UNISON,
+  MAX_UNISON,
+  MIN_UNISON,
 } from "./types";
 
 export interface Cell {
@@ -45,21 +49,16 @@ type Rect = Area;
 const rectOf = tileArea;
 
 /**
- * Whether a module of `def` may have its tile on these cells as far as the voice area goes:
- * wholly in it or wholly out of it, and out of it for a module that runs once.
+ * Whether a module of `def` may have its tile on these cells as far as the containers go:
+ * wholly in or wholly out of the voice area and of every unison group, and out of all of
+ * them for a module that runs once.
  */
-function allowedAt(doc: Pick<PatchDocument, "voiceArea">, def: ModuleDef, rect: Rect): boolean {
-  const where = placementOf(doc.voiceArea, rect);
-  return where !== "across" && !(where === "inside" && def.place === "outside");
+function allowedAt(doc: Pick<PatchDocument, "voiceArea" | "groups">, def: ModuleDef, rect: Rect): boolean {
+  const at = containerAt(doc, rect);
+  return at !== null && !(at !== MAIN && def.place === "outside");
 }
 
-/** Whether a module's tile lies in the voice area. */
-const isInside = (doc: Pick<PatchDocument, "voiceArea" | "cables">, module: ModuleInstance) => {
-  const rect = rectOf(doc, module);
-  return !!rect && placementOf(doc.voiceArea, rect) === "inside";
-};
-
-/** True when `rect` is free of every module except those in `ignore`. */
+/** True when `rect` is free of every module except those in `ignore`. Groups are not tiles: see `allowedAt`. */
 function isFree(doc: PatchDocument, rect: Rect, ignore: ReadonlySet<ModuleId> = new Set()): boolean {
   return doc.modules.every((m) => {
     if (ignore.has(m.id)) return true;
@@ -68,9 +67,9 @@ function isFree(doc: PatchDocument, rect: Rect, ignore: ReadonlySet<ModuleId> = 
   });
 }
 
-/** The `count` smallest unused `ge<n>` ids. */
+/** The `count` smallest unused `ge<n>` ids. Modules and unison groups share them. */
 function freeIds(doc: PatchDocument, count: number): ModuleId[] {
-  const used = new Set(doc.modules.map((m) => m.id));
+  const used = new Set([...doc.modules.map((m) => m.id), ...groupsOf(doc).map((g) => g.id)]);
   const ids: ModuleId[] = [];
   for (let n = 1; ids.length < count; n++) if (!used.has(`ge${n}`)) ids.push(`ge${n}`);
   return ids;
@@ -138,7 +137,7 @@ function place(doc: PatchDocument, id: ModuleId, type: string, at: Cell): PatchD
 
 /**
  * Whether the modules `ids` can all shift by `delta` without landing on another module, or
- * across the edge of the voice area. A module may move into the voices or out of them.
+ * across the edge of the voice area or a unison group. A module may move into either or out.
  */
 export function canMove(doc: PatchDocument, ids: ReadonlySet<ModuleId>, delta: Cell): boolean {
   return doc.modules.every((m) => {
@@ -164,8 +163,11 @@ export function moveModules(doc: PatchDocument, ids: ReadonlySet<ModuleId>, delt
  * feeds whatever its first output fed. That undoes `addModuleAtPort`, and it looks
  * through a run of removed modules. Cables on its other ports go with it.
  */
-export function removeModules(doc: PatchDocument, ids: ReadonlySet<ModuleId>): PatchDocument {
-  if (!doc.modules.some((m) => ids.has(m.id))) return doc;
+export function removeModules(doc: PatchDocument, picked: ReadonlySet<ModuleId>): PatchDocument {
+  // A unison group goes with all that is in it.
+  const groups = groupsOf(doc).filter((g) => picked.has(g.id));
+  const ids = new Set([...picked, ...doc.modules.filter((m) => groups.some((g) => containerOf(doc, m) === g.id)).map((m) => m.id)]);
+  if (groups.length === 0 && !doc.modules.some((m) => ids.has(m.id))) return doc;
 
   /** The output that stays and stands in for output `ref` of a removed module, if any. */
   const standIn = (ref: PortRef, seen = new Set<ModuleId>()): PortRef | null => {
@@ -183,6 +185,7 @@ export function removeModules(doc: PatchDocument, ids: ReadonlySet<ModuleId>): P
 
   return {
     ...doc,
+    ...(groups.length > 0 ? { groups: groupsOf(doc).filter((g) => !picked.has(g.id)) } : {}),
     modules: doc.modules.filter((m) => !ids.has(m.id)),
     cables: doc.cables.flatMap((cable) => {
       if (ids.has(cable.to.module)) return [];
@@ -207,6 +210,8 @@ export function removeModules(doc: PatchDocument, ids: ReadonlySet<ModuleId>): P
 export interface Clip {
   modules: ModuleInstance[];
   cables: Cable[];
+  /** The unison groups copied, with what was in them among the modules. */
+  groups?: UnisonGroup[];
 }
 
 /**
@@ -216,16 +221,24 @@ export interface Clip {
  * there is nothing to copy.
  */
 export function copyModules(doc: PatchDocument, ids: ReadonlySet<ModuleId>): Clip | null {
+  // A unison group goes with what is in it.
+  const groups = groupsOf(doc).filter((g) => ids.has(g.id));
   // A module of an unknown type has no tile: it could be neither seen nor placed.
-  const modules = doc.modules.filter((m) => ids.has(m.id) && getModuleDef(m.type));
-  if (modules.length === 0) return null;
+  const modules = doc.modules.filter(
+    (m) => getModuleDef(m.type) && (ids.has(m.id) || groups.some((g) => containerOf(doc, m) === g.id)),
+  );
+  if (modules.length === 0 && groups.length === 0) return null;
   const copied = new Set(modules.map((m) => m.id));
-  return { modules, cables: doc.cables.filter((c) => copied.has(c.from.module) && copied.has(c.to.module)) };
+  return {
+    modules,
+    cables: doc.cables.filter((c) => copied.has(c.from.module) && copied.has(c.to.module)),
+    ...(groups.length > 0 ? { groups } : {}),
+  };
 }
 
-/** A clip's tiles at the size they have once pasted (a mixer copied without its cables is a small one). */
+/** A clip's tiles at the size they have once pasted (a mixer copied without its cables is a small one), and its groups. */
 function clipRects(clip: Clip): Rect[] {
-  return clip.modules.flatMap((m) => rectOf(clip, m) ?? []);
+  return [...clip.modules.flatMap((m) => rectOf(clip, m) ?? []), ...(clip.groups ?? []).map((g) => g.area)];
 }
 
 function boundsOf(rects: Rect[]): Rect {
@@ -255,23 +268,34 @@ export function clipSize(clip: Clip): { width: number; height: number } {
  */
 export function pasteModules(doc: PatchDocument, clip: Clip, near: Cell): { doc: PatchDocument; ids: ModuleId[] } {
   const modules = clip.modules.filter((m) => rectOf(clip, m));
+  const clipGroups = clip.groups ?? [];
   const rects = clipRects(clip);
   if (rects.length === 0) return { doc, ids: [] };
   const bounds = boundsOf(rects);
   const defs = modules.map((m) => getModuleDef(m.type)!);
-  const at = nearestCell(near, (cell) =>
-    rects.every((r, i) => {
-      const there = { ...r, x: r.x - bounds.x + cell.x, y: r.y - bounds.y + cell.y };
-      return isFree(doc, there) && allowedAt(doc, defs[i], there);
-    }),
-  );
+  const moved = (r: Rect, cell: Cell) => ({ ...r, x: r.x - bounds.x + cell.x, y: r.y - bounds.y + cell.y });
+  const at = nearestCell(near, (cell) => {
+    // The groups land on nothing, and the modules where they may be with the groups there.
+    const groups = clipGroups.map((g) => ({ ...g, area: moved(g.area, cell) }));
+    if (!groups.every((g) => canPlaceGroupAt(doc, g.area))) return false;
+    const there = { ...doc, groups: [...groupsOf(doc), ...groups] };
+    return modules.every((m, i) => {
+      const rect = moved(rectOf(clip, m)!, cell);
+      return isFree(doc, rect) && allowedAt(there, defs[i], rect);
+    });
+  });
   if (!at) return { doc, ids: [] };
 
-  const ids = freeIds(doc, modules.length);
+  const fresh = freeIds(doc, modules.length + clipGroups.length);
+  const ids = fresh.slice(0, modules.length);
+  const groupIds = fresh.slice(modules.length);
   const renamed = new Map(modules.map((m, i) => [m.id, ids[i]]));
   return {
     doc: {
       ...doc,
+      ...(clipGroups.length > 0
+        ? { groups: [...groupsOf(doc), ...clipGroups.map((g, i) => ({ ...g, id: groupIds[i], area: moved(g.area, at) }))] }
+        : {}),
       modules: [
         ...doc.modules,
         ...modules.map((m, i) => ({ ...m, id: ids[i], x: m.x - bounds.x + at.x, y: m.y - bounds.y + at.y })),
@@ -285,7 +309,7 @@ export function pasteModules(doc: PatchDocument, clip: Clip, near: Cell): { doc:
         }),
       ],
     },
-    ids,
+    ids: [...ids, ...groupIds],
   };
 }
 
@@ -297,7 +321,7 @@ export function duplicateModules(doc: PatchDocument, ids: ReadonlySet<ModuleId>)
   const clip = copyModules(doc, ids);
   if (!clip) return { doc, ids: [] };
   // Below them as they are here, where a mixer with cables from outside the copy is taller than its copy.
-  const bounds = boundsOf(clip.modules.flatMap((m) => rectOf(doc, m) ?? []));
+  const bounds = boundsOf([...clip.modules.flatMap((m) => rectOf(doc, m) ?? []), ...(clip.groups ?? []).map((g) => g.area)]);
   return pasteModules(doc, clip, { x: bounds.x, y: bounds.y + bounds.height });
 }
 
@@ -342,6 +366,14 @@ function reaches(doc: PatchDocument, from: string, to: string, notes: boolean, n
 /** The node all modules in the voice area are to Pd: one `[clone]`. No module id has a hyphen there. */
 const VOICES_NODE = "ge-voices";
 
+/** The containers a module is in, from the inside out: a unison group, and the voice area. */
+function containersOf(doc: PatchDocument, module: ModuleInstance): string[] {
+  const at = containerOf(doc, module);
+  const group = groupsOf(doc).find((g) => g.id === at);
+  if (group) return groupParent(doc, group) === MAIN ? [group.id] : [group.id, VOICES_NODE];
+  return at !== null && at !== MAIN ? [VOICES_NODE] : [];
+}
+
 /** Why a cable from output `from` to input `to` cannot be made, or `null` if it can. */
 export function connectionProblem(doc: PatchDocument, from: PortRef, to: PortRef): string | null {
   const [output, input] = [portOf(doc, from, "outputs"), portOf(doc, to, "inputs")];
@@ -352,197 +384,143 @@ export function connectionProblem(doc: PatchDocument, from: PortRef, to: PortRef
   // Pd runs the voice area as one object: a way out of it and back in is a loop too. Notes
   // are messages, and go into the voices without taking part in that.
   if (notes) return null;
-  const inside = new Set(doc.modules.filter((m) => isInside(doc, m)).map((m) => m.id));
-  const node = (id: ModuleId) => (inside.has(id) ? VOICES_NODE : id);
-  const [a, b] = [node(from.module), node(to.module)];
-  if (a !== b && reaches(doc, b, a, false, node)) {
-    return "That would make a way out of the voice area and back into it: a feedback loop, since the voices are added up before anything outside them runs.";
+  // Each unison group is one object to Pd too, in the voices or outside them.
+  const within = new Map(doc.modules.map((m) => [m.id, containersOf(doc, m)]));
+  for (const container of [VOICES_NODE, ...groupsOf(doc).map((g) => g.id)]) {
+    const node = (id: ModuleId) => (within.get(id)?.includes(container) ? container : id);
+    const [a, b] = [node(from.module), node(to.module)];
+    if (a !== b && reaches(doc, b, a, false, node)) {
+      return container === VOICES_NODE
+        ? "That would make a way out of the voice area and back into it: a feedback loop, since the voices are added up before anything outside them runs."
+        : "That would make a way out of a unison group and back into it: a feedback loop, since its copies are added up before anything outside it runs.";
+    }
   }
   return null;
 }
-
-/** What `makeRoom` moves as a whole: the voice area, with the tiles in it. */
-const AREA = "area";
 
 /**
  * Move whatever module `id` overlaps to just below it (or just right of it), and whatever
  * those land on in turn. `id` itself stays where it is. Used when a tile has grown, and
  * when one is put into a row of tiles.
  *
- * Tiles in the voice area push only each other, and the area grows to hold them; to the
- * tiles outside it, the area is one big tile, which they push along with what is in it and
- * which pushes them in turn. `inside` says which `id` is (it may lie across the edge now,
- * having just grown or been put there); without it, `id` is in the voices when its top-left
- * cell is.
+ * Tiles push only those in the same container (the patch, the voice area or a unison
+ * group), and a container grows to hold them; to the tiles beside it, a container is one
+ * big tile, which they push along with what is in it and which pushes them in turn (see
+ * `Boxes`). `container` says which `id` is in (it may lie across an edge now, having just
+ * grown or been put there); without it, the one its top-left cell is in.
  */
-export function makeRoom(doc: PatchDocument, id: ModuleId, direction: "down" | "right" = "down", inside?: boolean): PatchDocument {
-  const rects = new Map<string, Rect>();
-  const voices = new Set<string>();
-  const area = { ...doc.voiceArea };
-  const room = () => interior(area);
-  for (const module of doc.modules) {
-    const rect = rectOf(doc, module);
-    if (!rect) continue;
-    rects.set(module.id, { ...rect });
-    const corner = { x: rect.x, y: rect.y, width: 1, height: 1 };
-    const isIn =
-      module.id === id ? (inside ?? placementOf(doc.voiceArea, corner) === "inside") : placementOf(doc.voiceArea, rect) === "inside";
-    if (isIn) voices.add(module.id);
-  }
-  if (!rects.has(id)) return doc;
-  // The area is a tile to the modules outside it. One with no cells is none.
-  const hasArea = doc.voiceArea.width > 0 && doc.voiceArea.height > 0;
-  if (hasArea) rects.set(AREA, area);
-
-  const moved = new Set<string>();
-  const shift = (key: string, x: number, y: number) => {
-    const rect = rects.get(key)!;
-    rect.x += x;
-    rect.y += y;
-    moved.add(key);
-  };
-  const past = (pusher: Rect, other: Rect) =>
-    direction === "down" ? { x: 0, y: pusher.y + pusher.height - other.y } : { x: pusher.x + pusher.width - other.x, y: 0 };
-  /** Grow the area to hold every tile in it: right and down only. Whether it grew. */
-  const fit = () => {
-    let grew = false;
-    for (const key of voices) {
-      const rect = rects.get(key)!;
-      const inner = room();
-      if (rect.x + rect.width > inner.x + inner.width) {
-        area.width += rect.x + rect.width - (inner.x + inner.width);
-        grew = true;
-      }
-      if (rect.y + rect.height > inner.y + inner.height) {
-        area.height += rect.y + rect.height - (inner.y + inner.height);
-        grew = true;
-      }
-    }
-    if (grew) moved.add(AREA);
-    return grew;
-  };
-
-  // A pushed tile ends up past its pusher and can never push it back, and the area only
-  // grows the way things are pushed, so this ends.
-  const pushers: string[] = [id];
-  if (hasArea && voices.has(id) && fit()) pushers.push(AREA);
-  while (pushers.length > 0) {
-    const key = pushers.shift()!;
-    const pusher = rects.get(key)!;
-    const inVoices = voices.has(key);
-    for (const [otherKey, other] of rects) {
-      if (otherKey === id || otherKey === key || voices.has(otherKey) !== inVoices || !overlaps(pusher, other)) continue;
-      const { x, y } = past(pusher, other);
-      shift(otherKey, x, y);
-      // The area takes its tiles with it.
-      if (otherKey === AREA) for (const inner of voices) if (inner !== id) shift(inner, x, y);
-      pushers.push(otherKey);
-    }
-    if (inVoices && hasArea && fit()) pushers.push(AREA);
-  }
-  if (moved.size === 0) return doc;
-  return {
-    ...doc,
-    voiceArea: hasArea ? { x: area.x, y: area.y, width: area.width, height: area.height } : doc.voiceArea,
-    modules: doc.modules.map((m) => (moved.has(m.id) ? { ...m, x: rects.get(m.id)!.x, y: rects.get(m.id)!.y } : m)),
-  };
+export function makeRoom(doc: PatchDocument, id: ModuleId, direction: "down" | "right" = "down", container?: string): PatchDocument {
+  const boxes = new Boxes(doc, { id, parent: container });
+  if (!boxes.rects.has(id) || !boxes.push([{ key: id, ways: [direction] }], new Set([id]))) return doc;
+  return boxes.apply(doc);
 }
 
-/** The smallest the voice area can be: its border around a single cell. */
+/** The smallest the voice area or a unison group can be: its border around a single cell. */
 export const MIN_AREA = { width: 2 * AREA_BORDER + 1, height: 2 * AREA_BORDER + 1 };
 
+/** The voice area, by the key that `moveContainer` and `resizeContainer` take for it. */
+export const VOICE_AREA = AREA;
+
+/** A container's rectangle: the voice area's (`VOICE_AREA`), or a group's by its id. */
+export const containerRect = (doc: PatchDocument, key: string) =>
+  key === AREA ? doc.voiceArea : groupsOf(doc).find((g) => g.id === key)?.area;
+
 /**
- * Move the voice area by `delta`, with the tiles in it. Unchanged when it would land on a
- * tile outside it.
+ * Move a container (`VOICE_AREA`, or a unison group by its id) by `delta`, with what is in
+ * it. Unchanged when it would land on a tile or a group that is not in it, or put a group
+ * across the edge of the voice area. A group may move into the voices or out of them.
  */
-export function moveArea(doc: PatchDocument, delta: Cell): PatchDocument {
-  if (delta.x === 0 && delta.y === 0) return doc;
-  const area = { ...doc.voiceArea, x: doc.voiceArea.x + delta.x, y: doc.voiceArea.y + delta.y };
-  const inside = new Set(doc.modules.filter((m) => isInside(doc, m)).map((m) => m.id));
-  const blocked = doc.modules.some((m) => {
-    const rect = rectOf(doc, m);
-    return !inside.has(m.id) && !!rect && overlaps(area, rect);
-  });
-  if (blocked) return doc;
-  return {
-    ...doc,
-    voiceArea: area,
-    modules: doc.modules.map((m) => (inside.has(m.id) ? { ...m, x: m.x + delta.x, y: m.y + delta.y } : m)),
-  };
-}
-
-type Way = "left" | "right" | "up" | "down";
-
-/** How far `rect` has to move `way` to be clear of `by`. */
-function clearOf(by: Rect, rect: Rect, way: Way): Cell {
-  switch (way) {
-    case "left":
-      return { x: by.x - (rect.x + rect.width), y: 0 };
-    case "right":
-      return { x: by.x + by.width - rect.x, y: 0 };
-    case "up":
-      return { x: 0, y: by.y - (rect.y + rect.height) };
-    case "down":
-      return { x: 0, y: by.y + by.height - rect.y };
+export function moveContainer(doc: PatchDocument, key: string, delta: Cell): PatchDocument {
+  if (delta.x === 0 && delta.y === 0 || !containerRect(doc, key)) return doc;
+  const boxes = new Boxes(doc);
+  if (!boxes.rects.has(key)) return doc;
+  boxes.shift(key, delta);
+  const rect = boxes.rects.get(key)!;
+  for (const [other, box] of boxes.rects) {
+    // The voice area a group is in is checked below: the group may lie in it or outside it.
+    if (!boxes.moved.has(other) && other !== AREA && overlaps(rect, box)) return doc;
   }
+  const next = boxes.apply(doc);
+  return key === AREA || groupParent(next, { area: rect }) !== null ? next : doc;
 }
 
+/** Move the voice area by `delta`, with what is in it: see `moveContainer`. */
+export const moveArea = (doc: PatchDocument, delta: Cell) => moveContainer(doc, AREA, delta);
+
 /**
- * Give the voice area other edges. The tiles outside it that the new edges reach are pushed
- * along with the border, each the shortest of the ways the area grew, and each pushes what
- * it lands on the same way. Unchanged when a tile in the voices would come onto the border
- * or out of the area, or when the area would be smaller than `MIN_AREA`.
+ * Give a container (`VOICE_AREA`, or a unison group by its id) other edges. What is beside
+ * it that the new edges reach is pushed along with the border, each the shortest of the
+ * ways it grew, and pushes what it lands on the same way; a group in the voices that grows
+ * makes the voice area grow too. Unchanged when something in it would come onto the border
+ * or out, when it would be smaller than `MIN_AREA`, or when what is pushed cannot go where
+ * it may be.
  */
-export function resizeArea(doc: PatchDocument, area: Area): PatchDocument {
-  const old = doc.voiceArea;
+export function resizeContainer(doc: PatchDocument, key: string, area: Area): PatchDocument {
+  const old = containerRect(doc, key);
   const next = { x: area.x, y: area.y, width: area.width, height: area.height };
-  const same = (["x", "y", "width", "height"] as const).every((key) => next[key] === old[key]);
+  if (!old) return doc;
+  const same = (["x", "y", "width", "height"] as const).every((k) => next[k] === old[k]);
   if (same || next.width < MIN_AREA.width || next.height < MIN_AREA.height) return doc;
-  const outside = new Map<ModuleId, Rect>();
-  for (const module of doc.modules) {
-    const rect = rectOf(doc, module);
-    if (!rect) continue;
-    if (placementOf(old, rect) !== "inside") outside.set(module.id, { ...rect });
-    else if (placementOf(next, rect) !== "inside") return doc;
-  }
+  const boxes = new Boxes(doc);
+  if (!boxes.rects.has(key)) return doc;
+  for (const child of boxes.childrenOf(key)) if (!contains(interior(next), boxes.rects.get(child)!)) return doc;
   const ways: Way[] = [];
   if (next.x < old.x) ways.push("left");
   if (next.x + next.width > old.x + old.width) ways.push("right");
   if (next.y < old.y) ways.push("up");
   if (next.y + next.height > old.y + old.height) ways.push("down");
+  Object.assign(boxes.rects.get(key)!, next);
+  boxes.moved.add(key);
+  if (!boxes.push([{ key, ways }], new Set([key]))) return doc;
+  const resized = boxes.apply(doc);
+  return layoutAllowed(resized) ? resized : doc;
+}
 
-  const moved = new Set<ModuleId>();
-  const pushers: { id: ModuleId; way: Way }[] = [];
-  const shift = (id: ModuleId, by: Cell, way: Way) => {
-    const rect = outside.get(id)!;
-    rect.x += by.x;
-    rect.y += by.y;
-    moved.add(id);
-    pushers.push({ id, way });
-  };
-  const size = (by: Cell) => Math.abs(by.x) + Math.abs(by.y);
-  for (const [id, rect] of outside) {
-    if (!overlaps(next, rect)) continue;
-    const way = ways.reduce<Way | null>((best, w) => (best && size(clearOf(next, rect, best)) <= size(clearOf(next, rect, w)) ? best : w), null);
-    if (!way) return doc;
-    shift(id, clearOf(next, rect, way), way);
-  }
-  // A pushed tile ends up past its pusher, away from the area. Two ways at once (the corner)
-  // could in principle push in a circle, so the steps are counted.
-  for (let steps = 0; pushers.length > 0; steps++) {
-    if (steps > 64 * outside.size) return doc;
-    const { id, way } = pushers.shift()!;
-    const pusher = outside.get(id)!;
-    for (const [other, rect] of outside) {
-      if (other !== id && overlaps(pusher, rect)) shift(other, clearOf(pusher, rect, way), way);
-    }
-  }
-  for (const rect of outside.values()) if (placementOf(next, rect) !== "outside") return doc;
-  return {
-    ...doc,
-    voiceArea: next,
-    modules: doc.modules.map((m) => (moved.has(m.id) ? { ...m, x: outside.get(m.id)!.x, y: outside.get(m.id)!.y } : m)),
-  };
+/** Give the voice area other edges: see `resizeContainer`. */
+export const resizeArea = (doc: PatchDocument, area: Area) => resizeContainer(doc, AREA, area);
+
+/*
+ * Unison groups. A group is added empty, from the module browser, and then holds what is
+ * put in it; its header holds the number of copies.
+ */
+
+/** The size a new unison group has: its border round room for one oscillator. */
+export const NEW_GROUP = { width: 4, height: 5 };
+
+/** Whether a unison group could have these cells: on no tile and no other group, and in the voices or out of them. */
+function canPlaceGroupAt(doc: PatchDocument, area: Area, skip?: string): boolean {
+  if (groupParent(doc, { area }) === null) return false;
+  if (groupsOf(doc).some((g) => g.id !== skip && overlaps(g.area, area))) return false;
+  return doc.modules.every((m) => {
+    const rect = rectOf(doc, m);
+    return !rect || !overlaps(rect, area);
+  });
+}
+
+/** Whether a new unison group fits with its top-left corner at `at`. */
+export function canPlaceGroup(doc: PatchDocument, at: Cell): boolean {
+  return canPlaceGroupAt(doc, { ...at, ...NEW_GROUP });
+}
+
+/** The free spot for a new unison group closest to `near`. */
+export function findGroupCell(doc: PatchDocument, near: Cell): Cell {
+  return nearestCell(near, (cell) => canPlaceGroup(doc, cell)) ?? near;
+}
+
+/** Add an empty unison group at `at`. Unchanged where it does not fit. */
+export function addGroup(doc: PatchDocument, at: Cell): { doc: PatchDocument; id: ModuleId | null } {
+  if (!canPlaceGroup(doc, at)) return { doc, id: null };
+  const id = nextModuleId(doc);
+  const group: UnisonGroup = { id, area: { ...at, ...NEW_GROUP }, size: DEFAULT_UNISON };
+  return { doc: { ...doc, groups: [...groupsOf(doc), group] }, id };
+}
+
+/** Set how many copies a unison group runs: a whole number from `MIN_UNISON` to `MAX_UNISON`. */
+export function setGroupSize(doc: PatchDocument, id: ModuleId, size: number): PatchDocument {
+  const group = groupsOf(doc).find((g) => g.id === id);
+  if (!group || !Number.isFinite(size)) return doc;
+  const next = Math.min(MAX_UNISON, Math.max(MIN_UNISON, Math.round(size)));
+  return next === group.size ? doc : { ...doc, groups: groupsOf(doc).map((g) => (g === group ? { ...g, size: next } : g)) };
 }
 
 /**
@@ -634,9 +612,9 @@ export function planPortDrop(doc: PatchDocument, type: string, target: PortTarge
   if (!between) return { at: findFreeCell(doc, type, beside), push: false, cables };
   if (canPlace(doc, type, beside)) return { at: beside, push: false, cables };
   // Into the row: in front of the module whose input it was dropped on, or right after the
-  // output's, on the same side of the voice area's edge as it. A module that runs once is
-  // not pushed into the voices: it goes as near as there is room.
-  if (isInside(doc, host) && def.place === "outside") return { at: findFreeCell(doc, type, beside), push: false, cables };
+  // output's, in the same container as it. A module that runs once is not pushed into the
+  // voices or a group: it goes as near as there is room.
+  if (holderOf(doc, host) !== TOP && def.place === "outside") return { at: findFreeCell(doc, type, beside), push: false, cables };
   return { at: target.side === "in" ? { x: hostRect.x, y: hostRect.y } : beside, push: true, cables };
 }
 
@@ -650,9 +628,9 @@ export function addModuleAtPort(
   if (!plan) return { doc, id: null };
   const id = nextModuleId(doc);
   let next = place(doc, id, type, plan.at);
-  // Pushed into a row, it is on the side of the voice area its neighbour is: the area grows if need be.
+  // Pushed into a row, it is in the container its neighbour is in, which grows if need be.
   const host = doc.modules.find((m) => m.id === target.module)!;
-  if (plan.push) next = makeRoom(next, id, "right", isInside(doc, host));
+  if (plan.push) next = makeRoom(next, id, "right", holderOf(doc, host));
   for (const cable of plan.cables) next = connect(next, cable.from, cable.to);
   return { doc: next, id };
 }
@@ -738,31 +716,19 @@ export function moduleName(module: Pick<ModuleInstance, "name">, def: Pick<Modul
   return module.name?.trim() || def.name;
 }
 
-/**
- * Set how many notes play at once: a whole number, never so many that the voices they take
- * (times Unison) are more than `MAX_VOICES`.
- */
+/** Set how many notes play at once: a whole number from `MIN_VOICES` to `MAX_VOICES`. */
 export function setVoices(doc: PatchDocument, voices: number): PatchDocument {
   if (!Number.isFinite(voices)) return doc;
-  const most = Math.max(MIN_VOICES, Math.floor(MAX_VOICES / voicingOf(doc).unison));
-  const next = Math.min(most, Math.max(MIN_VOICES, Math.round(voices)));
+  const next = Math.min(MAX_VOICES, Math.max(MIN_VOICES, Math.round(voices)));
   return next === doc.voices ? doc : { ...doc, voices: next };
 }
 
-/**
- * Change how the voices play notes. Unison is a whole number from 1, as many as fit in
- * `MAX_VOICES` with the notes that play at once; Detune is 0 to `MAX_DETUNE` cents.
- */
+/** Change how the voices play notes. */
 export function setVoicing(doc: PatchDocument, change: Partial<Voicing>): PatchDocument {
   const current = voicingOf(doc);
   const wanted = { ...current, ...change };
-  const notes = wanted.mode === "mono" ? 1 : doc.voices;
-  const unison = Number.isFinite(wanted.unison) ? Math.round(wanted.unison) : current.unison;
-  const detune = Number.isFinite(wanted.detune) ? wanted.detune : current.detune;
   const next: Voicing = {
     mode: wanted.mode === "mono" ? "mono" : "poly",
-    unison: Math.min(Math.max(1, Math.floor(MAX_VOICES / notes)), Math.max(1, unison)),
-    detune: Math.min(MAX_DETUNE, Math.max(0, detune)),
     priority: NOTE_PRIORITIES.includes(wanted.priority) ? wanted.priority : current.priority,
     legato: !!wanted.legato,
   };

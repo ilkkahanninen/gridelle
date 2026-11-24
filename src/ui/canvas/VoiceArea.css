@@ -1,7 +1,7 @@
-/* The voice area: a dark panel with rounded corners under what runs in every voice. Its
-   outer ring of cells is its border, where no module goes, as dark as its inside. The
-   border takes presses (the header moves the area, the rest resizes it); the inside lets
-   them through to the grid. */
+/* A container (the voice area, a unison group): a dark panel with rounded corners under
+   what is in it. Its outer ring of cells is its border, where no module goes, as dark as
+   its inside. The border takes presses (the header moves the container, the rest resizes
+   it); the inside lets them through to the grid. */
 .voice-area {
   position: absolute;
   border-radius: 38px;
@@ -9,7 +9,25 @@
   pointer-events: none;
 }
 
-.voice-area-blocked {
+/* A unison group: the same panel, tinted, so that it stands out in the voice area or beside it. */
+.container-unison {
+  --unison: #8c7cf0;
+  background: color-mix(in srgb, var(--unison) 22%, rgb(0 0 0 / 0.28));
+}
+
+.container-unison .voice-area-header {
+  padding-left: 28px;
+}
+
+.container-unison .voice-area-title {
+  color: color-mix(in srgb, var(--unison) 55%, var(--text));
+}
+
+.container-selected {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.voice-area.voice-area-blocked {
   background: color-mix(in srgb, var(--danger) 30%, rgb(0 0 0 / 0.32));
 }
 
@@ -56,12 +74,6 @@
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--text);
-}
-
-.voice-area-unison {
-  color: var(--text-dim);
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
 }
 
 .voice-area-count {

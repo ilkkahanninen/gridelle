@@ -240,15 +240,20 @@ fn golden_patches_play_in_pd() {
             println!("{name}: eight steps up two octaves and round, at levels {levels:.3?}");
         }
         if name == "mono-lead" {
-            // One note at a time, the last key held, on three voices 12 cents apart: a second
-            // key held glides there, and when it is let go the note goes back to the first.
-            // The saws play each note an octave lower.
+            // One note at a time, the last key held, on three voices a Unison Index spreads
+            // over plus and minus 12 cents: a second key held glides there, and when it is let
+            // go the note goes back to the first. The saws play each note an octave lower.
+            // Three voices so detuned beat about once a second, and at one point of each beat
+            // their fundamentals cancel out: so each note is heard for a whole beat, and its
+            // level is that of the loudest moment.
             let hz = |note: f32| 440.0 * 2f32.powf((note - 12.0 - 69.0) / 12.0);
             let hear = |pd: &mut Pd, key: f32, velocity: f32| {
                 pd.send_list("notes", &[Atom::Float(key), Atom::Float(velocity)]);
-                let left: Vec<f32> = render(pd, 0.4).chunks(2).map(|frame| frame[0]).collect();
-                let end = &left[left.len() - 8192..];
-                (level_at(end, hz(60.0)), level_at(end, hz(67.0)))
+                let left: Vec<f32> = render(pd, 1.3).chunks(2).map(|frame| frame[0]).collect();
+                let loudest = |note: f32| {
+                    left[4410..].windows(8192).step_by(2048).map(|w| level_at(w, hz(note))).fold(0.0f32, f32::max)
+                };
+                (loudest(60.0), loudest(67.0))
             };
             let (c, g) = hear(&mut pd, 60.0, 100.0);
             assert!(c > 0.02 && g < c * 0.2, "{name}: the first key, C: C {c}, G {g}");

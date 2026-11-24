@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { isVoiceNotes, placement } from "../../core/model/area";
+import { containerOf, groupParent, groupsOf, isVoiceNotes, placement, VOICE } from "../../core/model/area";
 import * as ops from "../../core/model/ops";
-import type { Area, Cable, ModuleId, PortRef } from "../../core/model/types";
+import type { Area, Cable, ModuleId, PortRef, UnisonGroup } from "../../core/model/types";
 import { getModuleDef } from "../../core/modules/registry";
 import { visibleDef } from "../../core/modules/shape";
 import { useEditor } from "../../state/store";
-import { gridPointer, useUi } from "../../state/ui";
+import { GROUP_PLACING, gridPointer, useUi } from "../../state/ui";
 import { CableLayer } from "./CableLayer";
 import {
   CELL,
@@ -18,7 +18,7 @@ import {
   type Point,
 } from "./geometry";
 import { ModuleTile } from "./ModuleTile";
-import { gripped, notesPortPoint, VoiceArea, type AreaGrip } from "./VoiceArea";
+import { GroupArea, gripped, notesPortPoint, VoiceArea, type AreaGrip } from "./VoiceArea";
 import "./canvas.css";
 
 interface TileDrag {
@@ -28,8 +28,9 @@ interface TileDrag {
   moved: boolean;
 }
 
-/** The voice area being moved by its header or resized by an edge: where it would go. */
+/** A container (the voice area, or a unison group by its id) moved by its header or resized by an edge: where it would go. */
 interface AreaDrag {
+  key: string;
   grip: AreaGrip;
   area: Area;
 }
@@ -184,13 +185,14 @@ export function GridCanvas() {
     );
   }, []);
 
-  // The header of the voice area moves it with what is in it; its edges resize it.
-  const onAreaGrip = useCallback((e: React.PointerEvent, grip: AreaGrip) => {
+  // The header of a container moves it with what is in it; its edges resize it.
+  const onAreaGrip = useCallback((e: React.PointerEvent, grip: AreaGrip, key: string = ops.VOICE_AREA) => {
     if (e.button !== 0) return;
     e.stopPropagation();
     e.preventDefault();
     const start = { x: e.clientX, y: e.clientY };
-    const origin = useEditor.getState().doc.voiceArea;
+    const origin = ops.containerRect(useEditor.getState().doc, key);
+    if (!origin) return;
     let drag: AreaDrag | null = null;
     track(
       (move) => {
@@ -198,23 +200,26 @@ export function GridCanvas() {
         const dy = move.clientY - start.y;
         if (!drag && Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
         const zoom = useUi.getState().view.zoom;
-        drag = { grip, area: gripped(origin, grip, { x: Math.round(dx / zoom / CELL), y: Math.round(dy / zoom / CELL) }) };
+        drag = { key, grip, area: gripped(origin, grip, { x: Math.round(dx / zoom / CELL), y: Math.round(dy / zoom / CELL) }) };
         setAreaDrag(drag);
       },
       (_up, cancelled) => {
         setAreaDrag(null);
         if (cancelled) return;
-        // A click on the header, with no drag, shows the voices' settings in the settings pane.
+        // A click on the header, with no drag, shows the container's settings in the settings
+        // pane: the voices' with nothing selected, a group's with it selected.
         if (!drag) {
-          if (grip === "move") useEditor.getState().clearSelection();
+          if (grip !== "move") return;
+          if (key === ops.VOICE_AREA) useEditor.getState().clearSelection();
+          else useEditor.getState().select([key]);
           return;
         }
         const { area } = drag;
-        useEditor
-          .getState()
-          .apply((d) =>
-            grip === "move" ? ops.moveArea(d, { x: area.x - d.voiceArea.x, y: area.y - d.voiceArea.y }) : ops.resizeArea(d, area),
-          );
+        useEditor.getState().apply((d) => {
+          const from = ops.containerRect(d, key);
+          if (!from) return d;
+          return grip === "move" ? ops.moveContainer(d, key, { x: area.x - from.x, y: area.y - from.y }) : ops.resizeContainer(d, key, area);
+        });
       },
     );
   }, []);
@@ -310,7 +315,11 @@ export function GridCanvas() {
           const r = tileRect(m, def);
           return r.left < right && r.left + r.width > left && r.top < bottom && r.top + r.height > top;
         });
-        useEditor.getState().select([...(additive ? before : []), ...hit.map((m) => m.id)]);
+        const groups = groupsOf(now).filter(
+          (g) =>
+            g.area.x * CELL >= left && (g.area.x + g.area.width) * CELL <= right && g.area.y * CELL >= top && (g.area.y + g.area.height) * CELL <= bottom,
+        );
+        useEditor.getState().select([...(additive ? before : []), ...hit.map((m) => m.id), ...groups.map((g) => g.id)]);
       },
       () => {
         setMarquee(null);
@@ -325,12 +334,46 @@ export function GridCanvas() {
       setGhost(null);
       return;
     }
-    const def = getModuleDef(placing);
-    if (!def) return;
     const overCanvas = (e: PointerEvent) => {
       const rect = viewportRef.current!.getBoundingClientRect();
       return e.clientX >= rect.left && e.clientX <= rect.right && e.clientY >= rect.top && e.clientY <= rect.bottom;
     };
+    // A unison group lands, empty, on the nearest cells it fits on; it is then selected.
+    if (placing === GROUP_PLACING) {
+      const size = { width: ops.NEW_GROUP.width, height: ops.NEW_GROUP.height, inputs: [], outputs: [] };
+      const landing = (x: number, y: number) => ops.findGroupCell(useEditor.getState().doc, cellCentredOn(toWorld(x, y), size));
+      const put = (cell: ops.Cell) => {
+        const editor = useEditor.getState();
+        let id: string | null = null;
+        editor.apply((doc) => {
+          const added = ops.addGroup(doc, cell);
+          id = added.id;
+          return added.doc;
+        });
+        if (id) editor.select([id]);
+      };
+      const move = (e: PointerEvent) => setGhost(overCanvas(e) ? { cell: landing(e.clientX, e.clientY), drop: null } : null);
+      const up = (e: PointerEvent) => {
+        useUi.setState({ placing: null });
+        if (overCanvas(e)) put(landing(e.clientX, e.clientY));
+        else if ((e.target as HTMLElement | null)?.closest(".palette-modules")) {
+          const { viewport } = useUi.getState();
+          const rect = viewportRef.current!.getBoundingClientRect();
+          put(landing(rect.left + viewport.width / 2, rect.top + viewport.height / 2));
+        }
+      };
+      const key = (e: KeyboardEvent) => e.key === "Escape" && useUi.setState({ placing: null });
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", up);
+      window.addEventListener("keydown", key);
+      return () => {
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", up);
+        window.removeEventListener("keydown", key);
+      };
+    }
+    const def = getModuleDef(placing);
+    if (!def) return;
     // The ghost shows where the module will land: the cell under the pointer, or the nearest free one.
     const landing = (e: PointerEvent) =>
       ops.findFreeCell(useEditor.getState().doc, placing, cellCentredOn(toWorld(e.clientX, e.clientY), def));
@@ -393,34 +436,53 @@ export function GridCanvas() {
     () => new Set(doc.modules.filter((m) => placement(doc, m) === "inside").map((m) => m.id)),
     [doc],
   );
-  const areaMove =
-    areaDrag?.grip === "move" ? { x: (areaDrag.area.x - doc.voiceArea.x) * CELL, y: (areaDrag.area.y - doc.voiceArea.y) * CELL } : null;
-  // What resizing the area to where it is dragged would do: it pushes tiles outside along.
-  const dragged = areaDrag?.grip === "move" ? null : areaDrag?.area;
-  const resized = useMemo(
-    () => (dragged ? ops.resizeArea(doc, dragged) : null),
+  // What moving or resizing a container to where it is dragged would do: it takes what is in
+  // it along, and a resize pushes what is beside it. `null` while nothing is dragged, the
+  // document itself when the drag would be refused.
+  const dragFrom = areaDrag ? ops.containerRect(doc, areaDrag.key) : undefined;
+  const areaPreview = useMemo(() => {
+    if (!areaDrag || !dragFrom) return null;
+    const { key, grip, area } = areaDrag;
+    return grip === "move" ? ops.moveContainer(doc, key, { x: area.x - dragFrom.x, y: area.y - dragFrom.y }) : ops.resizeContainer(doc, key, area);
     // The drag is a new object on every pointer move; its parts say whether it changed.
-    [doc, dragged?.x, dragged?.y, dragged?.width, dragged?.height],
-  );
+  }, [doc, areaDrag?.key, areaDrag?.grip, areaDrag?.area.x, areaDrag?.area.y, areaDrag?.area.width, areaDrag?.area.height]);
   const areaBlocked =
-    !!areaDrag &&
-    (areaDrag.grip === "move"
-      ? ops.moveArea(doc, { x: areaDrag.area.x - doc.voiceArea.x, y: areaDrag.area.y - doc.voiceArea.y }) === doc
-      : resized === doc) &&
-    (["x", "y", "width", "height"] as const).some((key) => areaDrag.area[key] !== doc.voiceArea[key]);
-  /** How far a tile is drawn from where it is: dragged, carried by the area, or pushed aside by a drop or the area. */
+    !!areaDrag && !!dragFrom && areaPreview === doc && (["x", "y", "width", "height"] as const).some((key) => areaDrag.area[key] !== dragFrom[key]);
+  // A move that would be refused still shows what is in the container going with it, in red.
+  const carried = useMemo(() => {
+    if (!areaDrag || areaDrag.grip !== "move") return new Set<string>();
+    const key = areaDrag.key;
+    return new Set(
+      doc.modules
+        .filter((m) => (key === ops.VOICE_AREA ? placement(doc, m) === "inside" : containerOf(doc, m) === key))
+        .map((m) => m.id),
+    );
+  }, [doc, areaDrag?.key, areaDrag?.grip]);
+  const carry = areaBlocked && areaDrag?.grip === "move" && dragFrom ? { x: (areaDrag.area.x - dragFrom.x) * CELL, y: (areaDrag.area.y - dragFrom.y) * CELL } : null;
+  /** How far a tile is drawn from where it is: dragged, carried by a container, or pushed aside by a drop or a container. */
   const offsetOf = (id: ModuleId): Point | null =>
-    (selection.has(id) ? dragOffset : null) ?? (inVoices.has(id) ? areaMove : null) ?? shifts.get(id) ?? null;
+    (selection.has(id) ? dragOffset : null) ?? (carry && carried.has(id) ? carry : null) ?? shifts.get(id) ?? null;
+  // Where the containers are drawn: as the drag would leave them.
+  const shown = areaPreview && areaPreview !== doc ? areaPreview : doc;
+  const shownArea = areaDrag?.key === ops.VOICE_AREA ? areaDrag.area : shown.voiceArea;
+  const groupShownAt = (group: UnisonGroup): Area => {
+    if (areaDrag?.key === group.id) return areaDrag.area;
+    // The voices moving where they may not go take their groups along all the same.
+    if (carry && areaDrag?.key === ops.VOICE_AREA && groupParent(doc, group) === VOICE) {
+      return { ...group.area, x: group.area.x + carry.x / CELL, y: group.area.y + carry.y / CELL };
+    }
+    return shown.groups?.find((g) => g.id === group.id)?.area ?? group.area;
+  };
 
-  const ghostDef = placing ? getModuleDef(placing) : undefined;
+  const ghostDef = placing && placing !== GROUP_PLACING ? getModuleDef(placing) : undefined;
   const drop = (ghostDef && ghost?.drop) || null;
 
-  // A drop that needs room, or the area resized onto tiles outside it, moves tiles aside.
+  // A drop that needs room, or a container resized onto tiles beside it, moves tiles aside.
   // Show them where they would go, in pixels from where they are.
   const pushOn = drop?.plan.push ? drop.target : null;
   const shifts = useMemo(() => {
     const moved = new Map<ModuleId, Point>();
-    const after = resized ?? (placing && pushOn ? ops.addModuleAtPort(doc, placing, pushOn).doc : null);
+    const after = (areaPreview !== doc ? areaPreview : null) ?? (placing && pushOn ? ops.addModuleAtPort(doc, placing, pushOn).doc : null);
     if (!after) return moved;
     for (const module of doc.modules) {
       const then = after.modules.find((m) => m.id === module.id);
@@ -430,12 +492,12 @@ export function GridCanvas() {
     }
     return moved;
     // The target is a new object on every pointer move; its parts say whether it changed.
-  }, [doc, resized, placing, pushOn?.module, pushOn?.port, pushOn?.side]);
+  }, [doc, areaPreview, placing, pushOn?.module, pushOn?.port, pushOn?.side]);
 
   /** Port position including the offset of tiles being dragged or pushed aside, so cables follow. */
   const portPoint = useCallback(
     (ref: PortRef, side: "in" | "out"): Point | null => {
-      if (side === "in" && isVoiceNotes(ref)) return notesPortPoint(areaDrag?.area ?? doc.voiceArea);
+      if (side === "in" && isVoiceNotes(ref)) return notesPortPoint(shownArea);
       const module = doc.modules.find((m) => m.id === ref.module);
       const def = module && visibleDef(doc, module);
       if (!module || !def) return null;
@@ -445,7 +507,7 @@ export function GridCanvas() {
       const offset = offsetOf(module.id);
       return offset ? { x: point.x + offset.x, y: point.y + offset.y } : point;
     },
-    [doc, selection, dragOffset?.x, dragOffset?.y, shifts, inVoices, areaMove?.x, areaMove?.y, areaDrag],
+    [doc, selection, dragOffset?.x, dragOffset?.y, shifts, carried, carry?.x, carry?.y, shownArea],
   );
 
   const hintOf = useCallback(
@@ -501,13 +563,23 @@ export function GridCanvas() {
       <div className="world" style={{ transform: `translate(${view.panX}px, ${view.panY}px) scale(${view.zoom})` }}>
         {doc.voiceArea.width > 0 && doc.voiceArea.height > 0 && (
           <VoiceArea
-            area={areaDrag?.area ?? doc.voiceArea}
-            blocked={areaBlocked}
+            area={shownArea}
+            blocked={areaBlocked && areaDrag?.key === ops.VOICE_AREA}
             notesCabled={doc.cables.some((c) => isVoiceNotes(c.to))}
             onGrip={onAreaGrip}
             onPortPointerDown={onPortPointerDown}
           />
         )}
+        {groupsOf(doc).map((group) => (
+          <GroupArea
+            key={group.id}
+            group={group}
+            area={groupShownAt(group)}
+            blocked={areaBlocked && areaDrag?.key === group.id}
+            selected={selection.has(group.id)}
+            onGrip={(e, grip) => onAreaGrip(e, grip, group.id)}
+          />
+        ))}
         {doc.modules.map((module) => {
           const def = visibleDef(doc, module);
           if (!def) return null;
@@ -519,7 +591,7 @@ export function GridCanvas() {
               def={def}
               selected={selected}
               offset={offsetOf(module.id)}
-              blocked={(selected && dragBlocked) || (areaBlocked && inVoices.has(module.id))}
+              blocked={(selected && dragBlocked) || (areaBlocked && carried.has(module.id))}
               inVoices={inVoices.has(module.id)}
               connected={connectedByModule.get(module.id) ?? NONE}
               dropTarget={drop?.target.module === module.id ? `${drop.target.side}:${drop.target.port}` : null}
@@ -540,6 +612,12 @@ export function GridCanvas() {
 
         {ghost && ghostDef && (
           <div className="tile-ghost" style={tileRect(ghost.cell, ghostDef)} />
+        )}
+        {ghost && placing === GROUP_PLACING && (
+          <div
+            className="tile-ghost group-ghost"
+            style={{ left: ghost.cell.x * CELL, top: ghost.cell.y * CELL, width: ops.NEW_GROUP.width * CELL, height: ops.NEW_GROUP.height * CELL }}
+          />
         )}
         {marquee && (
           <div

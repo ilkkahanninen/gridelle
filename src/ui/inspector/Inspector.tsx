@@ -1,16 +1,17 @@
-import { placement } from "../../core/model/area";
+import { containerOf, groupParent, groupsOf, placement } from "../../core/model/area";
 import * as ops from "../../core/model/ops";
 import {
-  MAX_DETUNE,
   MAX_MODULE_NAME,
+  MAX_UNISON,
   MAX_VOICES,
+  MIN_UNISON,
   MIN_VOICES,
   SAMPLE_PARAM,
   sampleLetter,
-  voiceCopies,
   voicingOf,
   type ModuleInstance,
   type NotePriority,
+  type UnisonGroup,
   type Voicing,
 } from "../../core/model/types";
 import { MODULE_DOCS } from "../../core/modules/docs";
@@ -155,18 +156,14 @@ const PRIORITIES: [NotePriority, string][] = [
   ["high", "Highest"],
 ];
 
-/** How the voices play notes: poly or mono, Unison and Detune, and for mono which key and legato. */
+/** How the voices play notes: poly or mono, and for mono which key and legato. */
 function VoiceSettings() {
   const voices = useEditor((s) => s.doc.voices);
   const voicing = useEditor((s) => voicingOf(s.doc));
-  const copies = useEditor((s) => voiceCopies(s.doc));
   const apply = useEditor((s) => s.apply);
   const set = (change: Partial<Voicing>, coalesce?: string) => apply((doc) => ops.setVoicing(doc, change), coalesce);
   const mono = voicing.mode === "mono";
-  const { unison, detune } = voicing;
   const whole = (text: string) => Math.round(Number(text));
-  const notes = mono ? "One note at a time" : `${voices} ${voices === 1 ? "note" : "notes"} at once`;
-  const each = unison > 1 ? `${mono ? "" : ","} ${mono ? "on" : "each on"} ${unison} voices, up to ${detune} cents off the note` : "";
   return (
     <section>
       <h3>Voices</h3>
@@ -183,34 +180,10 @@ function VoiceSettings() {
           <input
             type="number"
             min={MIN_VOICES}
-            max={Math.floor(MAX_VOICES / unison)}
+            max={MAX_VOICES}
             value={voices}
             onChange={(e) => apply((doc) => ops.setVoices(doc, whole(e.target.value)))}
           />
-        </label>
-      )}
-      <label className="inspector-field">
-        <span>Unison</span>
-        <input
-          type="number"
-          min={1}
-          max={Math.floor(MAX_VOICES / (mono ? 1 : voices))}
-          value={unison}
-          onChange={(e) => set({ unison: whole(e.target.value) })}
-        />
-      </label>
-      {unison > 1 && (
-        <label className="inspector-field inspector-range">
-          <span>Detune</span>
-          <input
-            type="range"
-            min={0}
-            max={MAX_DETUNE}
-            step={1}
-            value={detune}
-            onChange={(e) => set({ detune: Number(e.target.value) }, "voice-detune")}
-          />
-          <output>{detune} ct</output>
         </label>
       )}
       {mono && (
@@ -232,10 +205,49 @@ function VoiceSettings() {
         </>
       )}
       <p className="inspector-note">
-        {notes}
-        {each}. {copies} {copies === 1 ? "copy" : "copies"} of the voice area {copies === 1 ? "runs" : "run"}.
+        {mono ? "One note at a time, on one voice." : `${voices} ${voices === 1 ? "note" : "notes"} at once, each on a voice of its own.`} For
+        several detuned copies of an oscillator, put it in a unison group (Groups, in the module browser).
       </p>
     </section>
+  );
+}
+
+/** A unison group: how many copies it runs, and what that means. */
+function GroupInspector({ group }: { group: UnisonGroup }) {
+  const apply = useEditor((s) => s.apply);
+  const inVoices = useEditor((s) => groupParent(s.doc, group) === "voice");
+  const count = useEditor((s) => s.doc.modules.filter((m) => containerOf(s.doc, m) === group.id).length);
+  return (
+    <>
+      <header className="inspector-title category-groups">
+        <span className="inspector-swatch" />
+        <h2>Unison group</h2>
+      </header>
+      <section className="inspector-doc">
+        <p>
+          What is in the group runs {group.size} times side by side{inVoices ? ", in every voice" : ""}, and the copies are added up
+          where a cable leaves the group; a cable into it gives every copy the same signal. A Unison Index in it tells each copy its
+          place among them, from -1 to 1: into an oscillator&apos;s Fine tune, it detunes the copies by as many cents as the knob
+          says. Only what is in the group is copied, so the rest of the patch costs no more.
+        </p>
+      </section>
+      <section>
+        <label className="inspector-field">
+          <span>Copies</span>
+          <input
+            type="number"
+            min={MIN_UNISON}
+            max={MAX_UNISON}
+            value={group.size}
+            onChange={(e) => apply((doc) => ops.setGroupSize(doc, group.id, Math.round(Number(e.target.value))))}
+          />
+        </label>
+        <p className="inspector-note">
+          {count === 0 ? "Nothing is in it yet: drag modules into it." : `${count} ${count === 1 ? "module" : "modules"} in it.`} Delete removes the
+          group with what is in it.
+        </p>
+      </section>
+    </>
   );
 }
 
@@ -289,8 +301,11 @@ export function Inspector() {
   const selection = useEditor((s) => s.selection);
   const modules = useEditor((s) => s.doc.modules);
   const cables = useEditor((s) => s.doc.cables);
+  const groups = useEditor((s) => groupsOf(s.doc));
+  const selectedGroups = groups.filter((g) => selection.has(g.id));
   const selected = modules.filter((m) => selection.has(m.id));
-  const single = selected.length === 1 ? selected[0] : null;
+  const single = selected.length === 1 && selectedGroups.length === 0 ? selected[0] : null;
+  const group = selectedGroups.length === 1 && selected.length === 0 ? selectedGroups[0] : null;
   // A mixer shows the settings of the inputs it currently has.
   const def = single ? visibleDef({ cables }, single) : undefined;
 
@@ -298,9 +313,13 @@ export function Inspector() {
     <aside className="inspector" aria-label="Settings">
       {single && def ? (
         <ModuleInspector module={single} def={def} />
-      ) : selected.length > 1 ? (
+      ) : group ? (
+        <GroupInspector group={group} />
+      ) : selected.length + selectedGroups.length > 1 ? (
         <header className="inspector-title">
-          <h2>{selected.length} modules selected</h2>
+          <h2>
+            {selected.length + selectedGroups.length} {selectedGroups.length > 0 ? "modules and groups" : "modules"} selected
+          </h2>
         </header>
       ) : (
         <PatchInspector />

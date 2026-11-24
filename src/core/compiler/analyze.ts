@@ -5,17 +5,20 @@ import {
   MIN_VOICES,
   SAMPLE_PARAM,
   SAMPLE_SLOTS,
+  MAX_UNISON,
+  MIN_UNISON,
   NOTE_PRIORITIES,
+  notesAtOnce,
   sampleLetter,
-  voiceCopies,
   voicingOf,
   type ModuleId,
   type ModuleInstance,
   type PatchDocument,
   type SampleSlot,
+  type UnisonGroup,
   type Voicing,
 } from "../model/types";
-import { isVoiceNotes, placement } from "../model/area";
+import { containerAt, groupParent, groupsOf, isVoiceNotes, MAIN, overlaps, placement, tileArea, VOICE, type ContainerKey } from "../model/area";
 import { defaultPageName, moduleName } from "../model/ops";
 import { wavetableBank } from "../wavetables/banks";
 import { getModuleDef, SCOPE_SLOTS } from "../modules/registry";
@@ -44,6 +47,7 @@ export interface Diagnostic {
     | "wavetable-as-sample"
     | "unknown-bank"
     | "no-recorder"
+    | "bad-group"
     | "missing-abstraction";
   message: string;
   module?: ModuleId;
@@ -54,12 +58,32 @@ export interface ResolvedModule {
   def: ModuleDef;
   /** Where the module runs: in every voice (its tile is in the voice area), or once. */
   scope: Scope;
+  /** The innermost container it is in: a unison group, the voice area or the patch. */
+  container: ContainerKey;
+}
+
+/** A unison group, and the outputs whose cables cross its edge. */
+export interface ResolvedGroup {
+  group: UnisonGroup;
+  /** The container its copies run in: the voice area (each voice has its own) or the patch. */
+  parent: ContainerKey;
+  inward: Crossing[];
+  outward: Crossing[];
 }
 
 /**
- * An output whose cable crosses the edge of the voice area. Going out, it becomes an
- * `outlet~` of `voice.pd`, which `[clone]` adds up over the voices; coming in, an `inlet~`,
- * which `[clone]` gives every voice the same signal at.
+ * The source of the voice's own signals (`ge-voice` in a voice, `ge-keyboard` outside the
+ * voices), as a crossing's `from`: a pre-cord in a unison group gets them through its edge.
+ */
+export const VOICE_SOURCE = "@voice";
+/** Outlet of `ge-voice` (and `ge-keyboard`) that carries each of the voice's signals. */
+export const VOICE_OUTLET: Record<Exclude<VoiceSignal, "unison">, number> = { pitch: 0, gate: 1, velocity: 2 };
+
+/**
+ * An output whose cable crosses the edge of a container (the voice area or a unison
+ * group). Going out, it becomes an `outlet~` of the container's file, which `[clone]` adds
+ * up over the copies; coming in, an `inlet~`, at which `[clone]` gives every copy the same
+ * signal. `from` is a module, or `VOICE_SOURCE` with the outlet of a voice signal.
  */
 export interface Crossing {
   from: ModuleId;
@@ -142,9 +166,27 @@ export interface Analysis {
   samples: UsedSample[];
   /** The knob pages that are exported, in order: those with a knob in use. */
   pages: ResolvedPage[];
-  /** How the voices play notes, and how many copies of the voice run (`[clone]`'s count). */
+  /** How the voices play notes, and how many voices run (`[clone]`'s count). */
   voicing: Voicing;
   copies: number;
+  /** The unison groups, in the order of the document. */
+  groups: ResolvedGroup[];
+  /** Whether something outside the voices follows the keyboard, which `main.pd` then has. */
+  keyboard: boolean;
+}
+
+/** The container a container is in, from the groups of an analysis: `null` for the patch. */
+export function parentContainer(groups: readonly ResolvedGroup[], key: ContainerKey): ContainerKey | null {
+  if (key === MAIN) return null;
+  if (key === VOICE) return MAIN;
+  return groups.find((g) => g.group.id === key)?.parent ?? MAIN;
+}
+
+/** A container and those it is in, from the inside out. */
+export function containerChain(groups: readonly ResolvedGroup[], key: ContainerKey): ContainerKey[] {
+  const chain: ContainerKey[] = [];
+  for (let at: ContainerKey | null = key; at; at = parentContainer(groups, at)) chain.push(at);
+  return chain;
 }
 
 export interface UsedSample {
@@ -188,16 +230,30 @@ export function analyze(doc: PatchDocument): Analysis {
   const voicing = voicingOf(doc);
   if (!Number.isInteger(doc.voices) || doc.voices < MIN_VOICES || doc.voices > MAX_VOICES) {
     error("voice-count", `Voice count must be a whole number from ${MIN_VOICES} to ${MAX_VOICES}.`);
-  } else if (
-    !Number.isInteger(voicing.unison) ||
-    voicing.unison < 1 ||
-    !Number.isFinite(voicing.detune) ||
-    !NOTE_PRIORITIES.includes(voicing.priority)
-  ) {
-    error("voice-count", "Unison must be a whole number from 1, and Detune a number of cents.");
-  } else if (voiceCopies(doc) > MAX_VOICES) {
-    error("voice-count", `A patch runs at most ${MAX_VOICES} voices: these settings take ${voiceCopies(doc)}.`);
+  } else if (!NOTE_PRIORITIES.includes(voicing.priority)) {
+    error("voice-count", "The voices' note priority is not one there is.");
   }
+
+  // The unison groups: each inside the voice area or out of it, and clear of the others.
+  const groups: ResolvedGroup[] = [];
+  const ids = new Set<ModuleId>();
+  for (const group of groupsOf(doc)) {
+    const parent = groupParent(doc, group);
+    if (!ID_PATTERN.test(group.id) || ids.has(group.id)) {
+      error("bad-group", `A unison group has an id that is not valid or not its own ("${group.id}").`, group.id);
+    } else if (!Number.isInteger(group.size) || group.size < MIN_UNISON || group.size > MAX_UNISON) {
+      error("bad-group", `A unison group runs from ${MIN_UNISON} to ${MAX_UNISON} copies.`, group.id);
+    } else if (parent === null) {
+      error("misplaced", "A unison group lies across the edge of the voice area: move it into the voices or out of them.", group.id);
+    } else if (groups.some((other) => overlaps(other.group.area, group.area))) {
+      error("misplaced", "Two unison groups lie on each other: a group cannot be in another.", group.id);
+    } else {
+      groups.push({ group, parent, inward: [], outward: [] });
+    }
+    ids.add(group.id);
+  }
+  const chainOf = (key: ContainerKey) => containerChain(groups, key);
+  const resolvedDoc = { ...doc, groups: groups.map((g) => g.group) };
 
   const byId = new Map<ModuleId, ResolvedModule>();
   for (const instance of doc.modules) {
@@ -206,15 +262,18 @@ export function analyze(doc: PatchDocument): Analysis {
       error("unknown-module", `Unknown module type "${instance.type}".`, instance.id);
     } else if (!ID_PATTERN.test(instance.id)) {
       error("bad-id", `Module id "${instance.id}" is not valid.`, instance.id);
-    } else if (byId.has(instance.id)) {
+    } else if (byId.has(instance.id) || ids.has(instance.id)) {
       error("duplicate-id", `Two modules share the id "${instance.id}".`, instance.id);
     } else {
-      const where = placement(doc, instance);
-      byId.set(instance.id, { instance, def, scope: where === "inside" ? "voice" : "global" });
-      if (where === "across") {
-        error("misplaced", `${moduleName(instance, def)} lies across the edge of the voice area: move it into the voices or out of them.`, instance.id);
-      } else if (where === "inside" && def.place === "outside") {
-        error("misplaced", `${moduleName(instance, def)} runs once for the whole patch: move it out of the voice area.`, instance.id);
+      const container = containerAt(resolvedDoc, tileArea(doc, instance)!);
+      const inVoices = placement(doc, instance) === "inside";
+      byId.set(instance.id, { instance, def, scope: inVoices ? "voice" : "global", container: container ?? (inVoices ? VOICE : MAIN) });
+      if (container === null) {
+        const edge = placement(doc, instance) === "across" ? "the voice area: move it into the voices or out of them" : "a unison group: move it into the group or out of it";
+        error("misplaced", `${moduleName(instance, def)} lies across the edge of ${edge}.`, instance.id);
+      } else if (container !== MAIN && def.place === "outside") {
+        const where = container === VOICE ? "the voice area" : "the unison group";
+        error("misplaced", `${moduleName(instance, def)} runs once for the whole patch: move it out of ${where}.`, instance.id);
       }
     }
   }
@@ -322,55 +381,62 @@ export function analyze(doc: PatchDocument): Analysis {
     error("feedback-loop", `These modules form a feedback loop, which is not supported yet: ${names}.`, [...inLoop][0]);
   }
 
-  // Pd runs the voices as one object, [clone], so a path that leaves the voice area and
-  // comes back into it is a loop to Pd, though no module feeds itself.
-  if (inLoop.size === 0) {
-    const scopeOf = (id: ModuleId) => byId.get(id)!.scope;
+  // Pd runs a container as one object, [clone], so a path that leaves the voice area or a
+  // unison group and comes back into it is a loop to Pd, though no module feeds itself.
+  const within = (id: ModuleId, key: ContainerKey) => chainOf(byId.get(id)!.container).includes(key);
+  const containers: [ContainerKey, string][] = [
+    [VOICE, "the voice area, which is a feedback loop: the voices are added up before anything outside them runs"],
+    ...groups.map((g): [ContainerKey, string] => [g.group.id, "a unison group, which is a feedback loop: its copies are added up before anything outside it runs"]),
+  ];
+  for (const [key, what] of inLoop.size === 0 ? containers : []) {
     const via = new Map<ModuleId, ModuleId | null>();
     const queue: ModuleId[] = [];
     for (const wire of wires) {
-      if (wire.notes) continue;
-      if (scopeOf(wire.from) === "voice" && scopeOf(wire.to) === "global" && !via.has(wire.to)) {
+      if (!wire.notes && within(wire.from, key) && !within(wire.to, key) && !via.has(wire.to)) {
         via.set(wire.to, null);
         queue.push(wire.to);
       }
     }
-    for (let i = 0; i < queue.length; i++) {
+    let found = false;
+    for (let i = 0; i < queue.length && !found; i++) {
       const id = queue[i];
-      const back = wires.find((w) => w.from === id && !w.notes && scopeOf(w.to) === "voice");
-      if (back) {
+      if (wires.some((w) => w.from === id && !w.notes && within(w.to, key))) {
         const path: ModuleId[] = [];
         for (let at: ModuleId | null = id; at; at = via.get(at) ?? null) path.unshift(at);
         const names = path.map((at) => called(byId.get(at)!)).join(" → ");
-        error(
-          "feedback-loop",
-          `A path leaves the voice area and comes back into it, which is a feedback loop: the voices are added up before anything outside them runs (${names}).`,
-          path[0],
-        );
-        break;
+        error("feedback-loop", `A path leaves ${what} (${names}).`, path[0]);
+        found = true;
       }
       for (const next of wires.filter((w) => w.from === id && !w.notes).map((w) => w.to)) {
-        if (scopeOf(next) === "global" && !via.has(next)) {
+        if (!within(next, key) && !via.has(next)) {
           via.set(next, id);
           queue.push(next);
         }
       }
     }
+    if (found) break;
   }
 
-  // Cables across the edge of the voice area: one crossing for each output, whatever it feeds.
-  // Notes never cross it: only modules outside it have note ports.
+  // Cables across the edges of containers: one crossing for each output, whatever it feeds,
+  // at every edge on the way from the source up to the container both ends are in and down
+  // from there to the input. Notes never cross: only modules outside them have note ports.
   const outward: Crossing[] = [];
   const inward: Crossing[] = [];
+  const crossingsOf = (key: ContainerKey) => (key === VOICE ? { inward, outward } : groups.find((g) => g.group.id === key)!);
+  const add = (list: Crossing[], from: ModuleId, outlet: number) => {
+    if (!list.some((c) => c.from === from && c.outlet === outlet)) list.push({ from, outlet });
+  };
   for (const wire of wires) {
     if (wire.notes) continue;
-    const [from, to] = [byId.get(wire.from)!.scope, byId.get(wire.to)!.scope];
-    if (from === to) continue;
-    const crossings = from === "voice" ? outward : inward;
-    if (!crossings.some((c) => c.from === wire.from && c.outlet === wire.outlet)) crossings.push({ from: wire.from, outlet: wire.outlet });
+    const up = chainOf(byId.get(wire.from)!.container);
+    const down = chainOf(byId.get(wire.to)!.container);
+    const common = up.find((key) => down.includes(key))!;
+    for (const key of up.slice(0, up.indexOf(common))) add(crossingsOf(key).outward, wire.from, wire.outlet);
+    for (const key of down.slice(0, down.indexOf(common))) add(crossingsOf(key).inward, wire.from, wire.outlet);
   }
 
-  // Pre-cords follow the voice's note in the voice area, and the keyboard outside it.
+  // Pre-cords follow the voice's note in the voice area, and the keyboard outside it. One in
+  // a unison group gets it through the group's edge; a Unison Index gets its copy's place.
   const precords: PrecordWire[] = [];
   for (const { instance, def } of byId.values()) {
     def.voiceInlets?.forEach((signal, inlet) => precords.push({ signal, to: instance.id, inlet }));
@@ -383,6 +449,15 @@ export function analyze(doc: PatchDocument): Analysis {
         fed.add(inputKey(instance.id, inlet));
       }
     });
+  }
+
+  let keyboard = false;
+  for (const precord of precords) {
+    if (precord.signal === "unison") continue;
+    const container = byId.get(precord.to)!.container;
+    const group = groups.find((g) => g.group.id === container);
+    if (group) add(group.inward, VOICE_SOURCE, VOICE_OUTLET[precord.signal]);
+    if ((group?.parent ?? container) === MAIN) keyboard = true;
   }
 
   const constants: ConstantFeed[] = [];
@@ -531,6 +606,8 @@ export function analyze(doc: PatchDocument): Analysis {
     samples,
     pages,
     voicing,
-    copies: voiceCopies(doc),
+    copies: notesAtOnce(doc),
+    groups,
+    keyboard,
   };
 }

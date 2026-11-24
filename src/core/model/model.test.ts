@@ -28,6 +28,12 @@ import {
   moveModules,
   moveArea,
   resizeArea,
+  addGroup,
+  canPlaceGroup,
+  moveContainer,
+  NEW_GROUP,
+  resizeContainer,
+  setGroupSize,
   nextFreeKnob,
   nextModuleId,
   paramValue,
@@ -44,9 +50,9 @@ import {
   setPrecord,
   togglePrecord,
 } from "./ops";
-import { placement } from "./area";
+import { containerOf, placement } from "./area";
 import { exportFolderName, parseDocument, serializeDocument } from "./serialize";
-import { DEFAULT_VOICING, emptyDocument, voiceCopies, type PatchDocument } from "./types";
+import { DEFAULT_VOICING, emptyDocument, type PatchDocument } from "./types";
 
 const port = (module: string, p: string) => ({ module, port: p });
 
@@ -784,26 +790,15 @@ describe("removing a module from a chain", () => {
 describe("voice settings", () => {
   const doc = emptyDocument();
 
-  it("keeps notes at once times Unison within the voices a patch can run", () => {
+  it("keeps the voices a whole number within what a patch can run", () => {
     expect(setVoices(doc, 4)).toBe(doc);
     expect(setVoices(doc, 6.4).voices).toBe(6);
     expect(setVoices(doc, 0).voices).toBe(1);
     expect(setVoices(doc, 40).voices).toBe(16);
-    const unison = setVoicing(doc, { unison: 3 });
-    expect(voiceCopies(unison)).toBe(12);
-    expect(setVoices(unison, 8).voices).toBe(5);
-    expect(setVoicing(doc, { unison: 9 }).voicing?.unison).toBe(4);
-    // Mono plays one note, so all sixteen can be one note's.
-    expect(setVoicing(doc, { mode: "mono", unison: 16 }).voicing).toMatchObject({ mode: "mono", unison: 16 });
-    // Back to poly with four notes at once, they cannot.
-    const mono = setVoicing(doc, { mode: "mono", unison: 16 });
-    expect(setVoicing(mono, { mode: "poly" }).voicing?.unison).toBe(4);
+    expect(setVoices(doc, Number.NaN)).toBe(doc);
   });
 
-  it("keeps Detune within its range and the rest to what they may be, and the same document when nothing changes", () => {
-    expect(setVoicing(doc, { detune: 250 }).voicing?.detune).toBe(100);
-    expect(setVoicing(doc, { detune: -5 }).voicing?.detune).toBe(0);
-    expect(setVoicing(doc, { unison: Number.NaN })).toBe(doc);
+  it("keeps the settings to what they may be, and the same document when nothing changes", () => {
     expect(setVoicing(doc, {})).toBe(doc);
     expect(setVoicing(doc, { ...DEFAULT_VOICING })).toBe(doc);
     const legato = setVoicing(doc, { legato: true, priority: "high" });
@@ -812,11 +807,118 @@ describe("voice settings", () => {
   });
 
   it("is saved and read back, and a file with settings it cannot have is refused", () => {
-    const set = setVoicing(doc, { mode: "mono", unison: 3, legato: true });
+    const set = setVoicing(doc, { mode: "mono", legato: true });
     expect(parseDocument(serializeDocument(set)).voicing).toEqual(set.voicing);
     const bad = JSON.parse(serializeDocument(set));
     bad.voicing.priority = "loudest";
     expect(() => parseDocument(JSON.stringify(bad))).toThrow();
+  });
+});
+
+describe("unison groups", () => {
+  // The voice area spans x 2–13 and y 0–9: tiles go into it at x 3–12 and y 1–8.
+  const area = { x: 2, y: 0, width: 12, height: 10 };
+  const base = (): PatchDocument => ({ ...emptyDocument(), voiceArea: area });
+  // A new group is 4 by 5: at (3, 1) its inside is x 4–5 and y 2–4, room for a saw.
+  const grouped = (at = { x: 3, y: 1 }) => addGroup(base(), at).doc;
+  const at = (doc: PatchDocument, id: string) => {
+    const module = doc.modules.find((m) => m.id === id)!;
+    return [module.x, module.y];
+  };
+  const where = (doc: PatchDocument, id: string) => containerOf(doc, doc.modules.find((m) => m.id === id)!);
+  const groupArea = (doc: PatchDocument, id = "ge1") => doc.groups!.find((g) => g.id === id)!.area;
+
+  it("is added where it lies on nothing, in the voices or out of them, never across their edge", () => {
+    const { doc, id } = addGroup(base(), { x: 3, y: 1 });
+    expect(id).toBe("ge1");
+    expect(doc.groups).toEqual([{ id: "ge1", area: { x: 3, y: 1, ...NEW_GROUP }, size: 3 }]);
+    expect(canPlaceGroup(base(), { x: 1, y: 1 })).toBe(false);
+    expect(canPlaceGroup(base(), { x: 20, y: 1 })).toBe(true);
+    expect(canPlaceGroup(doc, { x: 5, y: 2 })).toBe(false);
+    expect(canPlaceGroup(addModule(base(), "noise", { x: 4, y: 2 }).doc, { x: 3, y: 1 })).toBe(false);
+    // Modules and groups share ids.
+    expect(addModule(doc, "noise", { x: 20, y: 1 }).id).toBe("ge2");
+  });
+
+  it("takes a tile wholly inside it, never on its border, and keeps one that runs once out", () => {
+    const doc = grouped();
+    expect(where(addModule(doc, "osc-saw", { x: 4, y: 2 }).doc, "ge2")).toBe("ge1");
+    expect(canPlace(doc, "osc-saw", { x: 3, y: 2 })).toBe(false);
+    expect(canPlace(doc, "noise", { x: 4, y: 1 })).toBe(false);
+    const outside = grouped({ x: 20, y: 1 });
+    expect(canPlace(outside, "noise", { x: 21, y: 2 })).toBe(true);
+    expect(canPlace(outside, "audio-out", { x: 21, y: 2 })).toBe(false);
+    // A tile moves into it, and not onto its border.
+    const loose = addModule(doc, "osc-saw", { x: 8, y: 2 }).doc;
+    expect(canMove(loose, new Set(["ge2"]), { x: -4, y: 0 })).toBe(true);
+    expect(canMove(loose, new Set(["ge2"]), { x: -3, y: 0 })).toBe(false);
+  });
+
+  it("grows when a tile in it pushes another past its border, and the voice area grows round it", () => {
+    // A full group at the right of the voices, an Audio Out just outside them, and a filter
+    // put down on the saw in the group.
+    const doc = addModule(addModule(grouped({ x: 8, y: 1 }), "osc-saw", { x: 9, y: 2 }).doc, "audio-out", { x: 14, y: 1 }).doc;
+    const stacked = { ...doc, modules: [...doc.modules, { id: "ge4", type: "filter-lp", x: 9, y: 2, params: {} }] };
+    const pushed = makeRoom(stacked, "ge4", "right", "ge1");
+    expect(at(pushed, "ge2")).toEqual([11, 2]);
+    expect(groupArea(pushed)).toEqual({ x: 8, y: 1, width: 6, height: 5 });
+    expect(pushed.voiceArea).toEqual({ ...area, width: 13 });
+    expect(at(pushed, "ge3")).toEqual([15, 1]);
+    for (const id of ["ge2", "ge4"]) expect(where(pushed, id)).toBe("ge1");
+  });
+
+  it("moves with what is in it, into the voices or out of them, but not onto a tile or across their edge", () => {
+    const doc = addModule(grouped(), "osc-saw", { x: 4, y: 2 }).doc;
+    const moved = moveContainer(doc, "ge1", { x: 5, y: 0 });
+    expect(groupArea(moved)).toEqual({ x: 8, y: 1, ...NEW_GROUP });
+    expect(at(moved, "ge2")).toEqual([9, 2]);
+    const out = moveContainer(doc, "ge1", { x: 17, y: 0 });
+    expect(where(out, "ge2")).toBe("ge1");
+    expect(groupArea(out).x).toBe(20);
+    expect(moveContainer(doc, "ge1", { x: 8, y: 0 })).toBe(doc);
+    const blocked = addModule(doc, "noise", { x: 10, y: 3 }).doc;
+    expect(moveContainer(blocked, "ge1", { x: 5, y: 0 })).toBe(blocked);
+    // The voice area takes its groups along.
+    const voices = moveArea(doc, { x: 0, y: 2 });
+    expect(groupArea(voices).y).toBe(3);
+    expect(at(voices, "ge2")).toEqual([4, 4]);
+  });
+
+  it("resizes, pushing what is beside it, as long as what is in it stays clear of its border", () => {
+    const doc = addModule(addModule(grouped(), "osc-saw", { x: 4, y: 2 }).doc, "noise", { x: 7, y: 2 }).doc;
+    const wider = resizeContainer(doc, "ge1", { x: 3, y: 1, width: 5, height: 5 });
+    expect(groupArea(wider).width).toBe(5);
+    expect(at(wider, "ge3")).toEqual([8, 2]);
+    expect(resizeContainer(doc, "ge1", { x: 3, y: 1, width: 3, height: 5 })).toBe(doc);
+    expect(resizeContainer(doc, "ge1", { x: 3, y: 1, width: 2, height: 2 })).toBe(doc);
+  });
+
+  it("is removed, copied and pasted with what is in it", () => {
+    const doc = addModule(grouped(), "osc-saw", { x: 4, y: 2 }).doc;
+    const removed = removeModules(doc, new Set(["ge1"]));
+    expect(removed.groups).toEqual([]);
+    expect(removed.modules).toEqual([]);
+    const clip = copyModules(doc, new Set(["ge1"]))!;
+    const pasted = pasteModules(doc, clip, { x: 20, y: 1 });
+    expect(pasted.ids).toEqual(["ge3", "ge4"]);
+    expect(groupArea(pasted.doc, "ge4")).toEqual({ x: 20, y: 1, ...NEW_GROUP });
+    expect(where(pasted.doc, "ge3")).toBe("ge4");
+  });
+
+  it("refuses a cable that would leave it and come back into it", () => {
+    const doc = resizeContainer(addModule(grouped(), "osc-saw", { x: 4, y: 2 }).doc, "ge1", { x: 3, y: 1, width: 5, height: 5 });
+    let patch = addModule(addModule(doc, "amp", { x: 6, y: 2 }).doc, "filter-lp", { x: 9, y: 2 }).doc;
+    expect(where(patch, "ge3")).toBe("ge1");
+    patch = connect(patch, port("ge2", "out"), port("ge4", "in"));
+    expect(connectionProblem(patch, port("ge4", "out"), port("ge3", "in"))).toMatch(/unison group and back/);
+  });
+
+  it("runs from one copy to sixteen", () => {
+    const doc = grouped();
+    expect(setGroupSize(doc, "ge1", 3)).toBe(doc);
+    expect(setGroupSize(doc, "ge1", 0).groups![0].size).toBe(1);
+    expect(setGroupSize(doc, "ge1", 40).groups![0].size).toBe(16);
+    expect(setGroupSize(doc, "ge1", 5.4).groups![0].size).toBe(5);
   });
 });
 

@@ -109,28 +109,43 @@ export const NOTE_PRIORITIES: readonly NotePriority[] = ["last", "low", "high"];
 
 /** How the voice area plays notes. */
 export interface Voicing {
-  /** `poly`: `PatchDocument.voices` notes at once, each on voices of its own. `mono`: one note at a time. */
+  /** `poly`: `PatchDocument.voices` notes at once, each on a voice of its own. `mono`: one note at a time. */
   mode: "poly" | "mono";
-  /** The voices each note plays on, detuned from each other by `detune`. */
-  unison: number;
-  /** Cents the outermost voices of a note are from it; the others are spread evenly between. */
-  detune: number;
   /** Mono: which of the held keys sounds. */
   priority: NotePriority;
   /** Mono: a key played while a note sounds changes its pitch without starting it again. */
   legato: boolean;
 }
 
-export const DEFAULT_VOICING: Voicing = { mode: "poly", unison: 1, detune: 10, priority: "last", legato: false };
-export const MAX_DETUNE = 100;
+export const DEFAULT_VOICING: Voicing = { mode: "poly", priority: "last", legato: false };
+
+/**
+ * A unison group: cells whose modules run `size` times side by side, as many copies, which
+ * are added up where a cable leaves the group and each get what a cable brings into it.
+ * Like the voice area it has a border of cells, its top row a header. Inside the voice area
+ * every voice has its own copies; outside it they run once. A Unison Index in the group
+ * gives each copy its place among them.
+ */
+export interface UnisonGroup {
+  /** A module id: groups and modules share them, and a group is selected like a module. */
+  id: ModuleId;
+  area: Area;
+  size: number;
+}
+
+export const MIN_UNISON = 1;
+export const MAX_UNISON = 16;
+export const DEFAULT_UNISON = 3;
 
 export interface PatchDocument {
   version: typeof DOCUMENT_VERSION;
   name: string;
-  /** The notes that play at once, in poly mode. Each note takes `voicing.unison` voices. */
+  /** The notes that play at once, in poly mode. */
   voices: number;
   /** How the voices play notes; `DEFAULT_VOICING` when absent. */
   voicing?: Voicing;
+  /** The unison groups, inside the voice area or out of it, never in each other. */
+  groups?: UnisonGroup[];
   /**
    * The voice area: the modules whose tiles lie inside it run once in every voice, the
    * others once for the whole patch. Its first row is its header. See `model/area.ts`.
@@ -144,15 +159,12 @@ export interface PatchDocument {
 }
 
 export const MIN_VOICES = 1;
-/** The most voices a patch runs: notes at once times Unison. */
 export const MAX_VOICES = 16;
 
 export const voicingOf = (doc: Pick<PatchDocument, "voicing">): Voicing => doc.voicing ?? DEFAULT_VOICING;
-/** How many notes sound at once. */
+/** How many notes sound at once, which is how many voices run. */
 export const notesAtOnce = (doc: Pick<PatchDocument, "voices" | "voicing">): number =>
   voicingOf(doc).mode === "mono" ? 1 : doc.voices;
-/** How many copies of the voice run: notes at once times Unison. */
-export const voiceCopies = (doc: Pick<PatchDocument, "voices" | "voicing">): number => notesAtOnce(doc) * voicingOf(doc).unison;
 
 export function emptyDocument(name = "Untitled"): PatchDocument {
   return { version: DOCUMENT_VERSION, name, voices: 4, voiceArea: { x: 0, y: 0, width: 0, height: 0 }, modules: [], cables: [], pages: [] };

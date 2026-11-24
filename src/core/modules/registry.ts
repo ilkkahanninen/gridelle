@@ -322,6 +322,20 @@ const DEFS: ModuleDef[] = [
     pd: "ge-keys",
   },
   {
+    // In a unison group, its copy's place among the copies: -1 the first, 1 the last, evenly
+    // between. Elsewhere 0, the middle. Into an oscillator's Fine tune it detunes the copies.
+    type: "unison-index",
+    name: "Unison Index",
+    category: "io",
+    width: 2,
+    height: 1,
+    inputs: [],
+    voiceInlets: ["unison"],
+    outputs: modOutputs,
+    params: [],
+    pd: "ge-unison-index",
+  },
+  {
     // Plays its sample from a trigger. Middle C is the sample as recorded. Once plays to
     // the end whatever the key does; Loop goes round.
     type: "sample-player",
@@ -975,7 +989,5 @@ export const VOICE_ABSTRACTION = "ge-voice";
 export const KEYBOARD_ABSTRACTION = "ge-keyboard";
 /** The mono note allocator: one note at a time from the held keys, by priority, legato or not. */
 export const MONO_ABSTRACTION = "ge-mono";
-/** Sends a note on to each of the voices it plays on, with Unison above 1. */
-export const UNISON_ABSTRACTION = "ge-unison";
-/** What every voice's Detune listens to: the cents its outermost voices are from the note. */
-export const DETUNE_RECEIVER = "ge-detune";
+/** A unison group's copy's place among the copies, from its number and their count: what a Unison Index gives. */
+export const PLACE_ABSTRACTION = "ge-unison-place";

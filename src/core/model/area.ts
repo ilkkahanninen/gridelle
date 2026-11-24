@@ -1,5 +1,5 @@
 import { visibleDef } from "../modules/shape";
-import type { Area, ModuleInstance, PatchDocument, PortRef } from "./types";
+import type { Area, ModuleInstance, PatchDocument, PortRef, UnisonGroup } from "./types";
 
 /*
  * The voice area. A patch runs in two places: once for all of it, and once in every voice.
@@ -60,4 +60,54 @@ export function placementOf(area: Area, tile: Area): Placement {
 export function placement(doc: Pick<PatchDocument, "cables" | "voiceArea">, module: ModuleInstance): Placement | null {
   const tile = tileArea(doc, module);
   return tile && placementOf(doc.voiceArea, tile);
+}
+
+/*
+ * Containers. Besides the voice area a patch can have unison groups (`UnisonGroup`), each
+ * an area whose modules run several times side by side. A group lies wholly inside the
+ * voice area or wholly outside it, and never in another group, so the containers form a
+ * tree: the patch, the voice area in it, and groups in either. A module is in the innermost
+ * one whose inside holds its tile.
+ */
+
+/** A container: the patch itself (`MAIN`), the voice area (`VOICE`), or a group by its id. */
+export type ContainerKey = string;
+export const MAIN: ContainerKey = "main";
+export const VOICE: ContainerKey = "voice";
+
+/** No groups: one array, so that a selector that reads a patch's groups gets the same one each time. */
+const NO_GROUPS: readonly UnisonGroup[] = Object.freeze([]);
+
+export const groupsOf = (doc: Pick<PatchDocument, "groups">): readonly UnisonGroup[] => doc.groups ?? NO_GROUPS;
+
+/** An area that has no cells holds nothing (a test's empty voice area). */
+const hasCells = (area: Area) => area.width > 0 && area.height > 0;
+
+/**
+ * The container a tile of these cells would be in, or `null` when it lies on the border of
+ * the voice area or of a group. `skip` leaves a group out, as when it is the one moving.
+ */
+export function containerAt(doc: Pick<PatchDocument, "voiceArea" | "groups">, tile: Area, skip?: string): ContainerKey | null {
+  for (const group of groupsOf(doc)) {
+    if (group.id === skip) continue;
+    const where = placementOf(group.area, tile);
+    if (where === "inside") return group.id;
+    if (where === "across") return null;
+  }
+  if (!hasCells(doc.voiceArea)) return MAIN;
+  const where = placementOf(doc.voiceArea, tile);
+  return where === "inside" ? VOICE : where === "outside" ? MAIN : null;
+}
+
+/** The container a module is in; `null` on a border, or for a module of a type that does not exist. */
+export function containerOf(doc: Pick<PatchDocument, "cables" | "voiceArea" | "groups">, module: ModuleInstance): ContainerKey | null {
+  const tile = tileArea(doc, module);
+  return tile && containerAt(doc, tile);
+}
+
+/** Where a group is: in the voice area or out of it; `null` across its edge. */
+export function groupParent(doc: Pick<PatchDocument, "voiceArea">, group: Pick<UnisonGroup, "area">): ContainerKey | null {
+  if (!hasCells(doc.voiceArea)) return MAIN;
+  const where = placementOf(doc.voiceArea, group.area);
+  return where === "inside" ? VOICE : where === "outside" ? MAIN : null;
 }

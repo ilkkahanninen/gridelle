@@ -150,3 +150,10 @@
   font-size: 13px;
   white-space: nowrap;
 }
+
+/* The Unison card is a container, not a tile: round, and tinted like a group on the grid. */
+.palette-card-group {
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--category) 22%, var(--tile));
+  box-shadow: 0 0 0 1px var(--line);
+}

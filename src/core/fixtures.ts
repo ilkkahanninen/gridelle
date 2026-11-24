@@ -784,25 +784,31 @@ export const arpeggio: PatchDocument = {
 };
 
 /**
- * A mono lead: one note at a time, the last key held, on three voices 12 cents apart.
- * A key played while another is held glides there without starting the envelope again,
- * and when it is let go the note goes back to the key still held.
+ * A mono lead: one note at a time, the last key held. Only its saw is in a unison group of
+ * three, which a Unison Index into the saw's Fine tune spreads over plus and minus 12 cents;
+ * one filter and envelope serve the three. A key played while another is held glides there
+ * without starting the envelope again, and when it is let go the note goes back to the key
+ * still held.
  */
-export const monoLead: PatchDocument = voiced({
+export const monoLead: PatchDocument = {
   version: DOCUMENT_VERSION,
   name: "Mono Lead",
   voices: 1,
-  voicing: { mode: "mono", unison: 3, detune: 12, priority: "last", legato: true },
+  voicing: { mode: "mono", priority: "last", legato: true },
+  voiceArea: { x: 0, y: 0, width: 11, height: 8 },
+  groups: [{ id: "ge8", area: { x: 3, y: 1, width: 4, height: 6 }, size: 3 }],
   modules: [
-    { id: "ge1", type: "pitch-glide", x: 0, y: 0, params: { time: 60 } },
-    { id: "ge2", type: "osc-saw", x: 2, y: 0, params: {} },
-    { id: "ge3", type: "filter-lp", x: 4, y: 0, params: { cutoff: 1200, res: 0.3 } },
-    { id: "ge4", type: "amp", x: 6, y: 0, params: {} },
-    { id: "ge5", type: "env-adsr", x: 4, y: 3, params: { attack: 5, decay: 200, sustain: 0.6, release: 150 } },
-    { id: "ge6", type: "audio-out", x: 7, y: 0, params: {} },
+    { id: "ge1", type: "pitch-glide", x: 1, y: 1, params: { time: 60 } },
+    { id: "ge2", type: "osc-saw", x: 4, y: 2, params: { fine: 12 } },
+    { id: "ge3", type: "filter-lp", x: 7, y: 1, params: { cutoff: 1200, res: 0.3 } },
+    { id: "ge4", type: "amp", x: 9, y: 1, params: {} },
+    { id: "ge5", type: "env-adsr", x: 7, y: 4, params: { attack: 5, decay: 200, sustain: 0.6, release: 150 } },
+    { id: "ge6", type: "audio-out", x: 11, y: 1, params: {} },
+    { id: "ge7", type: "unison-index", x: 4, y: 5, params: {} },
   ],
   cables: [
     { from: { module: "ge1", port: "out" }, to: { module: "ge2", port: "pitch" } },
+    { from: { module: "ge7", port: "out" }, to: { module: "ge2", port: "fine" } },
     { from: { module: "ge2", port: "out" }, to: { module: "ge3", port: "in" } },
     { from: { module: "ge3", port: "out" }, to: { module: "ge4", port: "in" } },
     { from: { module: "ge5", port: "out" }, to: { module: "ge4", port: "cv" } },
@@ -819,7 +825,7 @@ export const monoLead: PatchDocument = voiced({
       ],
     },
   ],
-}, ["ge6"]);
+};
 
 /**
  * What a new patch starts as, until the user saves a base of their own over it: a saw

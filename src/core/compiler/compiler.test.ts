@@ -136,38 +136,16 @@ describe("compile", () => {
     const boxes = (text: string) => objectBoxes(text).map((b) => [b.name, ...b.args].join(" "));
 
     it("plays one note at a time in mono, by priority and legato, on one voice", () => {
-      const { files, params } = compile(voiced({ mode: "mono", priority: "high", legato: true }), abstractionLibrary);
+      const { files } = compile(voiced({ mode: "mono", priority: "high", legato: true }), abstractionLibrary);
       const main = boxes(files["main.pd"]);
       expect(main).toEqual(expect.arrayContaining(["ge-mono 2 1", "list prepend 0", "clone voice 1"]));
       expect(main.some((b) => b.startsWith("poly"))).toBe(false);
       expect(Object.keys(files)).toContain("ge-mono.pd");
-      expect(files["ge-unison.pd"]).toBeUndefined();
-      // With one voice to a note, nothing is detuned.
-      expect(params.map((p) => p.receiver)).not.toContain("ge-detune");
-      expect(boxes(files["voice.pd"])).toContain("ge-voice");
     });
 
-    it("gives each note Unison voices in a row, each with its share of Detune", () => {
-      const { files, params } = compile(voiced({ unison: 3, detune: 20 }), abstractionLibrary);
-      const main = boxes(files["main.pd"]);
-      expect(main).toEqual(expect.arrayContaining(["poly 4 1", "pack f f f 0", "ge-unison 3", "clone voice 12"]));
-      expect(boxes(files["voice.pd"])).toContain("ge-voice $1 3");
-      expect(params).toContainEqual({ receiver: "ge-detune", value: 20 });
-      // In mono the one note goes to all of them.
-      const mono = boxes(compile(voiced({ mode: "mono", unison: 3 }), abstractionLibrary).files["main.pd"]);
-      expect(mono).toEqual(expect.arrayContaining(["ge-mono 0 0", "list prepend 0", "ge-unison 3", "clone voice 3"]));
-    });
-
-    it("tells a Scope the first voice of the latest note", () => {
-      const scoped = { ...fixtures.scoped, voicing: { ...DEFAULT_VOICING, unison: 2 }, voices: 2 };
-      expect(boxes(compile(scoped, abstractionLibrary).files["main.pd"])).toContain("* 2");
-    });
-
-    it("reloads for the mode, Unison, priority and legato, and takes Detune live", () => {
-      const key = structureKey(voiced({ unison: 2 }));
-      expect(structureKey(voiced({ unison: 2, detune: 40 }))).toBe(key);
-      expect(structureKey(voiced({ unison: 3 }))).not.toBe(key);
-      expect(structureKey(voiced({ mode: "mono", unison: 2 }))).not.toBe(key);
+    it("reloads for the mode, priority and legato", () => {
+      const key = structureKey(voiced({}));
+      expect(structureKey(voiced({ mode: "mono" }))).not.toBe(key);
       const mono = structureKey(voiced({ mode: "mono" }));
       expect(structureKey(voiced({ mode: "mono", legato: true }))).not.toBe(mono);
       expect(structureKey(voiced({ mode: "mono", priority: "low" }))).not.toBe(mono);
@@ -175,6 +153,95 @@ describe("compile", () => {
       expect(structureKey(voiced({ mode: "mono" }, 8))).toBe(mono);
       // A document with no voice settings is the default.
       expect(structureKey({ ...basicSynth, voicing: DEFAULT_VOICING })).toBe(structureKey(basicSynth));
+    });
+  });
+
+  describe("unison groups", () => {
+    const boxes = (text: string) => objectBoxes(text).map((b) => [b.name, ...b.args].join(" "));
+    const at = (text: string, name: string) => objectBoxes(text).findIndex((b) => b.name === name);
+    const group = (x: number, y: number, size = 3) => ({ id: "ge9", area: { x, y, width: 4, height: 6 }, size });
+    const saw = (x: number, y: number) => ({ id: "ge1", type: "osc-saw", x, y, params: {} });
+    const index = (x: number, y: number) => ({ id: "ge2", type: "unison-index", x, y, params: {} });
+    const filter = (x: number) => ({ id: "ge3", type: "filter-lp", x, y: 10, params: {} });
+    const out = { id: "ge4", type: "audio-out", x: 100, y: 0, params: {} };
+    const lfo = { id: "ge5", type: "lfo", x: 100, y: 10, params: {} };
+    const c = (from: string, fromPort: string, to: string, toPort: string) => ({ from: { module: from, port: fromPort }, to: { module: to, port: toPort } });
+    // A saw and a Unison Index in a group of three in the voices; a filter after it, still in the voices.
+    const cables = [c("ge2", "out", "ge1", "fine"), c("ge1", "out", "ge3", "in"), c("ge3", "out", "ge4", "left")];
+    const inVoices = doc({ groups: [group(10, 10)], modules: [saw(11, 11), index(11, 14), filter(20), out], cables });
+    const errors = (patch: PatchDocument) => compile(patch, abstractionLibrary).diagnostics.filter((d) => d.severity === "error");
+
+    it("runs a group's modules in a file of their own, as many copies as its size, in every voice", () => {
+      const { files } = compile(inVoices, abstractionLibrary);
+      expect(errors(inVoices)).toEqual([]);
+      const voice = files["voice.pd"];
+      expect(boxes(voice)).toContain("clone ge-unison-ge9 3 $1");
+      expect(boxes(voice)).not.toContain("ge-osc-saw ge1");
+      const copy = files["ge-unison-ge9.pd"];
+      expect(boxes(copy)).toEqual(expect.arrayContaining(["ge-osc-saw ge1", "ge-unison-index ge2", "ge-unison-place $1 3"]));
+      // In: the voice's pitch, which the saw's pre-cord follows. Out: the saw, added up over the copies.
+      expect(boxes(copy).filter((b) => b === "inlet~")).toHaveLength(1);
+      expect(boxes(copy).filter((b) => b === "outlet~")).toHaveLength(1);
+      expect(voice).toContain(`#X connect ${at(voice, "ge-voice")} 0 ${at(voice, "clone")} 0;`);
+      expect(voice).toContain(`#X connect ${at(voice, "clone")} 0 ${at(voice, "ge-filter-lp")} 0;`);
+      // Each copy's place goes to the Unison Index, and from it to the saw's Fine tune.
+      expect(copy).toContain(`#X connect ${at(copy, "ge-unison-place")} 0 ${at(copy, "ge-unison-index")} 0;`);
+      expect(copy).toContain(`#X connect ${at(copy, "ge-unison-index")} 0 ${at(copy, "ge-osc-saw")} 2;`);
+      expect(Object.keys(files)).toContain("ge-unison-place.pd");
+    });
+
+    it("runs a group outside the voices once, following the keyboard", () => {
+      const outside = doc({ groups: [group(104, 10)], modules: [saw(105, 11), index(105, 14), filter(110), out], cables });
+      expect(errors(outside)).toEqual([]);
+      const main = compile(outside, abstractionLibrary).files["main.pd"];
+      expect(boxes(main)).toContain("clone ge-unison-ge9 3 -1");
+      const groupClone = objectBoxes(main).findIndex((b) => b.name === "clone" && b.args[0] === "ge-unison-ge9");
+      expect(main).toContain(`#X connect ${at(main, "ge-keyboard")} 0 ${groupClone} 0;`);
+    });
+
+    it("passes a cable on at every edge it crosses", () => {
+      // An LFO outside the voices into the saw in the group, and the saw straight to the Audio Out.
+      const deep = doc({ groups: [group(10, 10)], modules: [saw(11, 11), out, lfo], cables: [c("ge5", "out", "ge1", "mod"), c("ge1", "out", "ge4", "left")] });
+      expect(errors(deep)).toEqual([]);
+      const { files } = compile(deep, abstractionLibrary);
+      const [main, voice, copy] = [files["main.pd"], files["voice.pd"], files["ge-unison-ge9.pd"]];
+      // Into the voices at [clone voice]'s first signal inlet, out of them at its outlet.
+      expect(main).toContain(`#X connect ${at(main, "ge-lfo")} 0 ${at(main, "clone")} 1;`);
+      expect(main).toContain(`#X connect ${at(main, "clone")} 0 ${at(main, "ge-audio-out")} 0;`);
+      // In the voice, on into the group and out of it: the LFO first, then the voice's pitch.
+      expect(voice).toContain(`#X connect ${at(voice, "inlet~")} 0 ${at(voice, "clone")} 0;`);
+      expect(voice).toContain(`#X connect ${at(voice, "ge-voice")} 0 ${at(voice, "clone")} 1;`);
+      expect(voice).toContain(`#X connect ${at(voice, "clone")} 0 ${at(voice, "outlet~")} 0;`);
+      // In the copy: the LFO into Modulation, the pitch into Pitch.
+      const inlets = objectBoxes(copy).flatMap((b, i) => (b.name === "inlet~" ? [i] : []));
+      expect(copy).toContain(`#X connect ${inlets[0]} 0 ${at(copy, "ge-osc-saw")} 3;`);
+      expect(copy).toContain(`#X connect ${inlets[1]} 0 ${at(copy, "ge-osc-saw")} 0;`);
+    });
+
+    it("gives a Unison Index outside a group nothing: the middle, 0", () => {
+      const voice = compile(doc({ modules: [index(0, 0)] }), abstractionLibrary).files["voice.pd"];
+      expect(voice).not.toMatch(new RegExp(`#X connect \\d+ \\d+ ${at(voice, "ge-unison-index")} 0;`));
+    });
+
+    it("reports a way out of a group and back in, and what does not belong in one", () => {
+      // The saw out of the group into the filter, and the filter back into an Amp in the group.
+      const wide = { id: "ge9", area: { x: 10, y: 10, width: 5, height: 6 }, size: 3 };
+      const amp = { id: "ge6", type: "amp", x: 13, y: 11, params: {} };
+      const loop = doc({ groups: [wide], modules: [saw(11, 11), amp, filter(20), out], cables: [c("ge1", "out", "ge3", "in"), c("ge3", "out", "ge6", "in")] });
+      expect(errors(loop).map((d) => d.message).join()).toMatch(/leaves a unison group/);
+      // Across its edge; one that runs once; a group across the voice area's edge; two on each other; no copies.
+      expect(errors({ ...inVoices, modules: [saw(10, 11), filter(20), out] })[0].code).toBe("misplaced");
+      expect(errors({ ...inVoices, modules: [saw(11, 11), { ...out, x: 11, y: 14 }] })[0].code).toBe("misplaced");
+      expect(errors(doc({ groups: [group(97, 10)] }))[0].code).toBe("misplaced");
+      expect(errors(doc({ groups: [group(10, 10), { ...group(12, 12), id: "ge8" }] }))[0].code).toBe("misplaced");
+      expect(errors(doc({ groups: [group(10, 10, 0)] }))[0].code).toBe("bad-group");
+    });
+
+    it("reloads when a group's size changes or a module goes into one or out of it, not when the group moves", () => {
+      const key = structureKey(inVoices);
+      expect(structureKey({ ...inVoices, groups: [group(10, 10, 4)] })).not.toBe(key);
+      expect(structureKey({ ...inVoices, modules: [saw(30, 11), index(11, 14), filter(20), out] })).not.toBe(key);
+      expect(structureKey({ ...inVoices, groups: [group(40, 10)], modules: [saw(41, 11), index(41, 14), filter(20), out] })).toBe(key);
     });
   });
 
@@ -748,8 +815,7 @@ describe("diagnostics", () => {
     ["voice-count", { ...wired, voices: 0 }],
     ["voice-count", { ...wired, voices: 2.5 }],
     ["voice-count", { ...wired, voices: 17 }],
-    ["voice-count", { ...wired, voices: 8, voicing: { ...DEFAULT_VOICING, unison: 3 } }],
-    ["voice-count", { ...wired, voicing: { ...DEFAULT_VOICING, unison: 0 } }],
+    ["bad-group", { ...wired, groups: [{ id: "ge9", area: { x: 10, y: 10, width: 4, height: 4 }, size: 1.5 }] }],
   ];
   it.each(broken)("reports %s and produces no files", (code, bad) => {
     const result = compile(bad, abstractionLibrary);

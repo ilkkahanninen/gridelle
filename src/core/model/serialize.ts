@@ -74,8 +74,7 @@ export function parseDocument(text: string): PatchDocument {
               (s.kind === "tape" && isCount(s.seconds)) ||
               (s.kind === "wavetable" && isText(s.bank)))),
       ));
-  const area = data.voiceArea;
-  const areaOk =
+  const isArea = (area: unknown) =>
     isRecord(area) &&
     Number.isInteger(area.x) &&
     Number.isInteger(area.y) &&
@@ -83,13 +82,15 @@ export function parseDocument(text: string): PatchDocument {
     Number.isInteger(area.height) &&
     (area.width as number) >= 0 &&
     (area.height as number) >= 0;
+  const areaOk = isArea(data.voiceArea);
+  const groupsOk =
+    data.groups === undefined ||
+    (Array.isArray(data.groups) && data.groups.every((g) => isRecord(g) && isText(g.id) && isArea(g.area) && typeof g.size === "number"));
   const voicing = data.voicing;
   const voicingOk =
     voicing === undefined ||
     (isRecord(voicing) &&
       (voicing.mode === "poly" || voicing.mode === "mono") &&
-      typeof voicing.unison === "number" &&
-      typeof voicing.detune === "number" &&
       NOTE_PRIORITIES.includes(voicing.priority as NotePriority) &&
       typeof voicing.legato === "boolean");
   if (
@@ -97,6 +98,7 @@ export function parseDocument(text: string): PatchDocument {
     typeof data.voices !== "number" ||
     !voicingOk ||
     !areaOk ||
+    !groupsOk ||
     !modulesOk ||
     !cablesOk ||
     !pagesOk ||

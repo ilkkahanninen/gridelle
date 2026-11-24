@@ -49,6 +49,8 @@
 .category-math { --category: #9ad06a; }
 .category-logic { --category: #cfa37c; }
 .category-sequence { --category: #b8e05a; }
+/* Not modules: the unison group, which holds modules. */
+.category-groups { --category: #8c7cf0; }
 
 /*
  * One colour per knob page, by the page's place in the order Aux steps through. These

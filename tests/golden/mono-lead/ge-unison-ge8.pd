@@ -1,0 +1,12 @@
+#N canvas 0 50 800 600 12;
+#X obj 30 30 inlet~;
+#X obj 160 70 ge-unison-place \$1 3;
+#X obj 30 140 ge-osc-saw ge2;
+#X obj 30 275 ge-unison-index ge7;
+#X obj 290 70 sig~ 1;
+#X obj 30 420 outlet~;
+#X connect 0 0 2 0;
+#X connect 3 0 2 2;
+#X connect 1 0 3 0;
+#X connect 4 0 2 1;
+#X connect 2 0 5 0;

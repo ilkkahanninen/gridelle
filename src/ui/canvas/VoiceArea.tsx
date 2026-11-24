@@ -1,12 +1,12 @@
 import { AREA_BORDER, VOICE_NOTES } from "../../core/model/area";
 import * as ops from "../../core/model/ops";
 import { MIN_AREA } from "../../core/model/ops";
-import { MAX_VOICES, MIN_VOICES, voicingOf, type Area } from "../../core/model/types";
+import { MAX_UNISON, MAX_VOICES, MIN_UNISON, MIN_VOICES, voicingOf, type Area, type UnisonGroup } from "../../core/model/types";
 import { useEditor } from "../../state/store";
 import { CELL, type Point } from "./geometry";
 import "./VoiceArea.css";
 
-/** Which part of the voice area a press took hold of: the header moves it, an edge resizes it. */
+/** Which part of a container a press took hold of: the header moves it, an edge resizes it. */
 export type AreaGrip = "move" | "left" | "right" | "bottom" | "corner";
 
 /** How far in from the area's left edge the Notes input is: clear of its rounded corner. */
@@ -35,42 +35,58 @@ export function gripped(area: Area, grip: AreaGrip, cells: { x: number; y: numbe
   }
 }
 
+/** A count to step with − and +, in a container's header. */
+function Stepper({ value, min, max, label, set }: { value: number; min: number; max: number; label: string; set(n: number): void }) {
+  return (
+    <span className="voice-area-count" onPointerDown={(e) => e.stopPropagation()}>
+      <button type="button" aria-label={`${label}: one fewer`} disabled={value <= min} onClick={() => set(value - 1)}>
+        −
+      </button>
+      <span aria-label={label}>{value}</span>
+      <button type="button" aria-label={`${label}: one more`} disabled={value >= max} onClick={() => set(value + 1)}>
+        +
+      </button>
+    </span>
+  );
+}
+
 /**
- * The voice area on the grid: a dark panel with rounded corners under the modules that run
- * in every voice. Its outer ring of cells is its border, where no module goes, so that
- * inside and outside never touch; it is the same dark as the inside, and is what is taken
- * hold of: the top row, the header (the number of voices, the voices' Notes input), moves
- * the area, and the sides, the bottom and the corner resize it. What is inside is drawn by
- * the canvas, not here, and presses there go through to the grid.
+ * A container on the grid: a panel with rounded corners under the modules in it. Its outer
+ * ring of cells is its border, where no module goes, so that inside and outside never
+ * touch; it is the same colour as the inside, and is what is taken hold of: the top row,
+ * the header, moves the container, and the sides, the bottom and the corner resize it.
+ * What is inside is drawn by the canvas, not here, and presses there go through to the grid.
  */
-export function VoiceArea({
+function Frame({
+  kind,
+  name,
   area,
   blocked,
-  notesCabled,
+  selected,
   onGrip,
-  onPortPointerDown,
+  children,
 }: {
-  /** Where the area is drawn: where it is, or where a drag would put it. */
+  kind: "voices" | "unison";
+  /** What it is called in the grips' tooltips. */
+  name: string;
+  /** Where it is drawn: where it is, or where a drag would put it. */
   area: Area;
   /** The drag would put a tile on its border, or on another. */
   blocked: boolean;
-  /** A cable brings the voices their notes; without one they get the keyboard's. */
-  notesCabled: boolean;
+  selected?: boolean;
   onGrip(e: React.PointerEvent, grip: AreaGrip): void;
-  onPortPointerDown(e: React.PointerEvent, id: string, port: string, side: "in" | "out"): void;
+  children: React.ReactNode;
 }) {
-  const voices = useEditor((s) => s.doc.voices);
-  const { mode, unison } = useEditor((s) => voicingOf(s.doc));
-  const most = Math.floor(MAX_VOICES / unison);
-  const setVoices = (n: number) => useEditor.getState().apply((doc) => ops.setVoices(doc, n));
-  const stop = (e: React.PointerEvent) => e.stopPropagation();
   const border = AREA_BORDER * CELL;
   const [width, height] = [area.width * CELL, area.height * CELL];
-  const grip = (kind: AreaGrip, style: React.CSSProperties) => (
-    <div className={`voice-area-grip voice-area-${kind}`} style={style} onPointerDown={(e) => onGrip(e, kind)} title="Drag to resize the voice area" />
+  const grip = (where: AreaGrip, style: React.CSSProperties) => (
+    <div className={`voice-area-grip voice-area-${where}`} style={style} onPointerDown={(e) => onGrip(e, where)} title={`Drag to resize the ${name}`} />
   );
+  const classes = ["voice-area", `container-${kind}`];
+  if (blocked) classes.push("voice-area-blocked");
+  if (selected) classes.push("container-selected");
   return (
-    <div className={`voice-area${blocked ? " voice-area-blocked" : ""}`} style={{ left: area.x * CELL, top: area.y * CELL, width, height }}>
+    <div className={classes.join(" ")} style={{ left: area.x * CELL, top: area.y * CELL, width, height }}>
       {grip("left", { left: 0, top: border, width: border, height: height - 2 * border })}
       {grip("right", { left: width - border, top: border, width: border, height: height - 2 * border })}
       {grip("bottom", { left: 0, top: height - border, width: width - border, height: border })}
@@ -79,44 +95,95 @@ export function VoiceArea({
         className="voice-area-grip voice-area-header"
         style={{ left: 0, top: 0, width, height: border }}
         onPointerDown={(e) => onGrip(e, "move")}
-        title="Drag to move the voice area with what is in it"
+        title={`Drag to move the ${name} with what is in it`}
       >
-        {/* The notes the voices play: the keyboard's, or a note module's patched in here. */}
-        <div
-          className={`port port-in hint-notes voice-area-notes${notesCabled ? " port-cabled" : " port-precord"}`}
-          style={{ top: CELL / 2, left: NOTES_INSET }}
-          data-port-module={VOICE_NOTES.module}
-          data-port-id={VOICE_NOTES.port}
-          data-port-side="in"
-          title={
-            notesCabled
-              ? "Notes: what the voices play, one note to each voice."
-              : "Notes: the voices play the keyboard's, until you patch in a note output (an arpeggiator's)."
-          }
-          onPointerDown={(e) => onPortPointerDown(e, VOICE_NOTES.module, VOICE_NOTES.port, "in")}
-        >
-          <span className="port-dot" />
-          <span className="port-label">Notes</span>
-        </div>
-        {/* Poly: the notes at once, to change here. Mono: one note. The rest is in the settings pane. */}
-        <span className="voice-area-title">{mode === "mono" ? "Mono" : "Voices"}</span>
-        {mode === "poly" && (
-          <span className="voice-area-count" onPointerDown={stop}>
-            <button type="button" aria-label="One voice fewer" disabled={voices <= MIN_VOICES} onClick={() => setVoices(voices - 1)}>
-              −
-            </button>
-            <span aria-label="Number of voices">{voices}</span>
-            <button type="button" aria-label="One voice more" disabled={voices >= most} onClick={() => setVoices(voices + 1)}>
-              +
-            </button>
-          </span>
-        )}
-        {unison > 1 && (
-          <span className="voice-area-unison" title={`Unison: each note on ${unison} voices`}>
-            ×{unison}
-          </span>
-        )}
+        {children}
       </div>
     </div>
+  );
+}
+
+/**
+ * The voice area: what is in it runs in every voice. Its header has the voices' Notes
+ * input, and in poly mode the number of voices; a click on it shows the voices' settings.
+ */
+export function VoiceArea({
+  area,
+  blocked,
+  notesCabled,
+  onGrip,
+  onPortPointerDown,
+}: {
+  area: Area;
+  blocked: boolean;
+  /** A cable brings the voices their notes; without one they get the keyboard's. */
+  notesCabled: boolean;
+  onGrip(e: React.PointerEvent, grip: AreaGrip): void;
+  onPortPointerDown(e: React.PointerEvent, id: string, port: string, side: "in" | "out"): void;
+}) {
+  const voices = useEditor((s) => s.doc.voices);
+  const { mode } = useEditor((s) => voicingOf(s.doc));
+  return (
+    <Frame kind="voices" name="voice area" area={area} blocked={blocked} onGrip={onGrip}>
+      {/* The notes the voices play: the keyboard's, or a note module's patched in here. */}
+      <div
+        className={`port port-in hint-notes voice-area-notes${notesCabled ? " port-cabled" : " port-precord"}`}
+        style={{ top: CELL / 2, left: NOTES_INSET }}
+        data-port-module={VOICE_NOTES.module}
+        data-port-id={VOICE_NOTES.port}
+        data-port-side="in"
+        title={
+          notesCabled
+            ? "Notes: what the voices play, one note to each voice."
+            : "Notes: the voices play the keyboard's, until you patch in a note output (an arpeggiator's)."
+        }
+        onPointerDown={(e) => onPortPointerDown(e, VOICE_NOTES.module, VOICE_NOTES.port, "in")}
+      >
+        <span className="port-dot" />
+        <span className="port-label">Notes</span>
+      </div>
+      {/* Poly: the voices, to change here. Mono: one. The rest is in the settings pane. */}
+      <span className="voice-area-title">{mode === "mono" ? "Mono" : "Voices"}</span>
+      {mode === "poly" && (
+        <Stepper
+          value={voices}
+          min={MIN_VOICES}
+          max={MAX_VOICES}
+          label="Number of voices"
+          set={(n) => useEditor.getState().apply((doc) => ops.setVoices(doc, n))}
+        />
+      )}
+    </Frame>
+  );
+}
+
+/**
+ * A unison group: what is in it runs as many times side by side as its header says, and
+ * its copies are added up where a cable leaves it. A click on its header selects it.
+ */
+export function GroupArea({
+  group,
+  area,
+  blocked,
+  selected,
+  onGrip,
+}: {
+  group: UnisonGroup;
+  area: Area;
+  blocked: boolean;
+  selected: boolean;
+  onGrip(e: React.PointerEvent, grip: AreaGrip): void;
+}) {
+  return (
+    <Frame kind="unison" name="unison group" area={area} blocked={blocked} selected={selected} onGrip={onGrip}>
+      <span className="voice-area-title">Unison</span>
+      <Stepper
+        value={group.size}
+        min={MIN_UNISON}
+        max={MAX_UNISON}
+        label="Copies"
+        set={(n) => useEditor.getState().apply((doc) => ops.setGroupSize(doc, group.id, n))}
+      />
+    </Frame>
   );
 }

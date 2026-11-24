@@ -1,4 +1,4 @@
-import { placement } from "../model/area";
+import { containerOf, groupParent, groupsOf, placement } from "../model/area";
 import { notesAtOnce, voicingOf, type PatchDocument } from "../model/types";
 import { getModuleDef } from "../modules/registry";
 
@@ -16,16 +16,19 @@ export function structureKey(doc: PatchDocument): string {
   // A module's own name is in the patch where one of its settings is on a knob: the
   // Organelle's screen names it. Elsewhere a name changes nothing that is exported.
   const onKnobs = new Set(doc.pages.flatMap((page) => page.knobs.flatMap((knob) => (knob ? [knob.module] : []))));
-  // How the voices play notes, but not Detune, which a running patch takes as a value.
-  const { mode, unison, priority, legato } = voicingOf(doc);
+  // How the voices play notes.
+  const { mode, priority, legato } = voicingOf(doc);
   return JSON.stringify([
     notesAtOnce(doc),
-    [mode, unison, mode === "mono" ? [priority, legato] : null],
+    [mode, mode === "mono" ? [priority, legato] : null],
+    // The unison groups: their sizes, and whether they are in the voices.
+    groupsOf(doc).map((g) => [g.id, g.size, groupParent(doc, g)]),
     doc.modules.map((m) => [
       m.id,
       m.type,
-      // Positions are left out, but not whether a module is in the voices or outside them.
+      // Positions are left out, but not which container a module is in.
       placement(doc, m),
+      containerOf(doc, m),
       onKnobs.has(m.id) ? (m.name?.trim() ?? "") : "",
       (getModuleDef(m.type)?.params ?? []).filter((p) => p.argument).map((p) => m.params[p.id] ?? p.default),
       Object.entries(m.precords ?? {})
