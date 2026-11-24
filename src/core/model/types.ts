@@ -1,5 +1,5 @@
 /** Bumped whenever the saved document shape changes incompatibly. */
-export const DOCUMENT_VERSION = 2;
+export const DOCUMENT_VERSION = 3;
 
 /**
  * Module instance id, e.g. `ge12`. It doubles as the prefix of the module's Pd
@@ -95,11 +95,24 @@ export type SampleSlot =
 /** The longest cycle a sound file can be cut into as a wavetable. */
 export const MAX_CYCLE = 8192;
 
+/** A rectangle of grid cells. */
+export interface Area {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export interface PatchDocument {
   version: typeof DOCUMENT_VERSION;
   name: string;
   /** Number of voices the Organelle patch allocates. 1 makes it monophonic. */
   voices: number;
+  /**
+   * The voice area: the modules whose tiles lie inside it run once in every voice, the
+   * others once for the whole patch. Its first row is its header. See `model/area.ts`.
+   */
+  voiceArea: Area;
   modules: ModuleInstance[];
   cables: Cable[];
   pages: KnobPage[];
@@ -111,5 +124,5 @@ export const MIN_VOICES = 1;
 export const MAX_VOICES = 16;
 
 export function emptyDocument(name = "Untitled"): PatchDocument {
-  return { version: DOCUMENT_VERSION, name, voices: 4, modules: [], cables: [], pages: [] };
+  return { version: DOCUMENT_VERSION, name, voices: 4, voiceArea: { x: 0, y: 0, width: 0, height: 0 }, modules: [], cables: [], pages: [] };
 }

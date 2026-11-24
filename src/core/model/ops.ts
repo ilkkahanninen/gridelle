@@ -6,9 +6,9 @@
 
 import { getModuleDef } from "../modules/registry";
 import { clampParam } from "../modules/params";
-import { visibleDef } from "../modules/shape";
+import { AREA_BORDER, interior, isVoiceNotes, overlaps, placementOf, tileArea } from "./area";
 import { DEFAULT_BANK, wavetableBank } from "../wavetables/banks";
-import type { ModuleDef } from "../modules/types";
+import type { ModuleDef, PortDef } from "../modules/types";
 import {
   KNOBS_PER_PAGE,
   MAX_CYCLE,
@@ -17,6 +17,7 @@ import {
   MAX_TAPE_SECONDS,
   SAMPLE_PARAM,
   SAMPLE_SLOTS,
+  type Area,
   type Cable,
   type KnobAssignment,
   type KnobPage,
@@ -32,20 +33,25 @@ export interface Cell {
   y: number;
 }
 
-interface Rect extends Cell {
-  width: number;
-  height: number;
-}
+type Rect = Area;
 
 /** The cells a module covers, at the size it currently shows (a mixer grows with its cables). */
-function rectOf(doc: Pick<PatchDocument, "cables">, module: ModuleInstance, at: Cell = module): Rect | null {
-  const def = visibleDef(doc, module);
-  return def ? { x: at.x, y: at.y, width: def.width, height: def.height } : null;
+const rectOf = tileArea;
+
+/**
+ * Whether a module of `def` may have its tile on these cells as far as the voice area goes:
+ * wholly in it or wholly out of it, and out of it for a module that runs once.
+ */
+function allowedAt(doc: Pick<PatchDocument, "voiceArea">, def: ModuleDef, rect: Rect): boolean {
+  const where = placementOf(doc.voiceArea, rect);
+  return where !== "across" && !(where === "inside" && def.place === "outside");
 }
 
-function overlaps(a: Rect, b: Rect): boolean {
-  return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
-}
+/** Whether a module's tile lies in the voice area. */
+const isInside = (doc: Pick<PatchDocument, "voiceArea" | "cables">, module: ModuleInstance) => {
+  const rect = rectOf(doc, module);
+  return !!rect && placementOf(doc.voiceArea, rect) === "inside";
+};
 
 /** True when `rect` is free of every module except those in `ignore`. */
 function isFree(doc: PatchDocument, rect: Rect, ignore: ReadonlySet<ModuleId> = new Set()): boolean {
@@ -69,10 +75,12 @@ export function nextModuleId(doc: PatchDocument): ModuleId {
   return freeIds(doc, 1)[0];
 }
 
-/** Whether a new module of `type` fits with its top-left corner at `at`. */
+/** Whether a new module of `type` fits with its top-left corner at `at`, on free cells it may be on. */
 export function canPlace(doc: PatchDocument, type: string, at: Cell): boolean {
   const def = getModuleDef(type);
-  return !!def && isFree(doc, { ...at, width: def.width, height: def.height });
+  if (!def) return false;
+  const rect = { ...at, width: def.width, height: def.height };
+  return isFree(doc, rect) && allowedAt(doc, def, rect);
 }
 
 /** The cell closest to `near` that `fits`, searching outwards in rings; `null` if none is found. */
@@ -122,12 +130,16 @@ function place(doc: PatchDocument, id: ModuleId, type: string, at: Cell): PatchD
   return setParam(filled, id, SAMPLE_PARAM, slot);
 }
 
-/** Whether the modules `ids` can all shift by `delta` without landing on another module. */
+/**
+ * Whether the modules `ids` can all shift by `delta` without landing on another module, or
+ * across the edge of the voice area. A module may move into the voices or out of them.
+ */
 export function canMove(doc: PatchDocument, ids: ReadonlySet<ModuleId>, delta: Cell): boolean {
   return doc.modules.every((m) => {
     if (!ids.has(m.id)) return true;
     const rect = rectOf(doc, m, { x: m.x + delta.x, y: m.y + delta.y });
-    return !rect || isFree(doc, rect, ids);
+    const def = getModuleDef(m.type);
+    return !rect || !def || (isFree(doc, rect, ids) && allowedAt(doc, def, rect));
   });
 }
 
@@ -240,8 +252,12 @@ export function pasteModules(doc: PatchDocument, clip: Clip, near: Cell): { doc:
   const rects = clipRects(clip);
   if (rects.length === 0) return { doc, ids: [] };
   const bounds = boundsOf(rects);
+  const defs = modules.map((m) => getModuleDef(m.type)!);
   const at = nearestCell(near, (cell) =>
-    rects.every((r) => isFree(doc, { ...r, x: r.x - bounds.x + cell.x, y: r.y - bounds.y + cell.y })),
+    rects.every((r, i) => {
+      const there = { ...r, x: r.x - bounds.x + cell.x, y: r.y - bounds.y + cell.y };
+      return isFree(doc, there) && allowedAt(doc, defs[i], there);
+    }),
   );
   if (!at) return { doc, ids: [] };
 
@@ -283,62 +299,243 @@ const samePort = (a: PortRef, b: PortRef) => a.module === b.module && a.port ===
 
 export const sameCable = (a: Cable, b: Cable) => samePort(a.from, b.from) && samePort(a.to, b.to);
 
-function hasPort(doc: PatchDocument, ref: PortRef, side: "inputs" | "outputs"): boolean {
+/** A port's definition; the voice area's Notes input is a note input of no module. */
+function portOf(doc: PatchDocument, ref: PortRef, side: "inputs" | "outputs"): Pick<PortDef, "kind"> | undefined {
+  if (side === "inputs" && isVoiceNotes(ref)) return { kind: "notes" };
   const module = doc.modules.find((m) => m.id === ref.module);
-  return !!module && !!getModuleDef(module.type)?.[side].some((p) => p.id === ref.port);
+  return module && getModuleDef(module.type)?.[side].find((p) => p.id === ref.port);
 }
 
-/** Whether `to` is reachable from `from` by following cables downstream. */
-function reaches(doc: PatchDocument, from: ModuleId, to: ModuleId): boolean {
-  const seen = new Set<ModuleId>();
+const hasPort = (doc: PatchDocument, ref: PortRef, side: "inputs" | "outputs") => !!portOf(doc, ref, side);
+
+/** Whether a cable carries notes: whether it comes from a note output. */
+const carriesNotes = (doc: PatchDocument, cable: Cable) => portOf(doc, cable.from, "outputs")?.kind === "notes";
+
+/**
+ * Whether `to` is reachable from `from` by following cables downstream: those of one kind,
+ * signals or notes. With `node`, the modules are taken as the nodes it gives them, and a
+ * cable between two modules of one node is no step at all.
+ */
+function reaches(doc: PatchDocument, from: string, to: string, notes: boolean, node: (id: ModuleId) => string = (id) => id): boolean {
+  const seen = new Set<string>();
   const pending = [from];
   while (pending.length > 0) {
-    const id = pending.pop()!;
-    if (id === to) return true;
-    if (seen.has(id)) continue;
-    seen.add(id);
-    for (const cable of doc.cables) if (cable.from.module === id) pending.push(cable.to.module);
+    const at = pending.pop()!;
+    if (at === to) return true;
+    if (seen.has(at)) continue;
+    seen.add(at);
+    for (const cable of doc.cables) {
+      if (carriesNotes(doc, cable) !== notes) continue;
+      const [a, b] = [node(cable.from.module), node(cable.to.module)];
+      if (a === at && b !== at) pending.push(b);
+    }
   }
   return false;
 }
 
+/** The node all modules in the voice area are to Pd: one `[clone]`. No module id has a hyphen there. */
+const VOICES_NODE = "ge-voices";
+
 /** Why a cable from output `from` to input `to` cannot be made, or `null` if it can. */
 export function connectionProblem(doc: PatchDocument, from: PortRef, to: PortRef): string | null {
-  if (!hasPort(doc, from, "outputs") || !hasPort(doc, to, "inputs")) return "That port does not exist.";
-  if (reaches(doc, to.module, from.module)) return "That would create a feedback loop, which is not supported yet.";
+  const [output, input] = [portOf(doc, from, "outputs"), portOf(doc, to, "inputs")];
+  if (!output || !input) return "That port does not exist.";
+  const notes = output.kind === "notes";
+  if (notes !== (input.kind === "notes")) return notes ? "Notes go to a Notes input only." : "A Notes input takes notes only.";
+  if (reaches(doc, to.module, from.module, notes)) return "That would create a feedback loop, which is not supported yet.";
+  // Pd runs the voice area as one object: a way out of it and back in is a loop too. Notes
+  // are messages, and go into the voices without taking part in that.
+  if (notes) return null;
+  const inside = new Set(doc.modules.filter((m) => isInside(doc, m)).map((m) => m.id));
+  const node = (id: ModuleId) => (inside.has(id) ? VOICES_NODE : id);
+  const [a, b] = [node(from.module), node(to.module)];
+  if (a !== b && reaches(doc, b, a, false, node)) {
+    return "That would make a way out of the voice area and back into it: a feedback loop, since the voices are added up before anything outside them runs.";
+  }
   return null;
 }
+
+/** What `makeRoom` moves as a whole: the voice area, with the tiles in it. */
+const AREA = "area";
 
 /**
  * Move whatever module `id` overlaps to just below it (or just right of it), and whatever
  * those land on in turn. `id` itself stays where it is. Used when a tile has grown, and
  * when one is put into a row of tiles.
+ *
+ * Tiles in the voice area push only each other, and the area grows to hold them; to the
+ * tiles outside it, the area is one big tile, which they push along with what is in it and
+ * which pushes them in turn. `inside` says which `id` is (it may lie across the edge now,
+ * having just grown or been put there); without it, `id` is in the voices when its top-left
+ * cell is.
  */
-export function makeRoom(doc: PatchDocument, id: ModuleId, direction: "down" | "right" = "down"): PatchDocument {
-  const rects = new Map<ModuleId, Rect>();
+export function makeRoom(doc: PatchDocument, id: ModuleId, direction: "down" | "right" = "down", inside?: boolean): PatchDocument {
+  const rects = new Map<string, Rect>();
+  const voices = new Set<string>();
+  const area = { ...doc.voiceArea };
+  const room = () => interior(area);
   for (const module of doc.modules) {
     const rect = rectOf(doc, module);
-    if (rect) rects.set(module.id, rect);
+    if (!rect) continue;
+    rects.set(module.id, { ...rect });
+    const corner = { x: rect.x, y: rect.y, width: 1, height: 1 };
+    const isIn =
+      module.id === id ? (inside ?? placementOf(doc.voiceArea, corner) === "inside") : placementOf(doc.voiceArea, rect) === "inside";
+    if (isIn) voices.add(module.id);
   }
   if (!rects.has(id)) return doc;
+  // The area is a tile to the modules outside it. One with no cells is none.
+  const hasArea = doc.voiceArea.width > 0 && doc.voiceArea.height > 0;
+  if (hasArea) rects.set(AREA, area);
 
-  // A pushed module ends up past its pusher and can never push it back, so this ends.
-  const moved = new Set<ModuleId>();
-  const pushers = [id];
-  while (pushers.length > 0) {
-    const pusher = rects.get(pushers.shift()!)!;
-    for (const [otherId, other] of rects) {
-      if (otherId === id || other === pusher || !overlaps(pusher, other)) continue;
-      if (direction === "down") other.y = pusher.y + pusher.height;
-      else other.x = pusher.x + pusher.width;
-      moved.add(otherId);
-      pushers.push(otherId);
+  const moved = new Set<string>();
+  const shift = (key: string, x: number, y: number) => {
+    const rect = rects.get(key)!;
+    rect.x += x;
+    rect.y += y;
+    moved.add(key);
+  };
+  const past = (pusher: Rect, other: Rect) =>
+    direction === "down" ? { x: 0, y: pusher.y + pusher.height - other.y } : { x: pusher.x + pusher.width - other.x, y: 0 };
+  /** Grow the area to hold every tile in it: right and down only. Whether it grew. */
+  const fit = () => {
+    let grew = false;
+    for (const key of voices) {
+      const rect = rects.get(key)!;
+      const inner = room();
+      if (rect.x + rect.width > inner.x + inner.width) {
+        area.width += rect.x + rect.width - (inner.x + inner.width);
+        grew = true;
+      }
+      if (rect.y + rect.height > inner.y + inner.height) {
+        area.height += rect.y + rect.height - (inner.y + inner.height);
+        grew = true;
+      }
     }
+    if (grew) moved.add(AREA);
+    return grew;
+  };
+
+  // A pushed tile ends up past its pusher and can never push it back, and the area only
+  // grows the way things are pushed, so this ends.
+  const pushers: string[] = [id];
+  if (hasArea && voices.has(id) && fit()) pushers.push(AREA);
+  while (pushers.length > 0) {
+    const key = pushers.shift()!;
+    const pusher = rects.get(key)!;
+    const inVoices = voices.has(key);
+    for (const [otherKey, other] of rects) {
+      if (otherKey === id || otherKey === key || voices.has(otherKey) !== inVoices || !overlaps(pusher, other)) continue;
+      const { x, y } = past(pusher, other);
+      shift(otherKey, x, y);
+      // The area takes its tiles with it.
+      if (otherKey === AREA) for (const inner of voices) if (inner !== id) shift(inner, x, y);
+      pushers.push(otherKey);
+    }
+    if (inVoices && hasArea && fit()) pushers.push(AREA);
   }
   if (moved.size === 0) return doc;
   return {
     ...doc,
+    voiceArea: hasArea ? { x: area.x, y: area.y, width: area.width, height: area.height } : doc.voiceArea,
     modules: doc.modules.map((m) => (moved.has(m.id) ? { ...m, x: rects.get(m.id)!.x, y: rects.get(m.id)!.y } : m)),
+  };
+}
+
+/** The smallest the voice area can be: its border around a single cell. */
+export const MIN_AREA = { width: 2 * AREA_BORDER + 1, height: 2 * AREA_BORDER + 1 };
+
+/**
+ * Move the voice area by `delta`, with the tiles in it. Unchanged when it would land on a
+ * tile outside it.
+ */
+export function moveArea(doc: PatchDocument, delta: Cell): PatchDocument {
+  if (delta.x === 0 && delta.y === 0) return doc;
+  const area = { ...doc.voiceArea, x: doc.voiceArea.x + delta.x, y: doc.voiceArea.y + delta.y };
+  const inside = new Set(doc.modules.filter((m) => isInside(doc, m)).map((m) => m.id));
+  const blocked = doc.modules.some((m) => {
+    const rect = rectOf(doc, m);
+    return !inside.has(m.id) && !!rect && overlaps(area, rect);
+  });
+  if (blocked) return doc;
+  return {
+    ...doc,
+    voiceArea: area,
+    modules: doc.modules.map((m) => (inside.has(m.id) ? { ...m, x: m.x + delta.x, y: m.y + delta.y } : m)),
+  };
+}
+
+type Way = "left" | "right" | "up" | "down";
+
+/** How far `rect` has to move `way` to be clear of `by`. */
+function clearOf(by: Rect, rect: Rect, way: Way): Cell {
+  switch (way) {
+    case "left":
+      return { x: by.x - (rect.x + rect.width), y: 0 };
+    case "right":
+      return { x: by.x + by.width - rect.x, y: 0 };
+    case "up":
+      return { x: 0, y: by.y - (rect.y + rect.height) };
+    case "down":
+      return { x: 0, y: by.y + by.height - rect.y };
+  }
+}
+
+/**
+ * Give the voice area other edges. The tiles outside it that the new edges reach are pushed
+ * along with the border, each the shortest of the ways the area grew, and each pushes what
+ * it lands on the same way. Unchanged when a tile in the voices would come onto the border
+ * or out of the area, or when the area would be smaller than `MIN_AREA`.
+ */
+export function resizeArea(doc: PatchDocument, area: Area): PatchDocument {
+  const old = doc.voiceArea;
+  const next = { x: area.x, y: area.y, width: area.width, height: area.height };
+  const same = (["x", "y", "width", "height"] as const).every((key) => next[key] === old[key]);
+  if (same || next.width < MIN_AREA.width || next.height < MIN_AREA.height) return doc;
+  const outside = new Map<ModuleId, Rect>();
+  for (const module of doc.modules) {
+    const rect = rectOf(doc, module);
+    if (!rect) continue;
+    if (placementOf(old, rect) !== "inside") outside.set(module.id, { ...rect });
+    else if (placementOf(next, rect) !== "inside") return doc;
+  }
+  const ways: Way[] = [];
+  if (next.x < old.x) ways.push("left");
+  if (next.x + next.width > old.x + old.width) ways.push("right");
+  if (next.y < old.y) ways.push("up");
+  if (next.y + next.height > old.y + old.height) ways.push("down");
+
+  const moved = new Set<ModuleId>();
+  const pushers: { id: ModuleId; way: Way }[] = [];
+  const shift = (id: ModuleId, by: Cell, way: Way) => {
+    const rect = outside.get(id)!;
+    rect.x += by.x;
+    rect.y += by.y;
+    moved.add(id);
+    pushers.push({ id, way });
+  };
+  const size = (by: Cell) => Math.abs(by.x) + Math.abs(by.y);
+  for (const [id, rect] of outside) {
+    if (!overlaps(next, rect)) continue;
+    const way = ways.reduce<Way | null>((best, w) => (best && size(clearOf(next, rect, best)) <= size(clearOf(next, rect, w)) ? best : w), null);
+    if (!way) return doc;
+    shift(id, clearOf(next, rect, way), way);
+  }
+  // A pushed tile ends up past its pusher, away from the area. Two ways at once (the corner)
+  // could in principle push in a circle, so the steps are counted.
+  for (let steps = 0; pushers.length > 0; steps++) {
+    if (steps > 64 * outside.size) return doc;
+    const { id, way } = pushers.shift()!;
+    const pusher = outside.get(id)!;
+    for (const [other, rect] of outside) {
+      if (other !== id && overlaps(pusher, rect)) shift(other, clearOf(pusher, rect, way), way);
+    }
+  }
+  for (const rect of outside.values()) if (placementOf(next, rect) !== "outside") return doc;
+  return {
+    ...doc,
+    voiceArea: next,
+    modules: doc.modules.map((m) => (moved.has(m.id) ? { ...m, x: outside.get(m.id)!.x, y: outside.get(m.id)!.y } : m)),
   };
 }
 
@@ -430,7 +627,10 @@ export function planPortDrop(doc: PatchDocument, type: string, target: PortTarge
 
   if (!between) return { at: findFreeCell(doc, type, beside), push: false, cables };
   if (canPlace(doc, type, beside)) return { at: beside, push: false, cables };
-  // Into the row: in front of the module whose input it was dropped on, or right after the output's.
+  // Into the row: in front of the module whose input it was dropped on, or right after the
+  // output's, on the same side of the voice area's edge as it. A module that runs once is
+  // not pushed into the voices: it goes as near as there is room.
+  if (isInside(doc, host) && def.place === "outside") return { at: findFreeCell(doc, type, beside), push: false, cables };
   return { at: target.side === "in" ? { x: hostRect.x, y: hostRect.y } : beside, push: true, cables };
 }
 
@@ -444,7 +644,9 @@ export function addModuleAtPort(
   if (!plan) return { doc, id: null };
   const id = nextModuleId(doc);
   let next = place(doc, id, type, plan.at);
-  if (plan.push) next = makeRoom(next, id, "right");
+  // Pushed into a row, it is on the side of the voice area its neighbour is: the area grows if need be.
+  const host = doc.modules.find((m) => m.id === target.module)!;
+  if (plan.push) next = makeRoom(next, id, "right", isInside(doc, host));
   for (const cable of plan.cables) next = connect(next, cable.from, cable.to);
   return { doc: next, id };
 }

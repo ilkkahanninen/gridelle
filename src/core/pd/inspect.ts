@@ -40,6 +40,9 @@ export interface AbstractionInterface {
   signalOutlets: number;
   controlInlets: number;
   controlOutlets: number;
+  /** Every inlet as Pd numbers them, left to right by position: a control or a signal one. */
+  inlets: ("control" | "signal")[];
+  outlets: ("control" | "signal")[];
   /** Parameter ids: the `<id>` of every `[r $1-<id>]`. */
   params: string[];
 }
@@ -50,11 +53,18 @@ export function abstractionInterface(patchText: string): AbstractionInterface {
   const params = boxes
     .filter((b) => RECEIVE.has(b.name) && b.args[0]?.startsWith("$1-"))
     .map((b) => b.args[0].slice(3));
+  const order = (control: string, signal: string) =>
+    boxes
+      .filter((b) => b.name === control || b.name === signal)
+      .sort((a, b) => a.x - b.x)
+      .map((b) => (b.name === control ? "control" : "signal") as "control" | "signal");
   return {
     signalInlets: count("inlet~"),
     signalOutlets: count("outlet~"),
     controlInlets: count("inlet"),
     controlOutlets: count("outlet"),
+    inlets: order("inlet", "inlet~"),
+    outlets: order("outlet", "outlet~"),
     params: [...new Set(params)],
   };
 }

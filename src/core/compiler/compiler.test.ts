@@ -12,10 +12,15 @@ import { structureKey } from "./structure";
 /** Compiled fixtures live here as complete Organelle patch folders; Rust tests load them into Pd. */
 const GOLDEN = resolve(import.meta.dirname, "../../../tests/golden");
 
+/**
+ * A patch whose modules are in the voices, unless it says otherwise: the area's inside is
+ * the cells from the top-left one to x 98 and y 98, and x 100 is outside it.
+ */
 const doc = (patch: Partial<PatchDocument>): PatchDocument => ({
   version: DOCUMENT_VERSION,
   name: "Test",
   voices: 2,
+  voiceArea: { x: -1, y: -1, width: 101, height: 101 },
   modules: [],
   cables: [],
   pages: [],
@@ -92,13 +97,55 @@ describe("compile", () => {
     ]);
   });
 
+  it("gives every voice the same signal from a cable that comes into the voice area", () => {
+    const { files } = compile(fixtures["shared-lfo"], abstractionLibrary);
+    const main = objectBoxes(files["main.pd"]);
+    const voice = objectBoxes(files["voice.pd"]);
+    // The LFO runs once, in main.pd; in voice.pd the note comes in first, then the LFO.
+    expect(main.map((b) => b.name)).toContain("ge-lfo");
+    expect(voice.map((b) => b.name)).not.toContain("ge-lfo");
+    const inlets = voice.filter((b) => b.name === "inlet" || b.name === "inlet~").sort((a, b) => a.x - b.x);
+    expect(inlets.map((b) => b.name)).toEqual(["inlet", "inlet~"]);
+    const lfo = main.findIndex((b) => b.name === "ge-lfo");
+    const clone = main.findIndex((b) => b.name === "clone");
+    // Its 0–1 output (outlet 1) into the clone's first signal inlet, after the note's.
+    expect(files["main.pd"]).toContain(`#X connect ${lfo} 1 ${clone} 1;`);
+    const amp = voice.findIndex((b) => b.name === "ge-amp" && b.args[0] === "ge5");
+    expect(files["voice.pd"]).toContain(`#X connect ${voice.indexOf(inlets[1])} 0 ${amp} 1;`);
+  });
+
+  it("feeds a pre-cord outside the voice area from the keyboard", () => {
+    const files = compile(fixtures["shared-lfo"], abstractionLibrary).files;
+    const main = objectBoxes(files["main.pd"]);
+    const keyboard = main.findIndex((b) => b.name === "ge-keyboard");
+    const lfo = main.findIndex((b) => b.name === "ge-lfo");
+    expect(keyboard).toBeGreaterThan(-1);
+    // Its gate (outlet 1) is the LFO's Reset (inlet 0).
+    expect(files["main.pd"]).toContain(`#X connect ${keyboard} 1 ${lfo} 0;`);
+    expect(Object.keys(files)).toContain("ge-keyboard.pd");
+    // A patch with nothing outside that follows the note has no keyboard.
+    expect(compile(basicSynth, abstractionLibrary).files["ge-keyboard.pd"]).toBeUndefined();
+    // Keys outside the voices is the keyboard too, at its three voice inlets.
+    const outside = compile(doc({ modules: [{ id: "ge1", type: "keys", x: 100, y: 0, params: {} }] }), abstractionLibrary).files;
+    for (const inlet of [0, 1, 2]) expect(outside["main.pd"]).toMatch(new RegExp(`#X connect \\d+ ${inlet} \\d+ ${inlet};`));
+    expect(objectBoxes(outside["main.pd"]).map((b) => b.name)).toEqual(expect.arrayContaining(["ge-keyboard", "ge-keys"]));
+  });
+
+  it("reloads when a module moves into the voice area or out of it, not when it moves within", () => {
+    const key = structureKey(fixtures["shared-lfo"]);
+    expect(structureKey(ops.moveModules(fixtures["shared-lfo"], new Set(["ge6"]), { x: 1, y: 0 }))).toBe(key);
+    // Wide enough to take the Audio Out in.
+    const moved = { ...fixtures["shared-lfo"], voiceArea: { ...fixtures["shared-lfo"].voiceArea, width: 8 } };
+    expect(structureKey(moved)).not.toBe(key);
+  });
+
   it("allocates the configured number of voices", () => {
     const main = compile({ ...basicSynth, voices: 7 }, abstractionLibrary).files["main.pd"];
     expect(main).toContain("poly 7 1;");
     expect(main).toContain("clone voice 7;");
   });
 
-  it("keeps per-voice modules in voice.pd and everything after a Voice Sum in main.pd", () => {
+  it("keeps the modules of the voice area in voice.pd and the others in main.pd", () => {
     const { files } = compile(sharedFilter, abstractionLibrary);
     const inVoice = objectBoxes(files["voice.pd"]).map((b) => b.name);
     const inMain = objectBoxes(files["main.pd"]).map((b) => b.name);
@@ -146,17 +193,13 @@ describe("compile", () => {
     const names = (text: string) => objectBoxes(text).map((b) => b.name);
     expect(names(compile(plain, abstractionLibrary).files["voice.pd"])).not.toContain("sig~");
 
-    // An envelope after the voice sum runs once, in main.pd.
+    // An envelope outside the voice area runs once, in main.pd.
     const summed = doc({
       modules: [
         { id: "ge1", type: "noise", x: 0, y: 0, params: {} },
-        { id: "ge2", type: "voice-sum", x: 2, y: 0, params: {} },
-        { id: "ge3", type: "env-adsr", x: 3, y: 0, params: {} },
+        { id: "ge3", type: "env-adsr", x: 100, y: 0, params: {} },
       ],
-      cables: [
-        { from: { module: "ge1", port: "out" }, to: { module: "ge2", port: "in" } },
-        { from: { module: "ge2", port: "out" }, to: { module: "ge3", port: "gate" } },
-      ],
+      cables: [{ from: { module: "ge1", port: "out" }, to: { module: "ge3", port: "gate" } }],
     });
     const files = compile(summed, abstractionLibrary).files;
     expect(names(files["voice.pd"])).not.toContain("sig~");
@@ -383,14 +426,16 @@ describe("compile", () => {
       const echo = fixtures["tape-echo"];
       expect(compile(echo, abstractionLibrary).diagnostics).toEqual([]);
       // A second Recorder on the same tape.
-      const second = ops.setParam(ops.addModule(echo, "sample-recorder", { x: 0, y: 8 }).doc, "ge11", "sample", 1);
+      const added = ops.addModule(echo, "sample-recorder", { x: 40, y: 0 });
+      const id = added.id!;
+      const second = ops.setParam(added.doc, id, "sample", 1);
       const refused = compile(second, abstractionLibrary);
       expect(refused.ok).toBe(false);
       expect(refused.diagnostics).toEqual([
-        { severity: "error", code: "two-recorders", message: "Two modules record onto sample B. A sample can have one.", module: "ge11" },
+        { severity: "error", code: "two-recorders", message: "Two modules record onto sample B. A sample can have one.", module: id },
       ]);
       // On another tape it is fine, apart from that tape being empty.
-      expect(compile(ops.setParam(second, "ge11", "sample", 2), abstractionLibrary).diagnostics.map((d) => d.code)).toEqual(["empty-sample"]);
+      expect(compile(ops.setParam(second, id, "sample", 2), abstractionLibrary).diagnostics.map((d) => d.code)).toEqual(["empty-sample"]);
       // The Tape Head without its Recorder.
       const alone = compile(ops.removeModules(echo, new Set(["ge6"])), abstractionLibrary);
       expect(alone.ok).toBe(true);
@@ -628,7 +673,8 @@ describe("knob pages", () => {
 
 describe("diagnostics", () => {
   const saw = { id: "ge1", type: "osc-saw", x: 0, y: 0, params: {} };
-  const out = { id: "ge2", type: "audio-out", x: 3, y: 0, params: {} };
+  // Outside the voice area, whose border is at x 99.
+  const out = { id: "ge2", type: "audio-out", x: 100, y: 0, params: {} };
   const cable = (from: string, fromPort: string, to: string, toPort: string) => ({
     from: { module: from, port: fromPort },
     to: { module: to, port: toPort },
@@ -675,6 +721,43 @@ describe("diagnostics", () => {
     const found = result.diagnostics.find((d) => d.code === "feedback-loop");
     expect(found?.message).toMatch(/Low-pass → Amp/);
     expect(result.ok).toBe(false);
+  });
+
+  it("says where a module may not be: across the edge of the voice area, or in it when it runs once", () => {
+    const across = compile({ ...wired, voiceArea: { x: 0, y: -1, width: 100, height: 101 } }, abstractionLibrary);
+    expect(across.ok).toBe(false);
+    expect(across.diagnostics).toEqual([
+      {
+        severity: "error",
+        code: "misplaced",
+        message: "Saw lies across the edge of the voice area: move it into the voices or out of them.",
+        module: "ge1",
+      },
+    ]);
+    // Its header is its border too: a tile may not reach into it.
+    const header = compile({ ...wired, voiceArea: { x: -1, y: 0, width: 101, height: 101 } }, abstractionLibrary);
+    expect(header.diagnostics.map((d) => [d.code, d.module])).toEqual([["misplaced", "ge1"]]);
+    const inside = compile(doc({ modules: [saw, { ...out, x: 3 }], cables: wired.cables }), abstractionLibrary);
+    expect(inside.diagnostics).toEqual([
+      { severity: "error", code: "misplaced", message: "Audio Out runs once for the whole patch: move it out of the voice area.", module: "ge2" },
+    ]);
+  });
+
+  it("refuses a path that leaves the voice area and comes back into it", () => {
+    // A saw in the voices into a mixer outside, and the mixer into a filter in the voices.
+    const loop = doc({
+      modules: [
+        saw,
+        { id: "ge3", type: "mixer", x: 100, y: 4, params: {} },
+        { id: "ge4", type: "filter-lp", x: 4, y: 0, params: {} },
+        out,
+      ],
+      cables: [cable("ge1", "out", "ge3", "in1"), cable("ge3", "out", "ge4", "mod"), cable("ge4", "out", "ge2", "left")],
+    });
+    const result = compile(loop, abstractionLibrary);
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics.map((d) => [d.code, d.module])).toEqual([["feedback-loop", "ge3"]]);
+    expect(result.diagnostics[0].message).toContain("(Mixer)");
   });
 
   it("reports a missing abstraction instead of exporting a broken folder", () => {

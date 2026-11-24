@@ -26,6 +26,8 @@ export const VANILLA_049_OBJECTS: ReadonlySet<string> = new Set([
   // signal sources and control-to-signal
   "sig~", "line~", "vline~", "phasor~", "osc~", "noise~", "tabosc4~", "tabread4~",
   "tabread~", "tabwrite~", "table", "soundfiler", "bang~",
+  // control-rate table access: older than "array", which 0.45 brought as their replacement
+  "tabread", "tabwrite",
   // filters and delays
   "vcf~", "lop~", "hip~", "bp~", "biquad~", "rpole~", "rzero~", "cpole~", "czero~", "rzero_rev~",
   "delwrite~", "delread~", "vd~", "samphold~",

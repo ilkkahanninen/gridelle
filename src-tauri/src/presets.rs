@@ -103,13 +103,30 @@ pub fn save(dir: &Path, name: &str, contents: &str, overwrite: bool) -> Result<S
     Ok(path.to_string_lossy().into_owned())
 }
 
+/// The document version a preset's text says it is, if it says one.
+fn version_of(text: &str) -> Option<f64> {
+    serde_json::from_str::<serde_json::Value>(text).ok()?.get("version")?.as_f64()
+}
+
 /// Write the editor's own presets into `dir`, each of them once ever: the names written so
 /// far are kept in the directory, so one the user has since deleted stays deleted, and one
 /// that a later version of the editor adds is written when that version first runs. A
-/// preset of the user's that has an example's name is left as it is.
+/// preset of the user's that has an example's name is left as it is, unless it is of an
+/// older document version than the example, which this editor no longer opens: then the
+/// example takes its place.
 pub fn seed(dir: &Path, examples: &[Example]) -> Result<(), String> {
     let record = dir.join(SEEDED_FILE);
     let mut seeded: Vec<String> = fs::read_to_string(&record).ok().and_then(|text| serde_json::from_str(&text).ok()).unwrap_or_default();
+    for example in examples.iter().filter(|example| seeded.contains(&example.name)) {
+        let path = dir.join(format!("{}.{EXTENSION}", example.name));
+        let older = match (fs::read_to_string(&path).ok().as_deref().and_then(version_of), version_of(&example.contents)) {
+            (Some(theirs), Some(ours)) => theirs < ours,
+            _ => false,
+        };
+        if older {
+            save(dir, &example.name, &example.contents, true)?;
+        }
+    }
     let fresh: Vec<&Example> = examples.iter().filter(|example| !seeded.contains(&example.name)).collect();
     if fresh.is_empty() {
         return Ok(());
@@ -247,6 +264,23 @@ mod tests {
         assert_eq!(names(&folder.0), ["Basic Synth", "New patch", "Tape Echo"]);
         seed(&folder.0, &later).unwrap();
         assert_eq!(names(&folder.0), ["Basic Synth", "New patch", "Tape Echo"]);
+    }
+
+    #[test]
+    fn replaces_an_example_of_an_older_document_version_and_nothing_else() {
+        let folder = Folder::new("seed-older");
+        seed(&folder.0, &[example("Basic Synth", r#"{"version": 2, "name": "old"}"#), example("Looper", r#"{"version": 2}"#)]).unwrap();
+        save(&folder.0, "Mine", r#"{"version": 2}"#, false).unwrap();
+        delete(&folder.0, &folder.0.join("Looper.gridelle").to_string_lossy()).unwrap();
+        let newer = [example("Basic Synth", r#"{"version": 3, "name": "new"}"#), example("Looper", r#"{"version": 3}"#)];
+        seed(&folder.0, &newer).unwrap();
+        // The old example is replaced; the deleted one stays deleted; the user's own is theirs.
+        assert_eq!(fs::read_to_string(folder.0.join("Basic Synth.gridelle")).unwrap(), r#"{"version": 3, "name": "new"}"#);
+        assert_eq!(names(&folder.0), ["Basic Synth", "Mine"]);
+        // One of the same version, changed by the user, is left alone.
+        save(&folder.0, "Basic Synth", r#"{"version": 3, "name": "edited"}"#, true).unwrap();
+        seed(&folder.0, &newer).unwrap();
+        assert_eq!(fs::read_to_string(folder.0.join("Basic Synth.gridelle")).unwrap(), r#"{"version": 3, "name": "edited"}"#);
     }
 
     #[test]

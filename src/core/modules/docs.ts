@@ -10,12 +10,10 @@ export const MODULE_DOCS: Record<string, string> = {
   "audio-out":
     "Sends sound to the Organelle's output. With only Left patched, both sides get it. Level sets the volume, and a signal patched into its input multiplies it.",
   "audio-in":
-    "The Organelle's audio input, left and right. It is always on, and what comes after it runs once for all voices. In the editor it is the computer's audio input.",
-  keys: "The note being played, as signals: Pitch as a note number (60 is middle C), Gate at 1 while the key is down, Velocity from 0 to 1, and Key, the note number over 127: about 0.47 at middle C, for inputs that multiply a knob.",
+    "The Organelle's audio input, left and right. It is always on and runs once, outside the voice area; patched into the area, every voice gets it. In the editor it is the computer's audio input.",
+  keys: "The note being played, as signals: Pitch as a note number (60 is middle C), Gate at 1 while the key is down, Velocity from 0 to 1, and Key, the note number over 127, for inputs that multiply a knob. Outside the voice area it is the keyboard: the last key, with Gate on while any key is held.",
   scope:
-    "Draws the signal patched into it, in the editor only. Time is the width of the picture and Range its height. Inside the voices it shows the voice of the latest note.",
-  "voice-sum":
-    "Adds the voices together. Everything patched after it runs once for all voices instead of once for each, which is where a shared filter or effect goes.",
+    "Draws the signal patched into it, in the editor only. Time is the width of the picture and Range its height. In the voice area it shows the voice of the latest note.",
 
   "osc-wavetable":
     "Plays one cycle of its Wavetable over and over, at the pitch. Position moves through the table from its first cycle to its last, fading from each to the next, and Position modulation adds to it: sweep it with an envelope or an LFO. The wavetable is one of the patch's samples, picked below or in the Samples pane.",
@@ -23,6 +21,8 @@ export const MODULE_DOCS: Record<string, string> = {
   // Sequence
   clock:
     "A steady tick, for stepping a Sequencer or starting an envelope. Tempo is in beats a minute and Division the note value of a tick. Out is on for Width of each tick, and Phase rises from 0 to 1 over it. It runs while Run is on, from the beginning; Run follows the key, and switched off it runs all the time.",
+  arpeggiator:
+    "Plays the keys held one at a time, up, down, up and down, as played or at random, over Octaves, into the voice area's Notes input. It steps at Tempo in Division, or on the ticks of a Clock patched into Clock. Each note lasts Length of a step. With Hold on, keys stay after they are let go, until a new chord.",
   sequencer:
     "Plays its steps in turn, one for each time Clock goes on, and goes round after Steps of them. A step is a number of semitones added to Pitch, so a key moves the whole tune. Reset goes back to the first step and follows the key. Value is the step alone: 1 for 24 semitones.",
 

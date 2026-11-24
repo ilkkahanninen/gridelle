@@ -267,6 +267,11 @@
   background: var(--hint);
 }
 
+/* A note port is square: what it carries are notes, not a signal. */
+.hint-notes .port-dot {
+  border-radius: 2px;
+}
+
 .port-precord .port-dot {
   background: radial-gradient(circle, var(--hint) 0 2.2px, var(--tile) 2.8px);
 }

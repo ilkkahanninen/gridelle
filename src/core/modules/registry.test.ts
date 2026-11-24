@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { abstractionLibrary } from "../pdlib";
-import { abstractionInterface, objectClasses } from "../pd/inspect";
+import { abstractionInterface, objectBoxes, objectClasses } from "../pd/inspect";
 import { isPdObject } from "../pd/vanilla049";
-import { moduleDefs, VOICE_ABSTRACTION } from "./registry";
+import { KEYBOARD_ABSTRACTION, moduleDefs, VOICE_ABSTRACTION } from "./registry";
+import type { PortDef } from "./types";
 
 describe("module registry", () => {
   it("has unique types and port/param ids", () => {
@@ -43,10 +44,18 @@ describe("module registry", () => {
       expect(text, `${def.pd}.pd exists in pd-lib/modules`).toBeDefined();
       const actual = abstractionInterface(text);
       // The inlets for voice signals, which are not ports, come before those of the inputs.
-      expect(actual.signalInlets).toBe((def.voiceInlets?.length ?? 0) + def.inputs.length);
-      expect(actual.signalOutlets).toBe(def.outputs.length);
-      expect(actual.controlInlets).toBe(0);
-      expect(actual.controlOutlets).toBe(0);
+      // A note port is a control inlet or outlet, every other port a signal one, in the
+      // order of the ports, left to right: Pd numbers them by where they are.
+      const kind = (port: PortDef) => (port.kind === "notes" ? "control" : "signal");
+      expect(actual.inlets).toEqual([...(def.voiceInlets ?? []).map(() => "signal"), ...def.inputs.map(kind)]);
+      expect(actual.outlets).toEqual(def.outputs.map(kind));
+      // Two boxes at the same place would leave Pd's order to chance.
+      expect(new Set(objectBoxes(text).filter((b) => /^(in|out)let~?$/.test(b.name)).map((b) => `${b.name.slice(0, 3)}:${b.x}`)).size).toBe(
+        actual.inlets.length + actual.outlets.length,
+      );
+      // Notes go to and from the keyboard and the voices, which are outside the voice area.
+      if ([...def.inputs, ...def.outputs].some((port) => port.kind === "notes")) expect(def.place, def.type).toBe("outside");
+      for (const port of [...def.inputs, ...def.outputs]) if (port.kind === "notes") expect(port.hint, def.type).toBe("notes");
       // A value that is built into the patch arrives as an argument, not at a receiver.
       expect(actual.params.sort()).toEqual(def.params.filter((p) => !p.argument).map((p) => p.id).sort());
       def.params.filter((p) => p.argument).forEach((_param, i) => expect(text, `uses its argument ${i + 2}`).toContain(`\\$${i + 2}`));
@@ -112,6 +121,9 @@ describe("module registry", () => {
   it("has a voice abstraction with a note inlet and pitch, gate and velocity outlets", () => {
     const voice = abstractionInterface(abstractionLibrary[VOICE_ABSTRACTION]);
     expect(voice).toMatchObject({ controlInlets: 1, signalInlets: 0, signalOutlets: 3, params: [] });
+    // The keyboard gives the same three, from every key, with no inlet: it listens to the notes itself.
+    const keyboard = abstractionInterface(abstractionLibrary[KEYBOARD_ABSTRACTION]);
+    expect(keyboard).toMatchObject({ inlets: [], outlets: ["signal", "signal", "signal"], params: [] });
   });
 });
 

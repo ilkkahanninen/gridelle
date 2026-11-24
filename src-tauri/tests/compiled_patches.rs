@@ -23,13 +23,19 @@ fn peak(buf: &[f32]) -> f32 {
 /// The fixtures with nothing between a sound that never stops and the output.
 const DRONES: [&str; 3] = ["bare-oscillator", "voice-effects", "grains"];
 
-/// How much of a signal is at `hz`.
+/// How much of a signal is at `hz`, under a Hann window, so that a loud tone a few
+/// steps of the measurement away does not leak into it.
 fn level_at(signal: &[f32], hz: f32) -> f32 {
-    let w = 2.0 * std::f32::consts::PI * hz / SAMPLE_RATE as f32;
-    let (sin, cos) = signal.iter().enumerate().fold((0.0f64, 0.0f64), |(s, c), (n, v)| {
-        (s + (*v * (w * n as f32).sin()) as f64, c + (*v * (w * n as f32).cos()) as f64)
-    });
-    (2.0 * (sin * sin + cos * cos).sqrt() / signal.len() as f64) as f32
+    let w = 2.0 * std::f64::consts::PI * hz as f64 / SAMPLE_RATE as f64;
+    let n = signal.len() as f64;
+    let (mut sin, mut cos, mut weight) = (0.0f64, 0.0f64, 0.0f64);
+    for (i, v) in signal.iter().enumerate() {
+        let window = 0.5 - 0.5 * (2.0 * std::f64::consts::PI * i as f64 / n).cos();
+        sin += window * *v as f64 * (w * i as f64).sin();
+        cos += window * *v as f64 * (w * i as f64).cos();
+        weight += window;
+    }
+    (2.0 * (sin * sin + cos * cos).sqrt() / weight) as f32
 }
 
 fn render(pd: &mut Pd, seconds: f32) -> Vec<f32> {
@@ -203,6 +209,58 @@ fn golden_patches_play_in_pd() {
             assert!(level > top * 0.98, "{name}: the chord is up against the Ceiling, peak {level}");
             println!("{name}: a chord peaks at {level:.4}, the limiter's Ceiling being {top:.4}");
         }
+        if name == "arpeggio" {
+            // A chord held: the Arpeggiator plays its keys up over two octaves, a sixteenth
+            // (5512.5 samples) each from the moment the keys go down, and the saw plays each
+            // an octave lower. Each step is that note, and not the one before it.
+            pd.send_list("notes", &[Atom::Float(48.0), Atom::Float(100.0)]);
+            pd.send_list("notes", &[Atom::Float(55.0), Atom::Float(100.0)]);
+            pd.send_list("notes", &[Atom::Float(64.0), Atom::Float(100.0)]);
+            let held: Vec<f32> = render(&mut pd, 1.0).chunks(2).map(|frame| frame[0]).collect();
+            for pitch in [48.0, 55.0, 64.0] {
+                pd.send_list("notes", &[Atom::Float(pitch), Atom::Float(0.0)]);
+            }
+            let after = render(&mut pd, 1.0);
+            let hz = |note: f32| 440.0 * 2f32.powf((note - 12.0 - 69.0) / 12.0);
+            let up = [48.0, 55.0, 64.0, 60.0, 67.0, 76.0];
+            let mut levels = Vec::new();
+            for (step, note) in up.iter().cycle().take(8).enumerate() {
+                let start = (step as f32 * 5512.5) as usize;
+                let during = &held[start + 220..start + 2400];
+                let heard = level_at(during, hz(*note));
+                assert!(heard > 0.02, "{name}: step {step} plays {note}, level {heard}");
+                let before = up[(step + up.len() - 1) % up.len()];
+                if (before - note).abs() % 12.0 != 0.0 {
+                    let other = level_at(during, hz(before));
+                    assert!(other < heard * 0.5, "{name}: step {step} is not still {before}: {other} beside {heard}");
+                }
+                levels.push(heard);
+            }
+            assert!(peak(&after[after.len() - 4096..]) < 1e-3, "{name}: it stops when the keys are let go");
+            println!("{name}: eight steps up two octaves and round, at levels {levels:.3?}");
+        }
+        if name == "shared-lfo" {
+            // Three keys, 30 ms apart. One square LFO outside the voice area opens and closes
+            // the Amp of every voice at once, so what is heard has gaps of half its period:
+            // 125 ms. An LFO in each voice, started by each key, would leave gaps of 65 ms.
+            for pitch in [48.0, 55.0, 64.0] {
+                pd.send_list("notes", &[Atom::Float(pitch), Atom::Float(100.0)]);
+                render(&mut pd, 0.03);
+            }
+            let held: Vec<f32> = render(&mut pd, 1.0).chunks(2).map(|frame| frame[0]).collect();
+            let (mut longest, mut run) = (0usize, 0usize);
+            for v in &held {
+                run = if v.abs() < 1e-6 { run + 1 } else { 0 };
+                longest = longest.max(run);
+            }
+            assert!((5400..5650).contains(&longest), "{name}: every voice is closed at once, for 125 ms (5512 samples); longest gap {longest}");
+            assert!(peak(&held) > 0.05, "{name}: and open together the other half");
+            for pitch in [48.0, 55.0, 64.0] {
+                pd.send_list("notes", &[Atom::Float(pitch), Atom::Float(0.0)]);
+            }
+            render(&mut pd, 1.0);
+            println!("{name}: the voices fall silent together for {longest} samples at a time");
+        }
         if name == "wavetable" {
             // Both wavetables were made and loaded when the patch started: a record for each
             // of their cycles, 64 of one and 33 of the other.
@@ -214,14 +272,14 @@ fn golden_patches_play_in_pd() {
         }
         if name == "sequence" {
             // A key held: the Sequencer plays its six steps from that note, one to each tick
-            // of the Clock, and goes round. At 140 beats a minute in sixteenths a tick is
-            // 4725 samples. A saw has nothing at the pitch of a note it is not playing,
-            // unless that note is an octave below it.
+            // of the Clock, and goes round; the saw plays each an octave down. At 140 beats a
+            // minute in sixteenths a tick is 4725 samples. A saw has nothing at the pitch of a
+            // note it is not playing, unless that note is an octave below it.
             pd.send_list("notes", &[Atom::Float(60.0), Atom::Float(100.0)]);
             let held: Vec<f32> = render(&mut pd, 0.9).chunks(2).map(|frame| frame[0]).collect();
             pd.send_list("notes", &[Atom::Float(60.0), Atom::Float(0.0)]);
             let after = render(&mut pd, 0.6);
-            let hz = |note: f32| 440.0 * 2f32.powf((note - 69.0) / 12.0);
+            let hz = |note: f32| 440.0 * 2f32.powf((note - 12.0 - 69.0) / 12.0);
             let steps = [0.0, 12.0, 7.0, 12.0, -5.0, 12.0];
             let mut levels = Vec::new();
             for tick in 0..8 {
@@ -240,18 +298,19 @@ fn golden_patches_play_in_pd() {
         }
         if name == "bare-oscillator" {
             // Four voices, each a saw straight into the output. Before any note they are all
-            // on middle C: that note and no other. Each then holds the last note it was
-            // given: after a chord of three, those three and the one voice still on middle C.
+            // on the pitch 60: that note and no other. Each then holds the last note it was
+            // given: after a chord of three, those three and the one voice still on 60. An
+            // oscillator plays each note an octave down, 60 as C3.
             let left_of = |buffer: &[f32]| buffer.chunks(2).map(|frame| frame[0]).collect::<Vec<f32>>();
             let (before, after) = (left_of(&rest), left_of(tail));
-            let hz = |note: f32| 440.0 * 2f32.powf((note - 69.0) / 12.0);
-            assert!(level_at(&before, hz(60.0)) > 0.1, "{name}: middle C before any note, {}", level_at(&before, hz(60.0)));
+            let hz = |note: f32| 440.0 * 2f32.powf((note - 12.0 - 69.0) / 12.0);
+            assert!(level_at(&before, hz(60.0)) > 0.1, "{name}: note 60 before any note, {}", level_at(&before, hz(60.0)));
             for note in [48.0, 55.0, 64.0] {
                 assert!(level_at(&before, hz(note)) < 0.01, "{name}: no note {note} before it is played, {}", level_at(&before, hz(note)));
                 assert!(level_at(&after, hz(note)) > 0.03, "{name}: note {note} is held after its key is up, {}", level_at(&after, hz(note)));
             }
-            assert!(level_at(&after, hz(60.0)) > 0.03, "{name}: the voice that got no note is still on middle C");
-            println!("{name}: middle C at {:.3} before any note; held after the chord: {:.3?}", level_at(&before, hz(60.0)), [48.0, 55.0, 60.0, 64.0].map(|n| level_at(&after, hz(n))));
+            assert!(level_at(&after, hz(60.0)) > 0.03, "{name}: the voice that got no note is still on note 60");
+            println!("{name}: note 60 at {:.3} before any note; held after the chord: {:.3?}", level_at(&before, hz(60.0)), [48.0, 55.0, 60.0, 64.0].map(|n| level_at(&after, hz(n))));
         }
 
         if name == "basic-synth" {

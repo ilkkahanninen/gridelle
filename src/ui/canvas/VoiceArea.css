@@ -1,0 +1,91 @@
+/* The voice area: a dark panel with rounded corners under what runs in every voice. Its
+   outer ring of cells is its border, where no module goes, as dark as its inside. The
+   border takes presses (the header moves the area, the rest resizes it); the inside lets
+   them through to the grid. */
+.voice-area {
+  position: absolute;
+  border-radius: 38px;
+  background: rgb(0 0 0 / 0.32);
+  pointer-events: none;
+}
+
+.voice-area-blocked {
+  background: color-mix(in srgb, var(--danger) 30%, rgb(0 0 0 / 0.32));
+}
+
+.voice-area-grip {
+  position: absolute;
+  pointer-events: auto;
+}
+
+.voice-area-left,
+.voice-area-right {
+  cursor: ew-resize;
+}
+
+.voice-area-bottom {
+  cursor: ns-resize;
+  border-radius: 0 0 0 38px;
+}
+
+.voice-area-corner {
+  cursor: nwse-resize;
+  border-radius: 0 0 38px 0;
+}
+
+.voice-area-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-left: 86px;
+  padding-right: 24px;
+  border-radius: 38px 38px 0 0;
+  cursor: grab;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+/* The voices' Notes input sits on the left of the header; the title makes room for it. */
+.voice-area-notes {
+  pointer-events: auto;
+}
+
+.voice-area-title {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+
+.voice-area-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  cursor: default;
+  font-variant-numeric: tabular-nums;
+}
+
+.voice-area-count span {
+  min-width: 22px;
+  text-align: center;
+  font-weight: 600;
+}
+
+.voice-area-count button {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.voice-area-count button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}

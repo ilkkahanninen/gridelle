@@ -9,7 +9,6 @@
 #X obj 290 205 sig~ 1;
 #X obj 550 30 loadbang;
 #X msg 550 65 \; ge1-tune 0 \; ge1-fine 0 \; ge1-depth 0.25 \; ge1-mode 0 \; ge2-tune 7 \; ge2-fine 0 \; ge2-depth 0.25 \; ge2-mode 0 \; ge3-mix 0.5 \; ge5-amount 0.3 \; ge5-offset 0.7 \; ge6-rate 5 \; ge6-level 1 \; ge6-shape 0 \; ge7-level 1 \; ge8-attack 5 \; ge8-decay 200 \; ge8-sustain 0.6 \; ge8-release 100 \; ge9-level 0.25 \; ge11-value 0.5 \; ge11-range 0 \; ge16-rise 20 \; ge16-fall 200 \; ge17-threshold 0 \; ge21-divide 3;
-#X connect 0 0 1 0;
 #X connect 1 0 2 0;
 #X connect 1 1 2 1;
 #X connect 2 0 3 0;
@@ -19,5 +18,6 @@
 #X connect 4 0 5 0;
 #X connect 5 0 6 0;
 #X connect 5 0 6 1;
+#X connect 0 0 1 0;
 #X connect 7 0 6 2;
 #X connect 8 0 9 0;

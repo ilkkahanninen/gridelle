@@ -1,11 +1,11 @@
 import { sampleLetter, type ModuleId, type PatchDocument } from "../model/types";
-import { VOICE_ABSTRACTION } from "../modules/registry";
+import { KEYBOARD_ABSTRACTION, VOICE_ABSTRACTION } from "../modules/registry";
 import type { VoiceSignal } from "../modules/types";
 import { pdNumber, PdPatch, type Box, type Position } from "../pd/patch";
 import { argumentValues, type Analysis, type ResolvedModule } from "./analyze";
 import { emitKnobPages } from "./knobPages";
 
-/** Outlet of `ge-voice` that carries each voice signal. */
+/** Outlet of `ge-voice` (and `ge-keyboard`) that carries each voice signal. */
 const VOICE_OUTLET: Record<VoiceSignal, number> = { pitch: 0, gate: 1, velocity: 2 };
 
 /** Pd canvas spacing per editor grid cell, so exported patches mirror the editor layout. */
@@ -16,24 +16,6 @@ export interface ParamValue {
   /** Pd receiver name, e.g. `ge3-cutoff`. */
   receiver: string;
   value: number;
-}
-
-/** A voice output that feeds the global section; it becomes an `outlet~` of `voice.pd`. */
-interface Crossing {
-  from: ModuleId;
-  outlet: number;
-}
-
-function crossings(analysis: Analysis): Crossing[] {
-  const scope = new Map(analysis.modules.map((m) => [m.instance.id, m.scope]));
-  const found: Crossing[] = [];
-  for (const wire of analysis.wires) {
-    if (scope.get(wire.from) !== "voice" || scope.get(wire.to) !== "global") continue;
-    if (!found.some((c) => c.from === wire.from && c.outlet === wire.outlet)) {
-      found.push({ from: wire.from, outlet: wire.outlet });
-    }
-  }
-  return found;
 }
 
 /** Place a module's box where its tile sits, relative to the top-left tile of its section. */
@@ -100,36 +82,44 @@ function addConstants(patch: PdPatch, analysis: Analysis, boxes: Map<ModuleId, B
 }
 
 /**
- * One voice: the per-voice modules, fed by `ge-voice`, with an `outlet~` per crossing.
+ * One voice: the modules of the voice area, fed by `ge-voice`, with an `inlet~` for each
+ * cable that comes into the area and an `outlet~` for each that leaves it.
  *
  * A voice is never muted. Its modules run all the time, as on a modular, and what
  * leaves it is what they make: an oscillator with no Amp behind it sounds for ever, on
- * middle C until the voice gets its first note (`ge-voice`) and on its last note after that.
+ * C3 (the pitch 60, which an oscillator plays an octave down) until the voice gets its first
+ * note (`ge-voice`) and on its last note after that.
  * Giving a note a beginning and an end is the patch's own business.
  */
 export function emitVoice(analysis: Analysis): string {
   const modules = analysis.modules.filter((m) => m.scope === "voice");
   const patch = new PdPatch();
 
+  // Pd numbers inlets by horizontal position: the note first, then the signals coming in.
   const inlet = patch.obj("inlet", { x: MARGIN.x, y: MARGIN.y });
   const voice = patch.obj(VOICE_ABSTRACTION, { x: MARGIN.x, y: MARGIN.y + 40 });
   patch.connect(inlet, 0, voice, 0);
+  const comingIn = analysis.inward.map((_, i) => patch.obj("inlet~", { x: MARGIN.x + (i + 1) * CELL.x, y: MARGIN.y }));
 
   const top = MARGIN.y + 110;
   const boxes = addModules(patch, analysis, modules, top, "$1");
 
   for (const wire of analysis.wires) {
-    const [from, to] = [boxes.get(wire.from), boxes.get(wire.to)];
-    if (from && to) patch.connect(from, wire.outlet, to, wire.inlet);
+    const to = boxes.get(wire.to);
+    if (!to) continue;
+    const from = boxes.get(wire.from);
+    if (from) patch.connect(from, wire.outlet, to, wire.inlet);
+    else patch.connect(comingIn[analysis.inward.findIndex((c) => c.from === wire.from && c.outlet === wire.outlet)], 0, to, wire.inlet);
   }
   for (const precord of analysis.precords) {
-    patch.connect(voice, VOICE_OUTLET[precord.signal], boxes.get(precord.to)!, precord.inlet);
+    const to = boxes.get(precord.to);
+    if (to) patch.connect(voice, VOICE_OUTLET[precord.signal], to, precord.inlet);
   }
   addConstants(patch, analysis, boxes, { x: MARGIN.x + 2 * CELL.x, y: MARGIN.y + 40 });
 
   // Pd numbers outlets by horizontal position, so lay them out left to right in order.
   const below = bottom(modules, top) + 100;
-  crossings(analysis).forEach((crossing, i) => {
+  analysis.outward.forEach((crossing, i) => {
     const outlet = patch.obj("outlet~", { x: MARGIN.x + i * CELL.x, y: below });
     patch.connect(boxes.get(crossing.from)!, crossing.outlet, outlet, 0);
   });
@@ -149,15 +139,16 @@ export function paramValues(analysis: Analysis): ParamValue[] {
 }
 
 /**
- * The patch the Organelle opens: note handling and voice allocation, the modules
- * that run once after the voices are summed, and the parameter values.
+ * The patch the Organelle opens: note handling and voice allocation, the modules outside
+ * the voice area, which run once, and the parameter values.
  */
 export function emitMain(doc: PatchDocument, analysis: Analysis): string {
   const modules = analysis.modules.filter((m) => m.scope === "global");
   const patch = new PdPatch();
   const column = (row: number): Position => ({ x: MARGIN.x, y: MARGIN.y + row * 35 });
 
-  // Keys and MIDI arrive as "pitch velocity"; [poly] picks a voice, [clone] hosts them.
+  // Keys and MIDI arrive as "pitch velocity"; [poly] picks a voice, [clone] hosts them. The
+  // voices get the keyboard's notes, or a note module's (an arpeggiator's).
   const notes = patch.obj("r notes", column(0));
   const unpack = patch.obj("unpack f f", column(1));
   const poly = patch.obj(`poly ${doc.voices} 1`, column(2));
@@ -165,7 +156,6 @@ export function emitMain(doc: PatchDocument, analysis: Analysis): string {
   const zeroBased = patch.obj("- 1", column(3));
   const pack = patch.obj("pack f f f", column(4));
   const clone = patch.obj(`clone voice ${doc.voices}`, column(5));
-  patch.connect(notes, 0, unpack, 0);
   patch.connect(unpack, 0, poly, 0);
   patch.connect(unpack, 1, poly, 1);
   patch.connect(poly, 0, zeroBased, 0);
@@ -187,19 +177,32 @@ export function emitMain(doc: PatchDocument, analysis: Analysis): string {
 
   const top = column(7).y;
   const boxes = addModules(patch, analysis, modules, top, "-1");
-  const voiceOutlets = crossings(analysis);
+  const crossing = (list: Analysis["inward"], wire: Analysis["wires"][number]) =>
+    list.findIndex((c) => c.from === wire.from && c.outlet === wire.outlet);
 
   for (const wire of analysis.wires) {
-    const to = boxes.get(wire.to);
-    if (!to) continue;
-    const from = boxes.get(wire.from);
-    if (from) {
+    const [from, to] = [boxes.get(wire.from), boxes.get(wire.to)];
+    if (from && to) {
       patch.connect(from, wire.outlet, to, wire.inlet);
-    } else {
+    } else if (to) {
       // The source lives in the voices: take the summed signal from [clone].
-      const outlet = voiceOutlets.findIndex((c) => c.from === wire.from && c.outlet === wire.outlet);
-      patch.connect(clone, outlet, to, wire.inlet);
+      patch.connect(clone, crossing(analysis.outward, wire), to, wire.inlet);
+    } else if (from) {
+      // Into the voices: [clone] gives every voice the same signal. Its inlet 0 is the note.
+      patch.connect(from, wire.outlet, clone, 1 + crossing(analysis.inward, wire));
     }
+  }
+
+  // The notes the voices are given, and those of note inputs with no cable: the keyboard's.
+  if (analysis.voiceNotes) patch.connect(boxes.get(analysis.voiceNotes.module)!, analysis.voiceNotes.index, unpack, 0);
+  else patch.connect(notes, 0, unpack, 0);
+  for (const plug of analysis.keyboardNotes) patch.connect(notes, 0, boxes.get(plug.module)!, plug.index);
+
+  // Outside the voices, an input that follows the note follows the keyboard.
+  const keyboardFed = analysis.precords.filter((precord) => boxes.has(precord.to));
+  if (keyboardFed.length > 0) {
+    const keyboard = patch.obj(KEYBOARD_ABSTRACTION, { x: MARGIN.x + CELL.x, y: column(6).y });
+    for (const precord of keyboardFed) patch.connect(keyboard, VOICE_OUTLET[precord.signal], boxes.get(precord.to)!, precord.inlet);
   }
 
   addConstants(patch, analysis, boxes, { x: MARGIN.x + 2 * CELL.x, y: column(5).y });

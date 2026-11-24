@@ -31,7 +31,8 @@ const OSCILLATOR: usize = 16;
 
 /// The oscillator `t1` on sample slot 0, which holds the wavetable of `frames`, or a bare
 /// table of nothing when there are none. Its pitch is a `[sig~]` that `t-pitch` sets, plus
-/// a `[line~]` for glides (`t-glide`); the inputs of Tune, Fine tune and Position are
+/// a `[line~]` for glides (`t-glide`), plus an octave: an oscillator plays the note it is
+/// given an octave down, so that the notes here are the notes heard; the inputs of Tune, Fine tune and Position are
 /// `[sig~ 1]`s (`t-in1` to `t-in3`), as the compiler gives an input with no cable;
 /// Position modulation is a `[sig~]` (`t-scan`) plus a 100 Hz sine at the level
 /// `t-wobble`; Modulation is a `[sig~]` (`t-mod`).
@@ -45,10 +46,10 @@ fn with_oscillator<T>(pd: &mut Pd, dir: &Path, frames: &[Cycle], measure: impl F
     };
     let boxes = [
         table, "r t-pitch", "sig~ 60", "r t-in1", "sig~ 1", "r t-in2", "sig~ 1", "r t-in3", "sig~ 1", "r t-scan", "sig~ 0", "r t-mod", "sig~ 0",
-        "osc~ 100", "r t-wobble", "*~ 0", "ge-osc-wavetable t1 0", "dac~ 1", "r t-glide", "line~",
+        "osc~ 100", "r t-wobble", "*~ 0", "ge-osc-wavetable t1 0", "dac~ 1", "r t-glide", "line~", "+~ 12",
     ];
     let connections = [
-        [1, 0, 2, 0], [2, 0, OSCILLATOR, 0], [18, 0, 19, 0], [19, 0, OSCILLATOR, 0],
+        [1, 0, 2, 0], [2, 0, 20, 0], [18, 0, 19, 0], [19, 0, 20, 0], [20, 0, OSCILLATOR, 0],
         [3, 0, 4, 0], [4, 0, OSCILLATOR, 1], [5, 0, 6, 0], [6, 0, OSCILLATOR, 2], [7, 0, 8, 0], [8, 0, OSCILLATOR, 3],
         [9, 0, 10, 0], [10, 0, OSCILLATOR, 4], [13, 0, WOBBLE, 0], [14, 0, WOBBLE, 1], [WOBBLE, 0, OSCILLATOR, 4],
         [11, 0, 12, 0], [12, 0, OSCILLATOR, 5], [OSCILLATOR, 0, 17, 0],

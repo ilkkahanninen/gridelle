@@ -1,4 +1,4 @@
-import { basicSynth, looper, newPatch, sequence, tapeEcho, voiceEffects, wavetable } from "./fixtures";
+import { arpeggio, basicSynth, looper, newPatch, sequence, tapeEcho, voiceEffects, wavetable } from "./fixtures";
 import type { PatchDocument } from "./model/types";
 
 /**
@@ -21,7 +21,7 @@ export interface ExamplePreset {
  * play. Those that play a sound file are left out, since that file would have to come
  * along; a wavetable of the editor's own is made wherever the preset is opened.
  */
-export const EXAMPLE_PRESETS: ExamplePreset[] = [newPatch, basicSynth, wavetable, sequence, tapeEcho, looper, voiceEffects].map((doc) => ({
+export const EXAMPLE_PRESETS: ExamplePreset[] = [newPatch, basicSynth, arpeggio, wavetable, sequence, tapeEcho, looper, voiceEffects].map((doc) => ({
   name: doc.name,
   doc,
 }));

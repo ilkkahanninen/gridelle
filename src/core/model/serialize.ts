@@ -27,6 +27,9 @@ export function parseDocument(text: string): PatchDocument {
   if (data.version > DOCUMENT_VERSION) {
     throw new Error("This patch was saved by a newer version of Gridelle.");
   }
+  if (data.version < DOCUMENT_VERSION) {
+    throw new Error("This patch was saved by an older version of Gridelle, from before the voice area, and cannot be opened.");
+  }
 
   const modulesOk =
     Array.isArray(data.modules) &&
@@ -71,11 +74,19 @@ export function parseDocument(text: string): PatchDocument {
               (s.kind === "tape" && isCount(s.seconds)) ||
               (s.kind === "wavetable" && isText(s.bank)))),
       ));
-  if (typeof data.name !== "string" || typeof data.voices !== "number" || !modulesOk || !cablesOk || !pagesOk || !samplesOk) {
+  const area = data.voiceArea;
+  const areaOk =
+    isRecord(area) &&
+    Number.isInteger(area.x) &&
+    Number.isInteger(area.y) &&
+    Number.isInteger(area.width) &&
+    Number.isInteger(area.height) &&
+    (area.width as number) >= 0 &&
+    (area.height as number) >= 0;
+  if (typeof data.name !== "string" || typeof data.voices !== "number" || !areaOk || !modulesOk || !cablesOk || !pagesOk || !samplesOk) {
     throw new Error("This patch file is damaged and cannot be opened.");
   }
-  // A file of an older version says the same in this one.
-  return { ...data, version: DOCUMENT_VERSION } as unknown as PatchDocument;
+  return data as unknown as PatchDocument;
 }
 
 /**

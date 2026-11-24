@@ -1,3 +1,4 @@
+import { AREA_BORDER, tileArea } from "./model/area";
 import { settle } from "./model/ops";
 import { DOCUMENT_VERSION, type PatchDocument } from "./model/types";
 
@@ -5,12 +6,45 @@ import { DOCUMENT_VERSION, type PatchDocument } from "./model/types";
  * Example patches. They double as compiler test fixtures (their compiled output is
  * kept in `tests/golden` and loaded into real Pd by the Rust tests).
  *
- * `basicSynth` is the patch the app opens with, so it is laid out by hand. The others were
- * placed when tiles were smaller: `settle` moves apart what overlaps now.
+ * Most were placed when tiles were smaller, and before the voice area: `voiced` moves
+ * apart what overlaps now, draws the voice area around the modules that run in the voices,
+ * and moves those named as running once out of it, to its right.
  */
 
+/**
+ * A patch laid out from modules placed anyhow: those in `outside` run once, the others in
+ * the voices. The voice area is drawn around the others, its border (with the header at
+ * the top) a cell out from them, and those outside are moved to the right of it, as they
+ * lay among themselves. The patch is then moved to start at the top-left cell.
+ */
+function voiced(patch: Omit<PatchDocument, "voiceArea">, outside: string[]): PatchDocument {
+  const settled = settle({ ...patch, voiceArea: { x: 0, y: 0, width: 0, height: 0 } });
+  const tiles = new Map(settled.modules.map((m) => [m.id, tileArea(settled, m)!]));
+  const inside = settled.modules.filter((m) => !outside.includes(m.id)).map((m) => tiles.get(m.id)!);
+  const left = Math.min(...inside.map((t) => t.x));
+  const top = Math.min(...inside.map((t) => t.y));
+  const right = Math.max(...inside.map((t) => t.x + t.width));
+  const bottom = Math.max(...inside.map((t) => t.y + t.height));
+  const area = {
+    x: left - AREA_BORDER,
+    y: top - AREA_BORDER,
+    width: right - left + 2 * AREA_BORDER,
+    height: bottom - top + 2 * AREA_BORDER,
+  };
+  const after = settled.modules.filter((m) => outside.includes(m.id));
+  const push = after.length > 0 ? Math.max(0, area.x + area.width - Math.min(...after.map((m) => m.x))) : 0;
+  const modules = settled.modules.map((m) => (outside.includes(m.id) ? { ...m, x: m.x + push } : m));
+  const x0 = Math.min(area.x, ...modules.map((m) => m.x));
+  const y0 = Math.min(area.y, ...modules.map((m) => m.y));
+  return {
+    ...settled,
+    voiceArea: { ...area, x: area.x - x0, y: area.y - y0 },
+    modules: modules.map((m) => ({ ...m, x: m.x - x0, y: m.y - y0 })),
+  };
+}
+
 /** Saw into a low-pass with its own envelope, into an amp with a second envelope. */
-export const basicSynth: PatchDocument = {
+export const basicSynth: PatchDocument = voiced({
   version: DOCUMENT_VERSION,
   name: "Basic Synth",
   voices: 4,
@@ -44,10 +78,10 @@ export const basicSynth: PatchDocument = {
       knobs: [{ module: "ge6", param: "attack" }, null, { module: "ge6", param: "sustain" }, { module: "ge6", param: "release" }],
     },
   ],
-};
+}, ["ge4"]);
 
-/** Two detuned saws per voice, with one filter shared by all voices after the voice sum. */
-export const sharedFilter: PatchDocument = settle({
+/** Two detuned saws per voice, with one filter shared by all voices after them. */
+export const sharedFilter: PatchDocument = voiced({
   version: DOCUMENT_VERSION,
   name: "Shared Filter",
   voices: 3,
@@ -57,11 +91,9 @@ export const sharedFilter: PatchDocument = settle({
     { id: "ge3", type: "env-adsr", x: 0, y: 4, params: { release: 400 } },
     { id: "ge4", type: "amp", x: 3, y: 0, params: { level: 0.5 } },
     { id: "ge5", type: "amp", x: 3, y: 2, params: { level: 0.5 } },
-    { id: "ge6", type: "voice-sum", x: 5, y: 0, params: {} },
-    { id: "ge7", type: "voice-sum", x: 5, y: 2, params: {} },
     { id: "ge8", type: "filter-lp", x: 6, y: 0, params: { cutoff: 2500 } },
     { id: "ge9", type: "audio-out", x: 8, y: 0, params: {} },
-    // After the voice sum, so there is one delay for all voices.
+    // After the voices, so there is one delay for all of them.
     { id: "ge10", type: "fx-delay", x: 10, y: 0, params: { time: 150, feedback: 0.2 } },
   ],
   cables: [
@@ -69,22 +101,20 @@ export const sharedFilter: PatchDocument = settle({
     { from: { module: "ge2", port: "out" }, to: { module: "ge5", port: "in" } },
     { from: { module: "ge3", port: "out" }, to: { module: "ge4", port: "cv" } },
     { from: { module: "ge3", port: "out" }, to: { module: "ge5", port: "cv" } },
-    { from: { module: "ge4", port: "out" }, to: { module: "ge6", port: "in" } },
-    { from: { module: "ge5", port: "out" }, to: { module: "ge7", port: "in" } },
-    { from: { module: "ge6", port: "out" }, to: { module: "ge8", port: "in" } },
+    { from: { module: "ge4", port: "out" }, to: { module: "ge8", port: "in" } },
     { from: { module: "ge8", port: "out" }, to: { module: "ge10", port: "in" } },
     { from: { module: "ge10", port: "out" }, to: { module: "ge9", port: "left" } },
-    { from: { module: "ge7", port: "out" }, to: { module: "ge9", port: "right" } },
+    { from: { module: "ge5", port: "out" }, to: { module: "ge9", port: "right" } },
   ],
   pages: [],
-});
+}, ["ge8", "ge9", "ge10"]);
 
 /**
  * Every oscillator and noise into a mixer, then through each filter in turn, with the
  * oscillators' Mod inputs patched in each of the three modes. Not a patch anyone would
  * play; it puts all the sources and filters in front of real Pd.
  */
-export const sourcesAndFilters: PatchDocument = settle({
+export const sourcesAndFilters: PatchDocument = voiced({
   version: DOCUMENT_VERSION,
   name: "Sources and Filters",
   voices: 2,
@@ -140,13 +170,13 @@ export const sourcesAndFilters: PatchDocument = settle({
       ],
     },
   ],
-});
+}, ["ge13"]);
 
 /**
  * A saw through every shaper. The Amp comes first, so the shapers are fed silence between
  * notes and have to stay silent themselves; the envelope also moves the fold and the order.
  */
-export const shapers: PatchDocument = settle({
+export const shapers: PatchDocument = voiced({
   version: DOCUMENT_VERSION,
   name: "Shapers",
   voices: 2,
@@ -187,14 +217,14 @@ export const shapers: PatchDocument = settle({
       ],
     },
   ],
-});
+}, ["ge8"]);
 
 /**
  * An oscillator with nothing between it and the output: a drone. Every voice sounds all
- * the time, on middle C until it gets a note (not on pitch 0, which would tick at 8 Hz)
+ * the time, on C3 (the pitch 60, an octave down) until it gets a note (not on pitch 0, which would tick at 8 Hz)
  * and on its last note after that.
  */
-export const bareOscillator: PatchDocument = {
+export const bareOscillator: PatchDocument = voiced({
   version: DOCUMENT_VERSION,
   name: "Bare Oscillator",
   voices: 4,
@@ -204,13 +234,13 @@ export const bareOscillator: PatchDocument = {
   ],
   cables: [{ from: { module: "ge1", port: "out" }, to: { module: "ge2", port: "left" } }],
   pages: [],
-};
+}, ["ge2"]);
 
 /**
  * Every effect inside the voices, behind an oscillator with no Amp: a drone through
  * effects, each voice with its own.
  */
-export const voiceEffects: PatchDocument = settle({
+export const voiceEffects: PatchDocument = voiced({
   version: DOCUMENT_VERSION,
   name: "Voice Effects",
   voices: 4,
@@ -238,14 +268,14 @@ export const voiceEffects: PatchDocument = settle({
     { from: { module: "ge9", port: "out" }, to: { module: "ge7", port: "right" } },
   ],
   pages: [],
-});
+}, ["ge7"]);
 
 /**
  * The modules that wrap objects of Pd itself: the filters in a row, the three reverbs after
  * the Amp, a Sample & Hold of noise on the Ladder's Mod and a Follower on the Soft Low-pass.
  * The Cavern is mixed in very low, because it cannot ring for less than two seconds.
  */
-export const flavours: PatchDocument = settle({
+export const flavours: PatchDocument = voiced({
   version: DOCUMENT_VERSION,
   name: "Flavours",
   voices: 2,
@@ -283,13 +313,13 @@ export const flavours: PatchDocument = settle({
     { from: { module: "ge14", port: "out" }, to: { module: "ge4", port: "mod" } },
   ],
   pages: [],
-});
+}, ["ge11"]);
 
 /**
  * The audio input through a filter, mixed with a synth voice. The input and what follows
- * it run once, after the voices.
+ * it run once, outside the voices.
  */
-export const audioInput: PatchDocument = settle({
+export const audioInput: PatchDocument = voiced({
   version: DOCUMENT_VERSION,
   name: "Audio Input",
   voices: 2,
@@ -312,14 +342,14 @@ export const audioInput: PatchDocument = settle({
     { from: { module: "ge6", port: "out" }, to: { module: "ge7", port: "left" } },
   ],
   pages: [],
-});
+}, ["ge4", "ge5", "ge6", "ge7"]);
 
 /**
  * The pitch modules in a row in front of an oscillator: the played note from Keys, glided,
  * transposed, then snapped to A minor with random steps added. Velocity sets how loud the
  * envelope's sustain is.
  */
-export const pitches: PatchDocument = settle({
+export const pitches: PatchDocument = voiced({
   version: DOCUMENT_VERSION,
   name: "Pitches",
   voices: 3,
@@ -347,14 +377,14 @@ export const pitches: PatchDocument = settle({
     { from: { module: "ge7", port: "out" }, to: { module: "ge9", port: "left" } },
   ],
   pages: [],
-});
+}, ["ge9"]);
 
 /**
  * Every math and logic module in one patch. A saw and a sine are crossfaded (a Toggle on
  * the key gate picks which) and multiplied by a scaled LFO for a tremolo. The rest work on
  * the LFO beside that and end at inputs where they change nothing audible.
  */
-export const mathAndLogic: PatchDocument = settle({
+export const mathAndLogic: PatchDocument = voiced({
   version: DOCUMENT_VERSION,
   name: "Math and Logic",
   voices: 2,
@@ -410,13 +440,13 @@ export const mathAndLogic: PatchDocument = settle({
     { from: { module: "ge21", port: "out" }, to: { module: "ge2", port: "fine" } },
   ],
   pages: [],
-});
+}, ["ge9"]);
 
 /**
  * Three Scopes on a plain synth voice: one on the oscillator and one on the envelope,
- * inside the voices, and one after the Voice Sum, on what is heard.
+ * inside the voices, and one outside them, on what is heard: the voices added up.
  */
-export const scoped: PatchDocument = settle({
+export const scoped: PatchDocument = voiced({
   version: DOCUMENT_VERSION,
   name: "Scoped",
   voices: 3,
@@ -424,7 +454,6 @@ export const scoped: PatchDocument = settle({
     { id: "ge1", type: "osc-saw", x: 0, y: 0, params: {} },
     { id: "ge2", type: "amp", x: 2, y: 0, params: {} },
     { id: "ge3", type: "env-adsr", x: 0, y: 3, params: { release: 100 } },
-    { id: "ge4", type: "voice-sum", x: 3, y: 0, params: {} },
     { id: "ge5", type: "audio-out", x: 4, y: 0, params: {} },
     { id: "ge6", type: "scope", x: 6, y: 0, params: {} },
     { id: "ge7", type: "scope", x: 6, y: 2, params: { time: 3 } },
@@ -433,14 +462,13 @@ export const scoped: PatchDocument = settle({
   cables: [
     { from: { module: "ge1", port: "out" }, to: { module: "ge2", port: "in" } },
     { from: { module: "ge3", port: "out" }, to: { module: "ge2", port: "cv" } },
-    { from: { module: "ge2", port: "out" }, to: { module: "ge4", port: "in" } },
-    { from: { module: "ge4", port: "out" }, to: { module: "ge5", port: "left" } },
+    { from: { module: "ge2", port: "out" }, to: { module: "ge5", port: "left" } },
     { from: { module: "ge1", port: "out" }, to: { module: "ge6", port: "in" } },
     { from: { module: "ge3", port: "out" }, to: { module: "ge7", port: "in" } },
-    { from: { module: "ge4", port: "out" }, to: { module: "ge8", port: "in" } },
+    { from: { module: "ge2", port: "out" }, to: { module: "ge8", port: "in" } },
   ],
   pages: [],
-});
+}, ["ge5", "ge8"]);
 
 /**
  * A sound file played from the keys, mixed with the same sound scanned by an LFO through a
@@ -449,7 +477,7 @@ export const scoped: PatchDocument = settle({
  * sample are loaded.
  * The file is the tone in the fixture's golden folder: a quarter of a second of 441 Hz.
  */
-export const sampler: PatchDocument = settle({
+export const sampler: PatchDocument = voiced({
   version: DOCUMENT_VERSION,
   name: "Sampler",
   voices: 3,
@@ -458,7 +486,6 @@ export const sampler: PatchDocument = settle({
     { id: "ge2", type: "lfo", x: 0, y: 3, params: { rate: 3, shape: 2 } },
     { id: "ge3", type: "sample-head", x: 2, y: 3, params: { sample: 0 } },
     { id: "ge4", type: "mixer", x: 4, y: 0, params: { level2: 0.5 } },
-    { id: "ge5", type: "voice-sum", x: 6, y: 0, params: {} },
     { id: "ge6", type: "audio-out", x: 7, y: 0, params: {} },
     { id: "ge7", type: "sample-head", x: 4, y: 3, params: { sample: 1 } },
     { id: "ge8", type: "amp", x: 4, y: 5, params: {} },
@@ -470,22 +497,21 @@ export const sampler: PatchDocument = settle({
     { from: { module: "ge3", port: "out" }, to: { module: "ge8", port: "in" } },
     { from: { module: "ge1", port: "playing" }, to: { module: "ge8", port: "cv" } },
     { from: { module: "ge8", port: "out" }, to: { module: "ge4", port: "in2" } },
-    { from: { module: "ge4", port: "out" }, to: { module: "ge5", port: "in" } },
-    { from: { module: "ge5", port: "out" }, to: { module: "ge6", port: "left" } },
+    { from: { module: "ge4", port: "out" }, to: { module: "ge6", port: "left" } },
   ],
   pages: [],
   samples: [
     { kind: "file", path: "tests/golden/sampler/ge-sample-a.wav", name: "tone.wav", frames: 11025, sampleRate: 44100 },
     { kind: "tape", seconds: 0.5 },
   ],
-});
+}, ["ge6"]);
 
 /**
- * A looper: a synth voice is recorded onto half a second of tape while a key is held (the
- * key gates of all voices, added up, are the Recorder's Record input), on top of what is
- * there. The tape is heard with the synth, and goes on playing with no key held.
+ * A looper: a synth voice is recorded onto half a second of tape while a key is held (Keys,
+ * outside the voices, gives the keyboard's gate: on while any key is held), on top of what
+ * is there. The tape is heard with the synth, and goes on playing with no key held.
  */
-export const looper: PatchDocument = settle({
+export const looper: PatchDocument = voiced({
   version: DOCUMENT_VERSION,
   name: "Looper",
   voices: 3,
@@ -494,7 +520,6 @@ export const looper: PatchDocument = settle({
     { id: "ge2", type: "amp", x: 2, y: 0, params: {} },
     { id: "ge3", type: "env-adsr", x: 0, y: 3, params: { release: 60 } },
     { id: "ge4", type: "keys", x: 2, y: 3, params: {} },
-    { id: "ge5", type: "voice-sum", x: 3, y: 0, params: {} },
     { id: "ge6", type: "sample-recorder", x: 4, y: 0, params: { sample: 0, overdub: 1 } },
     { id: "ge7", type: "mixer", x: 7, y: 0, params: { level1: 0.5, level2: 0.5 } },
     { id: "ge8", type: "audio-out", x: 9, y: 0, params: {} },
@@ -502,16 +527,15 @@ export const looper: PatchDocument = settle({
   cables: [
     { from: { module: "ge1", port: "out" }, to: { module: "ge2", port: "in" } },
     { from: { module: "ge3", port: "out" }, to: { module: "ge2", port: "cv" } },
-    { from: { module: "ge2", port: "out" }, to: { module: "ge5", port: "in" } },
-    { from: { module: "ge5", port: "out" }, to: { module: "ge6", port: "in" } },
+    { from: { module: "ge2", port: "out" }, to: { module: "ge6", port: "in" } },
     { from: { module: "ge4", port: "gate" }, to: { module: "ge6", port: "record" } },
-    { from: { module: "ge5", port: "out" }, to: { module: "ge7", port: "in1" } },
+    { from: { module: "ge2", port: "out" }, to: { module: "ge7", port: "in1" } },
     { from: { module: "ge6", port: "out" }, to: { module: "ge7", port: "in2" } },
     { from: { module: "ge7", port: "out" }, to: { module: "ge8", port: "left" } },
   ],
   pages: [],
   samples: [{ kind: "tape", seconds: 0.5 }],
-});
+}, ["ge4", "ge6", "ge7", "ge8"]);
 
 /**
  * A tape echo built from parts: the synth and the echoes are mixed and recorded onto a
@@ -519,7 +543,7 @@ export const looper: PatchDocument = settle({
  * soft clip, back into that mix. No cable runs from the Recorder to the Tape Head: the
  * tape is what closes the loop.
  */
-export const tapeEcho: PatchDocument = settle({
+export const tapeEcho: PatchDocument = voiced({
   version: DOCUMENT_VERSION,
   name: "Tape Echo",
   voices: 3,
@@ -527,7 +551,6 @@ export const tapeEcho: PatchDocument = settle({
     { id: "ge1", type: "osc-saw", x: 0, y: 0, params: {} },
     { id: "ge2", type: "amp", x: 2, y: 0, params: {} },
     { id: "ge3", type: "env-adsr", x: 0, y: 3, params: { release: 60 } },
-    { id: "ge4", type: "voice-sum", x: 3, y: 0, params: {} },
     { id: "ge5", type: "mixer", x: 4, y: 0, params: { level2: 0.4 } },
     { id: "ge6", type: "sample-recorder", x: 6, y: 0, params: { sample: 1 } },
     { id: "ge7", type: "tape-head", x: 4, y: 3, params: { sample: 1, delay: 120 } },
@@ -538,8 +561,7 @@ export const tapeEcho: PatchDocument = settle({
   cables: [
     { from: { module: "ge1", port: "out" }, to: { module: "ge2", port: "in" } },
     { from: { module: "ge3", port: "out" }, to: { module: "ge2", port: "cv" } },
-    { from: { module: "ge2", port: "out" }, to: { module: "ge4", port: "in" } },
-    { from: { module: "ge4", port: "out" }, to: { module: "ge5", port: "in1" } },
+    { from: { module: "ge2", port: "out" }, to: { module: "ge5", port: "in1" } },
     { from: { module: "ge7", port: "out" }, to: { module: "ge8", port: "in" } },
     { from: { module: "ge8", port: "out" }, to: { module: "ge9", port: "in" } },
     { from: { module: "ge9", port: "out" }, to: { module: "ge5", port: "in2" } },
@@ -548,38 +570,34 @@ export const tapeEcho: PatchDocument = settle({
   ],
   pages: [],
   samples: [null, { kind: "tape", seconds: 1 }],
-});
+}, ["ge5", "ge6", "ge7", "ge8", "ge9", "ge10"]);
 
 /**
- * Grains of a sound file played from the keys, in stereo: left and right each through a
- * Voice Sum of its own. The file is the tone in the fixture's golden folder.
+ * Grains of a sound file played from the keys, in stereo: left and right each leave the
+ * voices on a cable of its own, added up over the voices. The file is the tone in the fixture's golden folder.
  */
-export const grains: PatchDocument = settle({
+export const grains: PatchDocument = voiced({
   version: DOCUMENT_VERSION,
   name: "Grains",
   voices: 3,
   modules: [
     { id: "ge1", type: "sample-grains", x: 0, y: 0, params: { sample: 0, scatter: 0.4, size: 60, density: 30, width: 1 } },
-    { id: "ge2", type: "voice-sum", x: 2, y: 0, params: {} },
-    { id: "ge3", type: "voice-sum", x: 2, y: 1, params: {} },
     { id: "ge4", type: "audio-out", x: 3, y: 0, params: { level: 1 } },
   ],
   cables: [
-    { from: { module: "ge1", port: "out" }, to: { module: "ge2", port: "in" } },
-    { from: { module: "ge1", port: "right" }, to: { module: "ge3", port: "in" } },
-    { from: { module: "ge2", port: "out" }, to: { module: "ge4", port: "left" } },
-    { from: { module: "ge3", port: "out" }, to: { module: "ge4", port: "right" } },
+    { from: { module: "ge1", port: "out" }, to: { module: "ge4", port: "left" } },
+    { from: { module: "ge1", port: "right" }, to: { module: "ge4", port: "right" } },
   ],
   pages: [],
   samples: [{ kind: "file", path: "tests/golden/grains/ge-sample-a.wav", name: "tone.wav", frames: 11025, sampleRate: 44100 }],
-});
+}, ["ge4"]);
 
 /**
  * A Clock and a Sequencer: holding a key plays the sequence from that note, starting from
  * its first step, and letting go stops it. The clock's ticks also open the envelope, so
  * each step is a note of its own.
  */
-export const sequence: PatchDocument = settle({
+export const sequence: PatchDocument = voiced({
   version: DOCUMENT_VERSION,
   name: "Sequence",
   voices: 2,
@@ -614,13 +632,13 @@ export const sequence: PatchDocument = settle({
       ],
     },
   ],
-});
+}, ["ge7"]);
 
 /**
  * The two short envelopes. An AR opens the amp for as long as a key is held; an AD,
  * curved and looping while the key is down, sweeps the filter again and again.
  */
-export const envelopes: PatchDocument = settle({
+export const envelopes: PatchDocument = voiced({
   version: DOCUMENT_VERSION,
   name: "Envelopes",
   voices: 3,
@@ -640,13 +658,13 @@ export const envelopes: PatchDocument = settle({
     { from: { module: "ge3", port: "out" }, to: { module: "ge6", port: "left" } },
   ],
   pages: [],
-});
+}, ["ge6"]);
 
 /**
  * A Compressor and a Limiter after the voices are added up. The saws are far too loud for
  * the output, which is at full level: the limiter is what keeps the patch under its ceiling.
  */
-export const dynamics: PatchDocument = settle({
+export const dynamics: PatchDocument = voiced({
   version: DOCUMENT_VERSION,
   name: "Dynamics",
   voices: 4,
@@ -654,7 +672,6 @@ export const dynamics: PatchDocument = settle({
     { id: "ge1", type: "osc-saw", x: 0, y: 0, params: {} },
     { id: "ge2", type: "amp", x: 2, y: 0, params: {} },
     { id: "ge3", type: "env-adsr", x: 0, y: 3, params: { release: 150 } },
-    { id: "ge4", type: "voice-sum", x: 3, y: 0, params: {} },
     { id: "ge5", type: "compressor", x: 4, y: 0, params: { threshold: -24, ratio: 3, gain: 6 } },
     { id: "ge6", type: "limiter", x: 6, y: 0, params: { ceiling: -3, release: 200 } },
     { id: "ge7", type: "audio-out", x: 8, y: 0, params: { level: 1 } },
@@ -662,20 +679,19 @@ export const dynamics: PatchDocument = settle({
   cables: [
     { from: { module: "ge1", port: "out" }, to: { module: "ge2", port: "in" } },
     { from: { module: "ge3", port: "out" }, to: { module: "ge2", port: "cv" } },
-    { from: { module: "ge2", port: "out" }, to: { module: "ge4", port: "in" } },
-    { from: { module: "ge4", port: "out" }, to: { module: "ge5", port: "in" } },
+    { from: { module: "ge2", port: "out" }, to: { module: "ge5", port: "in" } },
     { from: { module: "ge5", port: "out" }, to: { module: "ge6", port: "in" } },
     { from: { module: "ge6", port: "out" }, to: { module: "ge7", port: "left" } },
     { from: { module: "ge6", port: "right" }, to: { module: "ge7", port: "right" } },
   ],
   pages: [],
-});
+}, ["ge5", "ge6", "ge7"]);
 
 /**
  * A Wavetable oscillator on one of the editor's own wavetables, an envelope sweeping its
  * Position, and a second one an octave down on another table, moved by an LFO.
  */
-export const wavetable: PatchDocument = settle({
+export const wavetable: PatchDocument = voiced({
   version: DOCUMENT_VERSION,
   name: "Wavetable",
   voices: 4,
@@ -707,14 +723,72 @@ export const wavetable: PatchDocument = settle({
     { kind: "wavetable", bank: "resonance" },
     { kind: "wavetable", bank: "vowels" },
   ],
-});
+}, ["ge7"]);
+
+/**
+ * An LFO outside the voices, before them: one square wave that opens and closes the Amp of
+ * every voice at once. Its Reset follows the keyboard, so it starts on the first key and
+ * runs on while any key is held.
+ */
+export const sharedLfo: PatchDocument = {
+  version: DOCUMENT_VERSION,
+  name: "Shared LFO",
+  voices: 3,
+  voiceArea: { x: 2, y: 0, width: 6, height: 7 },
+  modules: [
+    { id: "ge1", type: "lfo", x: 0, y: 1, params: { rate: 4, shape: 4 } },
+    { id: "ge2", type: "osc-saw", x: 3, y: 1, params: {} },
+    { id: "ge3", type: "amp", x: 5, y: 1, params: {} },
+    { id: "ge4", type: "env-adsr", x: 5, y: 3, params: { release: 100 } },
+    { id: "ge5", type: "amp", x: 6, y: 1, params: {} },
+    { id: "ge6", type: "audio-out", x: 8, y: 1, params: {} },
+  ],
+  cables: [
+    { from: { module: "ge2", port: "out" }, to: { module: "ge3", port: "in" } },
+    { from: { module: "ge4", port: "out" }, to: { module: "ge3", port: "cv" } },
+    { from: { module: "ge3", port: "out" }, to: { module: "ge5", port: "in" } },
+    { from: { module: "ge1", port: "uni" }, to: { module: "ge5", port: "cv" } },
+    { from: { module: "ge5", port: "out" }, to: { module: "ge6", port: "left" } },
+  ],
+  pages: [],
+};
+
+/**
+ * An Arpeggiator before the voices: it plays the held keys up over two octaves, a sixteenth
+ * each at 120, into the voices' Notes input. Each note opens a short envelope.
+ */
+export const arpeggio: PatchDocument = {
+  version: DOCUMENT_VERSION,
+  name: "Arpeggio",
+  voices: 3,
+  voiceArea: { x: 2, y: 0, width: 6, height: 6 },
+  modules: [
+    { id: "ge1", type: "arpeggiator", x: 0, y: 1, params: { octaves: 2 } },
+    { id: "ge2", type: "osc-saw", x: 3, y: 1, params: {} },
+    { id: "ge3", type: "amp", x: 5, y: 1, params: {} },
+    { id: "ge4", type: "env-ad", x: 5, y: 3, params: { attack: 2, decay: 150 } },
+    { id: "ge5", type: "audio-out", x: 8, y: 1, params: {} },
+  ],
+  cables: [
+    { from: { module: "ge1", port: "notes" }, to: { module: "voices", port: "notes" } },
+    { from: { module: "ge2", port: "out" }, to: { module: "ge3", port: "in" } },
+    { from: { module: "ge4", port: "out" }, to: { module: "ge3", port: "cv" } },
+    { from: { module: "ge3", port: "out" }, to: { module: "ge5", port: "left" } },
+  ],
+  pages: [
+    {
+      name: "Arpeggio",
+      knobs: [{ module: "ge1", param: "tempo" }, { module: "ge1", param: "length" }, { module: "ge1", param: "octaves" }, { module: "ge4", param: "decay" }],
+    },
+  ],
+};
 
 /**
  * What a new patch starts as, until the user saves a base of their own over it: a saw
  * through an amp that an envelope opens, into the output. It sounds when a key is pressed,
  * and every part of it is easy to replace.
  */
-export const newPatch: PatchDocument = settle({
+export const newPatch: PatchDocument = voiced({
   version: DOCUMENT_VERSION,
   name: "New patch",
   voices: 4,
@@ -730,7 +804,7 @@ export const newPatch: PatchDocument = settle({
     { from: { module: "ge2", port: "out" }, to: { module: "ge4", port: "left" } },
   ],
   pages: [],
-});
+}, ["ge4"]);
 
 export const fixtures = {
   "basic-synth": basicSynth,
@@ -752,5 +826,7 @@ export const fixtures = {
   envelopes,
   dynamics,
   wavetable,
+  "shared-lfo": sharedLfo,
+  arpeggio,
   "new-patch": newPatch,
 } as const;

@@ -2,7 +2,7 @@
 //! Pd with the extra output channels the preview gives it.
 //!
 //! Scope 1 is on the oscillator and scope 2 on the envelope, inside the voices, and show
-//! one voice: the one that got the latest note. Scope 3 is after the Voice Sum and shows
+//! one voice: the one that got the latest note. Scope 3 is outside the voice area and shows
 //! what is heard.
 
 use std::path::PathBuf;
@@ -47,18 +47,18 @@ fn scopes_tap_the_first_voice_and_the_sum() {
     let main = pd.open(&repo().join("tests/golden/scoped/main.pd")).expect("run `npm test` to generate the fixtures");
     let (oscillator, envelope, heard) = (2, 3, 4);
 
-    // Before any note: the first voice's oscillator runs at middle C, its envelope is at
-    // zero, and nothing is heard.
+    // Before any note: the first voice's oscillator runs on the pitch 60, which it plays an
+    // octave down as C3, its envelope is at zero, and nothing is heard.
     let rest = render(&mut pd, 0.5);
     assert!(peak(&rest[oscillator]) > 0.9, "scope 1 shows the idle oscillator, peak {}", peak(&rest[oscillator]));
-    assert!((frequency(&rest[oscillator]) - 261.6).abs() < 4.0, "at middle C, got {} Hz", frequency(&rest[oscillator]));
+    assert!((frequency(&rest[oscillator]) - 130.8).abs() < 4.0, "at C3, got {} Hz", frequency(&rest[oscillator]));
     assert_eq!(peak(&rest[envelope]), 0.0, "scope 2 shows the envelope at rest");
     assert_eq!(peak(&rest[heard]), 0.0, "scope 3 shows silence");
     assert_eq!(peak(&rest[0]), 0.0, "and silence is what is heard");
 
     // One note after another: Pd gives each to the voice that has rested longest, so they go
-    // round the voices, and the scopes follow.
-    for (pitch, hertz) in [(57.0, 220.0), (64.0, 329.6), (69.0, 440.0), (45.0, 110.0)] {
+    // round the voices, and the scopes follow. Each note sounds an octave down.
+    for (pitch, hertz) in [(69.0, 220.0), (76.0, 329.6), (81.0, 440.0), (57.0, 110.0)] {
         pd.send_list("notes", &[Atom::Float(pitch), Atom::Float(100.0)]);
         let held = render(&mut pd, 0.3);
         let shown = frequency(&held[oscillator][4410..]);
@@ -73,7 +73,7 @@ fn scopes_tap_the_first_voice_and_the_sum() {
     }
 
     // A chord of three notes on three voices: the last one pressed is the one shown.
-    for pitch in [57.0, 64.0, 69.0] {
+    for pitch in [69.0, 76.0, 81.0] {
         pd.send_list("notes", &[Atom::Float(pitch), Atom::Float(100.0)]);
     }
     let playing = render(&mut pd, 0.5);
@@ -93,7 +93,7 @@ fn scopes_tap_the_first_voice_and_the_sum() {
         assert_eq!(peak(&playing[unused]), 0.0, "output channel {} is not used", unused + 1);
     }
 
-    for pitch in [57.0, 64.0, 69.0] {
+    for pitch in [69.0, 76.0, 81.0] {
         pd.send_list("notes", &[Atom::Float(pitch), Atom::Float(0.0)]);
     }
     let released = render(&mut pd, 1.0);

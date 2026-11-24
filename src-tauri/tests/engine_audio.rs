@@ -65,7 +65,7 @@ fn engine_renders_loaded_patch_to_the_device() {
     let (low, high) = range(&saw);
     assert!(low < -0.8 && high > 0.8 && high < 1.1, "scope 1 has the saw at full level, {low}..{high}");
     assert!(saw[0].abs() < 0.2, "and starts where it rises through its middle, at {}", saw[0]);
-    // Scope 2, on the envelope: at its sustain. Scope 3, after the Voice Sum: the saw times that.
+    // Scope 2, on the envelope: at its sustain. Scope 3, outside the voices: the saw times that.
     let (low, high) = range(&engine.scope(1, window, 200, false));
     assert!((low - 0.6).abs() < 0.01 && (high - 0.6).abs() < 0.01, "scope 2 has the envelope, {low}..{high}");
     let (low, high) = range(&engine.scope(2, window, 200, true));

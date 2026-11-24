@@ -5,14 +5,12 @@
 #X obj 30 135 - 1;
 #X obj 30 170 pack f f f;
 #X obj 30 205 clone voice 3;
-#X obj 30 275 ge-voice-sum ge5;
-#X obj 160 275 ge-audio-out ge6;
+#X obj 30 275 ge-audio-out ge6;
 #X obj 290 205 sig~ 1;
 #X obj 810 30 ge-sample-file 0 ge-sample-a.wav;
 #X obj 810 65 ge-sample-tape 1 0.5;
 #X obj 550 30 loadbang;
 #X msg 550 65 \; ge1-tune 0 \; ge1-start 0 \; ge1-length 1 \; ge1-mode 0 \; ge1-direction 0 \; ge2-rate 3 \; ge2-level 1 \; ge2-shape 2 \; ge3-position 1 \; ge3-start 0 \; ge4-level1 1 \; ge4-level2 0.5 \; ge4-level3 1 \; ge4-level4 1 \; ge4-level5 1 \; ge4-level6 1 \; ge4-level7 1 \; ge4-level8 1 \; ge6-level 0.25 \; ge7-position 1 \; ge7-start 0 \; ge8-level 1;
-#X connect 0 0 1 0;
 #X connect 1 0 2 0;
 #X connect 1 1 2 1;
 #X connect 2 0 3 0;
@@ -21,7 +19,7 @@
 #X connect 2 2 4 2;
 #X connect 4 0 5 0;
 #X connect 5 0 6 0;
-#X connect 6 0 7 0;
-#X connect 6 0 7 1;
-#X connect 8 0 7 2;
-#X connect 11 0 12 0;
+#X connect 5 0 6 1;
+#X connect 0 0 1 0;
+#X connect 7 0 6 2;
+#X connect 10 0 11 0;

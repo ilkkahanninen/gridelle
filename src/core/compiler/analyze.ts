@@ -11,6 +11,7 @@ import {
   type PatchDocument,
   type SampleSlot,
 } from "../model/types";
+import { isVoiceNotes, placement } from "../model/area";
 import { defaultPageName, moduleName } from "../model/ops";
 import { wavetableBank } from "../wavetables/banks";
 import { getModuleDef, SCOPE_SLOTS } from "../modules/registry";
@@ -27,6 +28,7 @@ export interface Diagnostic {
     | "input-in-use"
     | "feedback-loop"
     | "voice-count"
+    | "misplaced"
     | "no-output"
     | "bad-knob"
     | "page-count"
@@ -46,19 +48,40 @@ export interface Diagnostic {
 export interface ResolvedModule {
   instance: ModuleInstance;
   def: ModuleDef;
-  /** Where the module ends up running: in every voice, or once after the voices are summed. */
+  /** Where the module runs: in every voice (its tile is in the voice area), or once. */
   scope: Scope;
 }
 
-/** A signal connection between two resolved modules, by Pd outlet/inlet index. */
+/**
+ * An output whose cable crosses the edge of the voice area. Going out, it becomes an
+ * `outlet~` of `voice.pd`, which `[clone]` adds up over the voices; coming in, an `inlet~`,
+ * which `[clone]` gives every voice the same signal at.
+ */
+export interface Crossing {
+  from: ModuleId;
+  outlet: number;
+}
+
+/** A connection between two resolved modules, by Pd outlet/inlet index: a signal, or notes. */
 export interface Wire {
   from: ModuleId;
   outlet: number;
   to: ModuleId;
   inlet: number;
+  /** A note connection: messages, not a signal. */
+  notes?: boolean;
 }
 
-/** An input fed from the voice's own pitch/gate/velocity instead of a cable. */
+/** An outlet or an inlet of a module, by Pd's number for it. */
+export interface Plug {
+  module: ModuleId;
+  index: number;
+}
+
+/**
+ * An input fed from the note instead of a cable: in a voice the voice's own pitch, gate
+ * or velocity (`ge-voice`), outside the voices the keyboard's (`ge-keyboard`).
+ */
 export interface PrecordWire {
   signal: VoiceSignal;
   to: ModuleId;
@@ -90,6 +113,17 @@ export interface Analysis {
   modules: ResolvedModule[];
   /** Cables and normalled connections. */
   wires: Wire[];
+  /**
+   * The note output the voices get their notes from (the voice area's Notes input), or
+   * `null` for the keyboard's.
+   */
+  voiceNotes: Plug | null;
+  /** The note inputs of modules with no cable, which get the keyboard's notes. */
+  keyboardNotes: Plug[];
+  /** The outputs whose cables leave the voice area, in the order of the wires. */
+  outward: Crossing[];
+  /** The outputs whose cables come into the voice area, in the order of the wires. */
+  inward: Crossing[];
   precords: PrecordWire[];
   constants: ConstantFeed[];
   /**
@@ -158,7 +192,13 @@ export function analyze(doc: PatchDocument): Analysis {
     } else if (byId.has(instance.id)) {
       error("duplicate-id", `Two modules share the id "${instance.id}".`, instance.id);
     } else {
-      byId.set(instance.id, { instance, def, scope: def.scope });
+      const where = placement(doc, instance);
+      byId.set(instance.id, { instance, def, scope: where === "inside" ? "voice" : "global" });
+      if (where === "across") {
+        error("misplaced", `${moduleName(instance, def)} lies across the edge of the voice area: move it into the voices or out of them.`, instance.id);
+      } else if (where === "inside" && def.place === "outside") {
+        error("misplaced", `${moduleName(instance, def)} runs once for the whole patch: move it out of the voice area.`, instance.id);
+      }
     }
   }
 
@@ -172,15 +212,38 @@ export function analyze(doc: PatchDocument): Analysis {
     return index < 0 ? -1 : firstInlet(def) + index;
   };
 
+  let voiceNotes: Plug | null = null;
+  const missing = (cable: (typeof doc.cables)[number]) =>
+    error(
+      "bad-cable",
+      `A cable refers to a missing module or port (${cable.from.module}.${cable.from.port} → ${cable.to.module}.${cable.to.port}).`,
+    );
   for (const cable of doc.cables) {
     const from = byId.get(cable.from.module);
-    const to = byId.get(cable.to.module);
     const outlet = from?.def.outputs.findIndex((p) => p.id === cable.from.port) ?? -1;
+    const notesOut = !!from && from.def.outputs[outlet]?.kind === "notes";
+    // Into the voices' own Notes input.
+    if (isVoiceNotes(cable.to)) {
+      if (!from || outlet < 0) missing(cable);
+      else if (!notesOut) error("bad-cable", `${called(from)} sends a signal, not notes, to the voices' Notes input.`, from.instance.id);
+      else if (voiceNotes) error("input-in-use", "The voices' Notes input has more than one cable.");
+      else voiceNotes = { module: from.instance.id, index: outlet };
+      continue;
+    }
+    const to = byId.get(cable.to.module);
     const inlet = to ? inletOf(to.def, cable.to.port) : -1;
     if (!from || !to || outlet < 0 || inlet < 0) {
+      missing(cable);
+      continue;
+    }
+    const notesIn = to.def.inputs[inlet - firstInlet(to.def)].kind === "notes";
+    if (notesIn !== notesOut) {
       error(
         "bad-cable",
-        `A cable refers to a missing module or port (${cable.from.module}.${cable.from.port} → ${cable.to.module}.${cable.to.port}).`,
+        notesOut
+          ? `${called(from)} sends notes to ${called(to)}'s ${to.def.inputs[inlet - firstInlet(to.def)].label}, which takes a signal.`
+          : `${called(from)} sends a signal to ${called(to)}'s ${to.def.inputs[inlet - firstInlet(to.def)].label}, which takes notes.`,
+        to.instance.id,
       );
       continue;
     }
@@ -194,7 +257,15 @@ export function analyze(doc: PatchDocument): Analysis {
       continue;
     }
     fed.add(key);
-    wires.push({ from: from.instance.id, outlet, to: to.instance.id, inlet });
+    wires.push({ from: from.instance.id, outlet, to: to.instance.id, inlet, ...(notesIn ? { notes: true } : {}) });
+  }
+  // A note input with no cable gets the keyboard's notes.
+  const keyboardNotes: Plug[] = [];
+  for (const { instance, def } of byId.values()) {
+    def.inputs.forEach((port, index) => {
+      const inlet = firstInlet(def) + index;
+      if (port.kind === "notes" && !fed.has(inputKey(instance.id, inlet))) keyboardNotes.push({ module: instance.id, index: inlet });
+    });
   }
 
   // Normalled inputs follow their partner's source when left unpatched.
@@ -234,20 +305,57 @@ export function analyze(doc: PatchDocument): Analysis {
     error("feedback-loop", `These modules form a feedback loop, which is not supported yet: ${names}.`, [...inLoop][0]);
   }
 
-  // Everything fed by a global module runs once, after the voices are summed.
-  const pending = [...byId.values()].filter((m) => m.scope === "global").map((m) => m.instance.id);
-  while (pending.length > 0) {
-    for (const next of downstream.get(pending.pop()!) ?? []) {
-      const module = byId.get(next)!;
-      if (module.scope !== "global") {
-        module.scope = "global";
-        pending.push(next);
+  // Pd runs the voices as one object, [clone], so a path that leaves the voice area and
+  // comes back into it is a loop to Pd, though no module feeds itself.
+  if (inLoop.size === 0) {
+    const scopeOf = (id: ModuleId) => byId.get(id)!.scope;
+    const via = new Map<ModuleId, ModuleId | null>();
+    const queue: ModuleId[] = [];
+    for (const wire of wires) {
+      if (wire.notes) continue;
+      if (scopeOf(wire.from) === "voice" && scopeOf(wire.to) === "global" && !via.has(wire.to)) {
+        via.set(wire.to, null);
+        queue.push(wire.to);
+      }
+    }
+    for (let i = 0; i < queue.length; i++) {
+      const id = queue[i];
+      const back = wires.find((w) => w.from === id && !w.notes && scopeOf(w.to) === "voice");
+      if (back) {
+        const path: ModuleId[] = [];
+        for (let at: ModuleId | null = id; at; at = via.get(at) ?? null) path.unshift(at);
+        const names = path.map((at) => called(byId.get(at)!)).join(" → ");
+        error(
+          "feedback-loop",
+          `A path leaves the voice area and comes back into it, which is a feedback loop: the voices are added up before anything outside them runs (${names}).`,
+          path[0],
+        );
+        break;
+      }
+      for (const next of wires.filter((w) => w.from === id && !w.notes).map((w) => w.to)) {
+        if (scopeOf(next) === "global" && !via.has(next)) {
+          via.set(next, id);
+          queue.push(next);
+        }
       }
     }
   }
+
+  // Cables across the edge of the voice area: one crossing for each output, whatever it feeds.
+  // Notes never cross it: only modules outside it have note ports.
+  const outward: Crossing[] = [];
+  const inward: Crossing[] = [];
+  for (const wire of wires) {
+    if (wire.notes) continue;
+    const [from, to] = [byId.get(wire.from)!.scope, byId.get(wire.to)!.scope];
+    if (from === to) continue;
+    const crossings = from === "voice" ? outward : inward;
+    if (!crossings.some((c) => c.from === wire.from && c.outlet === wire.outlet)) crossings.push({ from: wire.from, outlet: wire.outlet });
+  }
+
+  // Pre-cords follow the voice's note in the voice area, and the keyboard outside it.
   const precords: PrecordWire[] = [];
-  for (const { instance, def, scope } of byId.values()) {
-    if (scope !== "voice") continue;
+  for (const { instance, def } of byId.values()) {
     def.voiceInlets?.forEach((signal, inlet) => precords.push({ signal, to: instance.id, inlet }));
     def.inputs.forEach((port, index) => {
       const inlet = firstInlet(def) + index;
@@ -392,5 +500,18 @@ export function analyze(doc: PatchDocument): Analysis {
   // A page with no knob in use is not exported: the Organelle steps through those that have one.
   const pages = resolved.filter((page) => page.knobs.some(Boolean));
 
-  return { diagnostics, modules: [...byId.values()], wires, precords, constants, taps, samples, pages };
+  return {
+    diagnostics,
+    modules: [...byId.values()],
+    wires,
+    voiceNotes,
+    keyboardNotes,
+    outward,
+    inward,
+    precords,
+    constants,
+    taps,
+    samples,
+    pages,
+  };
 }

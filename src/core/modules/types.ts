@@ -1,8 +1,8 @@
 /**
  * What a signal is meant to carry. It drives port colour and pre-cords only:
- * any output can be patched into any input.
+ * any output can be patched into any input. `notes` is the hint of a note port.
  */
-export type SignalHint = "audio" | "pitch" | "gate" | "phase" | "mod";
+export type SignalHint = "audio" | "pitch" | "gate" | "phase" | "mod" | "notes";
 
 /** The per-voice signals a pre-cord can supply. */
 export type VoiceSignal = "pitch" | "gate" | "velocity";
@@ -25,6 +25,12 @@ export interface PortDef {
    * supplies it, since a Pd abstraction cannot tell whether an inlet is connected.
    */
   unpatched?: number;
+  /**
+   * `notes`: the port carries notes, not a signal: `pitch velocity` messages, at a control
+   * `inlet` or `outlet` of the abstraction. A note output goes to note inputs only, and a
+   * note input with no cable gets the keyboard's notes. Only modules that run once have them.
+   */
+  kind?: "notes";
 }
 
 export interface ParamDef {
@@ -80,8 +86,8 @@ export type Category =
   | "sequence";
 
 /**
- * - `voice`: lives in every voice unless it sits downstream of a global module.
- * - `global`: always runs once, after the voices are summed (Audio Out, Voice Sum).
+ * Where a module runs: `voice` in every voice (its tile is in the voice area), `global`
+ * once for the whole patch (outside it). See `model/area.ts`.
  */
 export type Scope = "voice" | "global";
 
@@ -101,7 +107,11 @@ export interface ModuleDef {
   params: ParamDef[];
   /** Abstraction name in `pd-lib/modules`, without `.pd`. */
   pd: string;
-  scope: Scope;
+  /**
+   * `outside`: the module can only run once for the whole patch, so its tile may not be in
+   * the voice area (Audio Out, Audio In, the Recorder). Without it a module goes anywhere.
+   */
+  place?: "outside";
   /**
    * Voice signals the abstraction takes at its first inlets, before those of `inputs`.
    * They are not ports: the compiler always feeds them (the Keys module, which only has

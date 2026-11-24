@@ -1,3 +1,4 @@
+import { placement } from "../../core/model/area";
 import * as ops from "../../core/model/ops";
 import {
   MAX_MODULE_NAME,
@@ -15,9 +16,9 @@ import type { ModuleDef, ParamDef } from "../../core/modules/types";
 import { usePreview } from "../../state/preview";
 import { useEditor } from "../../state/store";
 import { describeSample } from "../samples/SamplesPane";
+import { precordText } from "../precordText";
 import "./Inspector.css";
 
-const VOICE_SIGNAL = { pitch: "the played note", gate: "the key gate", velocity: "key velocity" } as const;
 
 /** A setting that is one of a few named options. */
 function ChoiceRow({ module, param }: { module: ModuleInstance; param: ParamDef }) {
@@ -79,6 +80,7 @@ function ChoiceRow({ module, param }: { module: ModuleInstance; param: ParamDef 
  */
 function ModuleInspector({ module, def }: { module: ModuleInstance; def: ModuleDef }) {
   const cables = useEditor((s) => s.doc.cables);
+  const inVoices = useEditor((s) => placement(s.doc, module) === "inside");
   const precordPorts = def.inputs.filter((p) => p.precord);
   const choices = def.params.filter((param) => param.options);
   return (
@@ -130,7 +132,7 @@ function ModuleInspector({ module, def }: { module: ModuleInstance; def: ModuleD
                   }
                 />
                 <span>
-                  {port.label} follows {VOICE_SIGNAL[port.precord!]}
+                  {port.label} follows {precordText(port.precord!, inVoices)}
                   {cabled && " (replaced by a cable)"}
                 </span>
               </label>
@@ -180,9 +182,10 @@ function PatchInspector() {
       {/* The width of the pane, like what a module's pane says of the module. */}
       <section className="inspector-doc">
         <p>
-          Each voice runs its own copy of the modules, all the time: an oscillator sounds whether or not a key is down, on middle C
-          until its voice gets a note. An Amp with an envelope gives notes a beginning and an end. Modules placed after a Voice Sum
-          run once for all voices.
+          Each voice runs its own copy of the modules in the voice area, all the time: an oscillator there sounds whether or not
+          a key is down, on C3 until its voice gets a note. An Amp with an envelope gives notes a beginning and an end. Modules
+          outside the area run once: a cable from one into the area gives every voice the same signal, and one out of the area
+          adds the voices up.
         </p>
       </section>
 

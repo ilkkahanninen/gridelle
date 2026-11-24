@@ -1,5 +1,5 @@
 import type { ModuleId, PatchDocument } from "../model/types";
-import { VOICE_ABSTRACTION } from "../modules/registry";
+import { KEYBOARD_ABSTRACTION, VOICE_ABSTRACTION } from "../modules/registry";
 import { objectClasses } from "../pd/inspect";
 import { isPdObject } from "../pd/vanilla049";
 import { analyze, type Diagnostic } from "./analyze";
@@ -97,6 +97,7 @@ export function compile(doc: PatchDocument, library: AbstractionLibrary): Compil
       VOICE_ABSTRACTION,
       ...analysis.modules.map((m) => m.def.pd),
       ...(usesKnobs(analysis) ? [KNOB_ABSTRACTION] : []),
+      ...(analysis.precords.some((p) => analysis.modules.find((m) => m.instance.id === p.to)?.scope === "global") ? [KEYBOARD_ABSTRACTION] : []),
       ...analysis.samples.flatMap(({ table, wave }) => [
         ...(table ? [table.kind === "file" ? SAMPLE_FILE_ABSTRACTION : SAMPLE_TAPE_ABSTRACTION] : []),
         ...(wave && wave !== "silent" ? [WAVE_FILE_ABSTRACTION] : []),

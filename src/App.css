@@ -20,6 +20,8 @@
   --hint-gate: #ffd24a;
   --hint-phase: #b98cff;
   --hint-mod: #58d8b0;
+  /* Notes are messages, not a signal: a pale cable, and a square port. */
+  --hint-notes: #ece6d6;
 
 
   --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
@@ -74,6 +76,7 @@
 .hint-gate { --hint: var(--hint-gate); }
 .hint-phase { --hint: var(--hint-phase); }
 .hint-mod { --hint: var(--hint-mod); }
+.hint-notes { --hint: var(--hint-notes); }
 
 * {
   box-sizing: border-box;

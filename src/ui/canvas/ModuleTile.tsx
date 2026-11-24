@@ -8,6 +8,7 @@ import { useEditor } from "../../state/store";
 import { useUi } from "../../state/ui";
 import { Knob } from "../controls/Knob";
 import { GLYPHS } from "../palette/glyphs";
+import { precordText } from "../precordText";
 import { PORT_INSET, portOffset, tileRect } from "./geometry";
 import { ScopeView } from "./ScopeView";
 
@@ -23,6 +24,8 @@ interface TileProps {
   connected: ReadonlySet<string>;
   /** The port a module in hand would be cabled to, as `in:<id>` / `out:<id>`. */
   dropTarget: string | null;
+  /** The tile is in the voice area: its pre-cords follow the voice's note, not the keyboard. */
+  inVoices: boolean;
   onTilePointerDown(e: React.PointerEvent, id: string): void;
   onPortPointerDown(e: React.PointerEvent, id: string, port: string, side: "in" | "out"): void;
 }
@@ -34,8 +37,6 @@ interface TileProps {
  */
 let lastAssigned = { knob: "", at: 0 };
 const DOUBLE_CLICK_MS = 500;
-
-const VOICE_SIGNAL_LABEL = { pitch: "the played note", gate: "the key gate", velocity: "key velocity" } as const;
 
 function ParamKnob({ module, param, size }: { module: ModuleInstance; param: ParamDef; size: number }) {
   const [active, setActive] = useState(false);
@@ -104,6 +105,7 @@ function Port({
   index,
   cabled,
   target,
+  inVoices,
   onPointerDown,
 }: {
   module: ModuleInstance;
@@ -113,23 +115,28 @@ function Port({
   index: number;
   cabled: boolean;
   target: boolean;
+  inVoices: boolean;
   onPointerDown: TileProps["onPortPointerDown"];
 }) {
   const precord = side === "in" && !cabled && port.precord && (module.precords?.[port.id] ?? true) ? port.precord : null;
+  // A note input with no cable gets the keyboard's notes.
+  const keyboard = side === "in" && !cabled && port.kind === "notes";
   // The same input with its pre-cord switched off: a click switches it on again.
   const idle = side === "in" && !cabled && port.precord && !precord ? port.precord : null;
   // An input in a row that has a knob: the knob's label names the row.
   const knobbed = side === "in" && def.layout === "rows" && !!port.param;
-  const hint = precord
-    ? `${port.label}: follows ${VOICE_SIGNAL_LABEL[precord]} until you patch a cable in. Click to turn that off.`
+  const hint = keyboard
+    ? `${port.label}: the keyboard's, until you patch a cable in from another note output.`
+    : precord
+    ? `${port.label}: follows ${precordText(precord, inVoices)} until you patch a cable in. Click to turn that off.`
     : idle
-      ? `${port.label} input: click to make it follow ${VOICE_SIGNAL_LABEL[idle]}`
+      ? `${port.label} input: click to make it follow ${precordText(idle, inVoices)}`
       : side === "in" && port.param && port.unpatched !== undefined
         ? `${port.label} input: multiplies the ${port.label} knob. ${port.unpatched} with nothing patched.`
         : `${port.label} ${side === "in" ? "input" : "output"}`;
   return (
     <div
-      className={`port port-${side} hint-${port.hint}${cabled ? " port-cabled" : ""}${precord ? " port-precord" : ""}${target ? " port-target" : ""}${knobbed ? " port-knobbed" : ""}`}
+      className={`port port-${side} hint-${port.hint}${cabled ? " port-cabled" : ""}${precord || keyboard ? " port-precord" : ""}${target ? " port-target" : ""}${knobbed ? " port-knobbed" : ""}`}
       style={{ top: portOffset(def, index), [side === "in" ? "left" : "right"]: PORT_INSET }}
       data-port-module={module.id}
       data-port-id={port.id}
@@ -161,6 +168,7 @@ export const ModuleTile = memo(function ModuleTile({
   blocked,
   connected,
   dropTarget,
+  inVoices,
   onTilePointerDown,
   onPortPointerDown,
 }: TileProps) {
@@ -204,6 +212,7 @@ export const ModuleTile = memo(function ModuleTile({
           index={i}
           cabled={connected.has(`in:${port.id}`)}
           target={dropTarget === `in:${port.id}`}
+          inVoices={inVoices}
           onPointerDown={onPortPointerDown}
         />
       ))}
@@ -217,6 +226,7 @@ export const ModuleTile = memo(function ModuleTile({
           index={i}
           cabled={connected.has(`out:${port.id}`)}
           target={dropTarget === `out:${port.id}`}
+          inVoices={inVoices}
           onPointerDown={onPortPointerDown}
         />
       ))}

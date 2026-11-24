@@ -1,10 +1,11 @@
+import { placement } from "../model/area";
 import type { PatchDocument } from "../model/types";
 import { getModuleDef } from "../modules/registry";
 
 /**
  * A string that changes exactly when the compiled patch's structure changes:
- * which modules exist, how they are cabled, how many voices there are, and what
- * the knob pages control. Parameter values, tile positions and the patch name
+ * which modules exist, how they are cabled, how many voices there are, which modules
+ * run in the voices, and what the knob pages control. Parameter values, tile positions and the patch name
  * are left out, because a running patch can take new values without being reloaded.
  * The exceptions are the values that are built into the patch (`ParamDef.argument`),
  * and the samples, which are loaded when it starts. A module's own name counts only
@@ -19,6 +20,8 @@ export function structureKey(doc: PatchDocument): string {
     doc.modules.map((m) => [
       m.id,
       m.type,
+      // Positions are left out, but not whether a module is in the voices or outside them.
+      placement(doc, m),
       onKnobs.has(m.id) ? (m.name?.trim() ?? "") : "",
       (getModuleDef(m.type)?.params ?? []).filter((p) => p.argument).map((p) => m.params[p.id] ?? p.default),
       Object.entries(m.precords ?? {})

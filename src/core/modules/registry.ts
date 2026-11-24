@@ -49,7 +49,10 @@ const modOutputs: PortDef[] = [
 // Two decimals, or the slow end would read "0 Hz".
 const lfoRate: ParamDef = { id: "rate", label: "Rate", min: 0.02, max: 50, default: 2, curve: "exp", unit: "Hz", decimals: 2 };
 
-/** Tune and Fine, as every pitched oscillator has them. */
+/**
+ * Tune and Fine, as every pitched oscillator has them. An oscillator sounds an octave below
+ * the note it is given (`ge-osc-mod`): at Tune 0 middle C on the keys plays C3.
+ */
 const tuning: ParamDef[] = [
   { id: "tune", label: "Tune", min: -36, max: 36, default: 0, curve: "lin", unit: "st", step: 1 },
   { id: "fine", label: "Fine tune", short: "Fine", min: -100, max: 100, default: 0, curve: "lin", unit: "ct" },
@@ -80,7 +83,6 @@ const oscillator = (type: string, name: string, own: { inputs: PortDef[]; params
     outputs: [audioOutput],
     params: [...tuning, ...own.params, ...modulation],
     pd: `ge-${type}`,
-    scope: "voice",
   };
 };
 
@@ -109,7 +111,6 @@ const filter = (
       { id: "mod", label: "Modulation", short: "Mod", min: -96, max: 96, default: 36, curve: "lin", unit: "st" },
     ],
     pd: `ge-${type}`,
-    scope: "voice",
   };
 };
 
@@ -133,7 +134,6 @@ const shaper = (type: string, name: string, params: ParamDef[]): ModuleDef => {
     outputs: [audioOutput],
     params,
     pd: `ge-${type}`,
-    scope: "voice",
   };
 };
 
@@ -165,7 +165,6 @@ const pitchModule = (type: string, name: string, inputs: PortDef[], params: Para
   outputs: [{ id: "out", label: "Out", hint: "pitch" }],
   params,
   pd: `ge-${type}`,
-  scope: "voice",
 });
 
 /** A signal of any kind going in or out of a math or logic module. */
@@ -185,7 +184,6 @@ const operator = (type: string, name: string, category: "math" | "logic", inputs
   outputs: [output],
   params: [],
   pd: `ge-${type}`,
-  scope: "voice",
 });
 
 /** A math or logic module with knobs: rows, each knob beside the input it belongs to. */
@@ -207,7 +205,6 @@ const calculator = (
   outputs: [output],
   params,
   pd: `ge-${type}`,
-  scope: "voice",
 });
 
 /** A left and a right output. The first is `out`, as on every module with one output. */
@@ -230,7 +227,6 @@ const effect = (type: string, name: string, params: ParamDef[], outputs: PortDef
     outputs,
     params,
     pd: `ge-${type}`,
-    scope: "voice",
   };
 };
 
@@ -286,12 +282,13 @@ const DEFS: ModuleDef[] = [
     // Low enough that a four-voice chord of full-level oscillators stays under the host's clip at 1.
     params: [level("level", "Level", 1, 0.25)],
     pd: "ge-audio-out",
-    scope: "global",
+    place: "outside",
     normalled: [["left", "right"]],
   },
   {
-    // The Organelle's audio input. There is one for all voices, so it runs once, and so does
-    // everything patched after it: it is heard without a key being held.
+    // The Organelle's audio input. There is one for all voices, so it runs once, outside the
+    // voice area: it is heard without a key being held, and a cable from it into the voice
+    // area gives every voice the same input.
     type: "audio-in",
     name: "Audio In",
     category: "io",
@@ -301,11 +298,13 @@ const DEFS: ModuleDef[] = [
     outputs: stereoOutputs,
     params: [],
     pd: "ge-audio-in",
-    scope: "global",
+    place: "outside",
   },
   {
     // The note being played, as signals to patch from: its pitch, its gate, how hard the
-    // key was hit, and where it is on the keyboard (0 at the bottom, 1 at note 127).
+    // key was hit, and where it is on the keyboard (0 at the bottom, 1 at note 127). In the
+    // voice area that is the voice's note; outside it the keyboard's: the last key pressed,
+    // and a gate that is on while any key is held.
     type: "keys",
     name: "Keys",
     category: "io",
@@ -321,7 +320,6 @@ const DEFS: ModuleDef[] = [
     ],
     params: [],
     pd: "ge-keys",
-    scope: "voice",
   },
   {
     // Plays its sample from a trigger. Middle C is the sample as recorded. Once plays to
@@ -354,7 +352,6 @@ const DEFS: ModuleDef[] = [
       choice("direction", "Direction", ["Forward", "Reverse"]),
     ],
     pd: "ge-sample-player",
-    scope: "voice",
     layout: "rows",
   },
   {
@@ -369,7 +366,6 @@ const DEFS: ModuleDef[] = [
     outputs: [audioOutput],
     params: [level("position", "Position", 1, 1), level("start", "Start", 1, 0), sampleChoice],
     pd: "ge-sample-head",
-    scope: "voice",
     layout: "rows",
   },
   {
@@ -391,7 +387,7 @@ const DEFS: ModuleDef[] = [
       choice("mode", "Mode", ["Loop", "Once"]),
     ],
     pd: "ge-sample-recorder",
-    scope: "global",
+    place: "outside",
     layout: "rows",
     sample: "writes",
   },
@@ -407,7 +403,7 @@ const DEFS: ModuleDef[] = [
     outputs: [audioOutput],
     params: [{ id: "delay", label: "Delay", min: 2, max: 10000, default: 300, curve: "exp", unit: "ms" }, sampleChoice],
     pd: "ge-tape-head",
-    scope: "global",
+    place: "outside",
     layout: "rows",
     sample: "follows",
   },
@@ -442,7 +438,6 @@ const DEFS: ModuleDef[] = [
       choice("from", "Position from", ["Start of sample", "Behind the recording"]),
     ],
     pd: "ge-sample-grains",
-    scope: "voice",
     layout: "rows",
   },
   {
@@ -460,20 +455,7 @@ const DEFS: ModuleDef[] = [
       choice("range", "Range", ["Auto", ...SCOPE_RANGES.map((range) => `± ${range}`)]),
     ],
     pd: "ge-scope",
-    scope: "voice",
     tap: true,
-  },
-  {
-    type: "voice-sum",
-    name: "Voice Sum",
-    category: "io",
-    width: 1,
-    height: 1,
-    inputs: [{ id: "in", label: "In", hint: "audio" }],
-    outputs: [{ id: "out", label: "Out", hint: "audio" }],
-    params: [],
-    pd: "ge-voice-sum",
-    scope: "global",
   },
   oscillator("osc-sine", "Sine"),
   oscillator("osc-tri", "Triangle"),
@@ -505,7 +487,6 @@ const DEFS: ModuleDef[] = [
     outputs: [audioOutput],
     params: [],
     pd: "ge-noise",
-    scope: "voice",
   },
   {
     // Takes a sample of In each time Trig rises above a half, and holds it. Trig follows the
@@ -522,7 +503,6 @@ const DEFS: ModuleDef[] = [
     outputs: [{ id: "out", label: "Out", hint: "mod" }],
     params: [],
     pd: "ge-sample-hold",
-    scope: "voice",
   },
   {
     // Each stage has an input that its knob scales: the time or level in use is knob x input,
@@ -548,7 +528,6 @@ const DEFS: ModuleDef[] = [
       { id: "release", label: "Release", min: 1, max: 10000, default: 300, curve: "exp", unit: "ms" },
     ],
     pd: "ge-env-adsr",
-    scope: "voice",
   },
   {
     // The ADSR without its middle: up to 1 in Attack while Gate is on, and down in Release.
@@ -565,7 +544,6 @@ const DEFS: ModuleDef[] = [
       { id: "release", label: "Release", min: 1, max: 10000, default: 300, curve: "exp", unit: "ms" },
     ],
     pd: "ge-env-ar",
-    scope: "voice",
   },
   {
     // One shot for each rise of Trigger, however long it stays on: up in Attack, down in
@@ -586,7 +564,6 @@ const DEFS: ModuleDef[] = [
       choice("loop", "Loop", ["Off", "On"]),
     ],
     pd: "ge-env-ad",
-    scope: "voice",
   },
   {
     // How loud its input is, as a modulation signal: the rms level, times Level. Smooth is
@@ -601,7 +578,6 @@ const DEFS: ModuleDef[] = [
     outputs: [{ id: "out", label: "Out", hint: "mod" }],
     params: [{ id: "smooth", label: "Smooth", min: 5, max: 1000, default: 50, curve: "exp", unit: "ms" }, level("level", "Level", 4)],
     pd: "ge-follower",
-    scope: "voice",
   },
   {
     // A rising edge at Reset starts the wave again. It follows the key gate, so each note's
@@ -625,7 +601,6 @@ const DEFS: ModuleDef[] = [
       choice("shape", "Shape", ["Sine", "Triangle", "Saw", "Ramp", "Square"]),
     ],
     pd: "ge-lfo",
-    scope: "voice",
   },
   {
     // A new random value at every tick of Rate. Smooth is the part of a tick spent gliding
@@ -640,7 +615,6 @@ const DEFS: ModuleDef[] = [
     outputs: modOutputs,
     params: [lfoRate, { id: "smooth", label: "Smooth", min: 0, max: 1, default: 0, curve: "lin" }, level("level", "Level", 1)],
     pd: "ge-lfo-random",
-    scope: "voice",
   },
   {
     // Ticks at Tempo, each the note value of Division: Out is on for Width of a tick, and Phase rises
@@ -667,7 +641,37 @@ const DEFS: ModuleDef[] = [
       choice("division", "Division", CLOCK_DIVISIONS, CLOCK_DIVISIONS.indexOf("1/16")),
     ],
     pd: "ge-clock",
-    scope: "voice",
+  },
+  {
+    // Plays the keys held one at a time, at its own Tempo in Division or on the ticks of a
+    // Clock patched into Clock (its Phase), and gives the notes to the voices or to another
+    // note input. Runs once, before the voices: notes go in at the voice area's Notes input.
+    type: "arpeggiator",
+    name: "Arpeggiator",
+    category: "sequence",
+    width: 2,
+    height: 3,
+    layout: "rows",
+    inputs: [
+      { id: "notes", label: "Notes", hint: "notes", kind: "notes" },
+      // A Clock's Phase. -1 with nothing patched tells the abstraction to keep its own Rate.
+      { id: "clock", label: "Clock", hint: "phase", unpatched: -1 },
+      settingInput("tempo", "Tempo"),
+      settingInput("length", "Length"),
+      settingInput("octaves", "Octaves"),
+    ],
+    outputs: [{ id: "notes", label: "Notes", hint: "notes", kind: "notes" }],
+    params: [
+      { id: "tempo", label: "Tempo", min: 20, max: 300, default: 120, curve: "lin", unit: "bpm", step: 1 },
+      { id: "length", label: "Length", min: 5, max: 100, default: 50, curve: "lin", unit: "%" },
+      { id: "octaves", label: "Octaves", short: "Oct", min: 1, max: 4, default: 1, curve: "lin", step: 1 },
+      choice("division", "Division", CLOCK_DIVISIONS, CLOCK_DIVISIONS.indexOf("1/16")),
+      // In the order `ge-arpeggiator` numbers them.
+      choice("mode", "Mode", ["Up", "Down", "Up and down", "As played", "Random"]),
+      choice("hold", "Hold", ["Off", "On"]),
+    ],
+    pd: "ge-arpeggiator",
+    place: "outside",
   },
   (() => {
     // Goes one step on each time Clock goes on, round and round the first Steps of them.
@@ -709,7 +713,6 @@ const DEFS: ModuleDef[] = [
         })),
       ],
       pd: "ge-sequencer",
-      scope: "voice",
     } satisfies ModuleDef;
   })(),
   // The pitch modules take and give a pitch as the oscillators do: a note number.
@@ -880,7 +883,6 @@ const DEFS: ModuleDef[] = [
     outputs: [{ id: "out", label: "Out", hint: "audio" }],
     params: [level()],
     pd: "ge-amp",
-    scope: "voice",
   },
   {
     type: "mixer",
@@ -893,7 +895,6 @@ const DEFS: ModuleDef[] = [
     outputs: [audioOutput],
     params: mixerChannels.map((n) => level(`level${n}`, `Level ${n}`)),
     pd: "ge-mixer",
-    scope: "voice",
     growsWithInputs: true,
   },
   {
@@ -924,7 +925,6 @@ const DEFS: ModuleDef[] = [
       { id: "gain", label: "Gain", min: 0, max: 24, default: 0, curve: "lin", unit: "dB" },
     ],
     pd: "ge-compressor",
-    scope: "voice",
     normalled: [["in", "side"]],
   },
   {
@@ -950,7 +950,6 @@ const DEFS: ModuleDef[] = [
       { id: "release", label: "Release", min: 10, max: 2000, default: 150, curve: "exp", unit: "ms" },
     ],
     pd: "ge-limiter",
-    scope: "voice",
     normalled: [["in", "right"]],
   },
 ];
@@ -969,3 +968,8 @@ export function getModuleDef(type: string): ModuleDef | undefined {
 
 /** Abstraction every generated voice uses to turn a note into pitch/gate/velocity signals. */
 export const VOICE_ABSTRACTION = "ge-voice";
+/**
+ * The keyboard as one part: what an input's pre-cord follows outside the voice area, and
+ * what Keys gives there. Pitch, gate and velocity, as `ge-voice` gives them in a voice.
+ */
+export const KEYBOARD_ABSTRACTION = "ge-keyboard";

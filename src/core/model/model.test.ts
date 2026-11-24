@@ -26,6 +26,8 @@ import {
   makeRoom,
   moduleName,
   moveModules,
+  moveArea,
+  resizeArea,
   nextFreeKnob,
   nextModuleId,
   paramValue,
@@ -40,6 +42,7 @@ import {
   setPrecord,
   togglePrecord,
 } from "./ops";
+import { placement } from "./area";
 import { exportFolderName, parseDocument, serializeDocument } from "./serialize";
 import { emptyDocument, type PatchDocument } from "./types";
 
@@ -386,15 +389,15 @@ describe("saved files", () => {
     expect(setSample(basicSynth, -1, { kind: "tape", seconds: 1 })).toBe(basicSynth);
   });
 
-  it("round-trips a wavetable and a cycle length, and opens a file of the version before", () => {
+  it("round-trips a wavetable and a cycle length, and refuses a file of the version before", () => {
     const file = { kind: "file", path: "/tables/growl.wav", name: "growl.wav", frames: 131072, sampleRate: 44100, cycle: 2048 } as const;
     const doc = setSample(setSample(basicSynth, 0, { kind: "wavetable", bank: "vowels" }), 1, file);
     expect(parseDocument(serializeDocument(doc))).toEqual(doc);
     for (const samples of [[{ kind: "wavetable" }], [{ kind: "wavetable", bank: 3 }], [{ ...file, cycle: "long" }]]) {
       expect(() => parseDocument(JSON.stringify({ ...basicSynth, samples }))).toThrow(/damaged/);
     }
-    // Version 1 had no wavetables; what it did have reads the same.
-    expect(parseDocument(JSON.stringify({ ...basicSynth, version: 1 }))).toEqual(basicSynth);
+    // A file from before the voice area is not opened.
+    expect(() => parseDocument(JSON.stringify({ ...basicSynth, version: 2 }))).toThrow(/older version/);
     // A cycle is a whole number of samples that a cycle can have, or there is none.
     const cycleOf = (cycle: number | undefined) => sampleAt(setSample(basicSynth, 0, { ...file, cycle }), 0);
     expect(cycleOf(1024.4)).toEqual({ ...file, cycle: 1024 });
@@ -594,11 +597,13 @@ describe("dropping a new module on a port", () => {
   });
 
   it("takes its place in a row without gaps, and the rest of the row moves right", () => {
-    // The default patch: Saw, Low-pass, Amp and Audio Out side by side, two envelopes in the row below.
+    // The default patch: Saw, Low-pass and Amp side by side in the voice area, Audio Out after
+    // it, two envelopes in the row below. The area grows by the new tile and pushes the Audio Out along.
     const { doc, id } = addModuleAtPort(basicSynth, "shaper-soft", target("ge2", "in", "in"));
     expect(id).toBe("ge7");
-    expect(["ge1", "ge7", "ge2", "ge3", "ge4"].map((m) => at(doc, m))).toEqual([[0, 0], [2, 0], [4, 0], [6, 0], [7, 0]]);
-    expect([at(doc, "ge5"), at(doc, "ge6")]).toEqual([[0, 3], [2, 3]]);
+    expect(["ge1", "ge7", "ge2", "ge3", "ge4"].map((m) => at(doc, m))).toEqual([[1, 1], [3, 1], [5, 1], [7, 1], [9, 1]]);
+    expect([at(doc, "ge5"), at(doc, "ge6")]).toEqual([[1, 4], [3, 4]]);
+    expect(doc.voiceArea).toEqual({ ...basicSynth.voiceArea, width: basicSynth.voiceArea.width + 2 });
     expect(cables(doc)).toEqual([
       "ge1.out>ge7.in",
       "ge2.out>ge3.in",
@@ -771,6 +776,148 @@ describe("removing a module from a chain", () => {
     expect(cables(useEditor.getState().doc)).toContain("ge1.out>ge3.in");
     useEditor.getState().undo();
     expect(useEditor.getState().doc).toBe(basicSynth);
+  });
+});
+
+describe("the voice area", () => {
+  // The area spans x 2–9 and y 0–7; its border is a ring of cells (the top one its header),
+  // so tiles go inside it at x 3–8 and y 1–6.
+  const area = { x: 2, y: 0, width: 8, height: 8 };
+  const start = (...types: [string, number, number][]): PatchDocument =>
+    types.reduce((doc, [type, x, y]) => addModule(doc, type, { x, y }).doc, { ...emptyDocument(), voiceArea: area });
+  const at = (doc: PatchDocument, id: string) => {
+    const module = doc.modules.find((m) => m.id === id)!;
+    return [module.x, module.y];
+  };
+  const where = (doc: PatchDocument, id: string) => placement(doc, doc.modules.find((m) => m.id === id)!);
+
+  it("takes a tile wholly in or wholly out, never on its border, and keeps one that runs once out", () => {
+    const doc = start();
+    expect(canPlace(doc, "osc-saw", { x: 3, y: 1 })).toBe(true);
+    expect(canPlace(doc, "osc-saw", { x: 0, y: 1 })).toBe(true);
+    // On the left border, half on it, on the header, on the bottom border.
+    expect(canPlace(doc, "osc-saw", { x: 2, y: 1 })).toBe(false);
+    expect(canPlace(doc, "osc-saw", { x: 1, y: 1 })).toBe(false);
+    expect(canPlace(doc, "osc-saw", { x: 3, y: 0 })).toBe(false);
+    expect(canPlace(doc, "osc-saw", { x: 3, y: 5 })).toBe(false);
+    expect(canPlace(doc, "noise", { x: 4, y: 7 })).toBe(false);
+    expect(canPlace(doc, "noise", { x: 4, y: 8 })).toBe(true);
+    expect(canPlace(doc, "audio-out", { x: 4, y: 1 })).toBe(false);
+    expect(canPlace(doc, "audio-out", { x: 10, y: 1 })).toBe(true);
+    // A drop that lands on the area goes to the nearest cell it may be on.
+    const near = findFreeCell(doc, "audio-out", { x: 7, y: 2 });
+    expect(placement({ ...doc, cables: [] }, { id: "x", type: "audio-out", ...near, params: {} })).toBe("outside");
+  });
+
+  it("moves tiles into the voices and out of them, but not onto the border", () => {
+    const doc = start(["osc-saw", 3, 1], ["noise", 0, 1]);
+    expect(where(doc, "ge1")).toBe("inside");
+    expect(canMove(doc, new Set(["ge1"]), { x: -1, y: 0 })).toBe(false);
+    expect(canMove(doc, new Set(["ge1"]), { x: 6, y: 0 })).toBe(false);
+    const out = moveModules(doc, new Set(["ge1"]), { x: 7, y: 0 });
+    expect(where(out, "ge1")).toBe("outside");
+    const into = moveModules(doc, new Set(["ge2"]), { x: 5, y: 0 });
+    expect(where(into, "ge2")).toBe("inside");
+    const audio = start(["audio-out", 11, 1]);
+    expect(canMove(audio, new Set(["ge1"]), { x: -5, y: 0 })).toBe(false);
+  });
+
+  it("grows when a tile in it pushes another past its border, and pushes what is outside along", () => {
+    // A saw at the right of the area with an amp just before it, and an Audio Out just outside.
+    const doc = start(["osc-saw", 7, 1], ["audio-out", 10, 1], ["amp", 6, 1]);
+    // A filter dropped on the saw's input goes in front of it: the saw moves right, past the
+    // border as it was, so the area grows, and the Audio Out moves on past the new border.
+    const fed = connect(doc, port("ge3", "out"), port("ge1", "pitch"));
+    const { doc: dropped, id } = addModuleAtPort(fed, "filter-lp", { module: "ge1", port: "pitch", side: "in" });
+    expect(at(dropped, id!)).toEqual([7, 1]);
+    expect(at(dropped, "ge1")).toEqual([9, 1]);
+    expect(dropped.voiceArea).toEqual({ ...area, width: 10 });
+    expect(at(dropped, "ge2")).toEqual([12, 1]);
+    for (const m of ["ge1", "ge3", id!]) expect(where(dropped, m)).toBe("inside");
+    expect(where(dropped, "ge2")).toBe("outside");
+  });
+
+  it("is pushed as a whole, with its tiles, by a tile outside it", () => {
+    // A mixer just above the area grows down onto its header when cabled.
+    const doc = { ...start(["noise", 0, 0], ["osc-saw", 3, 3]), voiceArea: { x: 2, y: 2, width: 8, height: 7 } };
+    const mixer = addModule(doc, "mixer", { x: 2, y: 1 }).doc;
+    expect(where(mixer, "ge3")).toBe("outside");
+    const grown = connect(mixer, port("ge1", "out"), port("ge3", "in1"));
+    expect(grown.voiceArea).toEqual({ x: 2, y: 3, width: 8, height: 7 });
+    expect(at(grown, "ge2")).toEqual([3, 4]);
+    expect(where(grown, "ge2")).toBe("inside");
+  });
+
+  it("moves with its tiles, and not onto a tile outside it", () => {
+    const doc = start(["osc-saw", 3, 1], ["audio-out", 11, 1]);
+    const moved = moveArea(doc, { x: 0, y: 3 });
+    expect(moved.voiceArea).toEqual({ ...area, y: 3 });
+    expect(at(moved, "ge1")).toEqual([3, 4]);
+    expect(at(moved, "ge2")).toEqual([11, 1]);
+    expect(moveArea(doc, { x: 2, y: 0 })).toBe(doc);
+    expect(moveArea(doc, { x: 0, y: 0 })).toBe(doc);
+  });
+
+  it("resizes as long as no tile in it would come onto its border or out of it", () => {
+    const doc = start(["osc-saw", 3, 1], ["audio-out", 11, 1]);
+    expect(resizeArea(doc, { ...area, width: 9 }).voiceArea).toEqual({ ...area, width: 9 });
+    // Its border onto the saw, or past it.
+    expect(resizeArea(doc, { ...area, x: 3, width: 7 })).toBe(doc);
+    expect(resizeArea(doc, { ...area, x: 4, width: 6 })).toBe(doc);
+    // Never smaller than its border around one cell.
+    const empty = start();
+    expect(resizeArea(empty, { ...area, height: 2 })).toBe(empty);
+    expect(resizeArea(empty, { ...area, width: 2 })).toBe(empty);
+    expect(resizeArea(empty, { ...area, width: 3, height: 3 }).voiceArea).toEqual({ ...area, width: 3, height: 3 });
+  });
+
+  it("pushes the tiles outside it that a side reaches along with the border, each the shortest way", () => {
+    // Two in a row at its right, one below it, two in a row at its left.
+    const doc = start(["noise", 10, 1], ["noise", 11, 1], ["noise", 4, 8], ["noise", 1, 1], ["noise", 0, 1]);
+    const right = resizeArea(doc, { ...area, width: 9 });
+    expect(right.voiceArea).toEqual({ ...area, width: 9 });
+    expect(["ge1", "ge2", "ge3"].map((m) => at(right, m))).toEqual([[11, 1], [12, 1], [4, 8]]);
+    const left = resizeArea(doc, { ...area, x: 1, width: 9 });
+    expect(["ge4", "ge5"].map((m) => at(left, m))).toEqual([[0, 1], [-1, 1]]);
+    // The corner: what is beside the area goes right, what is below it goes down.
+    const corner = resizeArea(doc, { ...area, width: 9, height: 9 });
+    expect(["ge1", "ge2", "ge3"].map((m) => at(corner, m))).toEqual([[11, 1], [12, 1], [4, 9]]);
+    for (const m of ["ge1", "ge2", "ge3", "ge4", "ge5"]) expect(where(corner, m)).toBe("outside");
+    // Over a tile, all the way: it goes on past the new edge.
+    expect(at(resizeArea(doc, { ...area, width: 11 }), "ge1")).toEqual([13, 1]);
+  });
+
+  it("refuses a cable that would leave the voices and come back into them", () => {
+    // A saw in the voices into a mixer outside them, which may not feed the saw's filter.
+    let doc = start(["osc-saw", 3, 1], ["filter-lp", 5, 1], ["mixer", 11, 1]);
+    doc = connect(doc, port("ge1", "out"), port("ge2", "in"));
+    doc = connect(doc, port("ge1", "out"), port("ge3", "in1"));
+    expect(connectionProblem(doc, port("ge3", "out"), port("ge2", "mod"))).toMatch(/out of the voice area and back/);
+    // Into the voices from outside is fine when nothing there leads back out to it.
+    const lfo = addModule(doc, "lfo", { x: 0, y: 1 }).doc;
+    expect(connectionProblem(lfo, port("ge4", "out"), port("ge2", "mod"))).toBeNull();
+    // A cable inside the voices is fine, even though the voices lead outside.
+    expect(connectionProblem(doc, port("ge2", "out"), port("ge1", "fine"))).toMatch(/feedback loop/);
+    expect(connectionProblem(start(["osc-saw", 3, 1], ["lfo", 5, 1]), port("ge2", "out"), port("ge1", "fine"))).toBeNull();
+  });
+
+  it("pastes a group only where each of its tiles may be", () => {
+    const doc = start(["osc-saw", 3, 1], ["audio-out", 11, 1]);
+    const clip = copyModules(doc, new Set(["ge2"]))!;
+    // Asked to go into the voices, the Audio Out goes outside, as near as there is room.
+    const pasted = pasteModules(doc, clip, { x: 5, y: 1 });
+    expect(where(pasted.doc, pasted.ids[0])).toBe("outside");
+    // A saw and an Audio Out together keep their places to each other: the saw outside too.
+    const both = pasteModules(doc, copyModules(doc, new Set(["ge1", "ge2"]))!, { x: 3, y: 9 });
+    for (const id of both.ids) expect(where(both.doc, id)).toBe("outside");
+  });
+
+  it("does not push a module that runs once into the voices when it is dropped on a port there", () => {
+    let doc = start(["osc-saw", 3, 1], ["amp", 5, 1], ["noise", 6, 1]);
+    doc = connect(doc, port("ge1", "out"), port("ge2", "in"));
+    const plan = planPortDrop(doc, "audio-out", { module: "ge1", port: "out", side: "out" })!;
+    expect(plan.push).toBe(false);
+    expect(placement({ ...doc }, { id: "x", type: "audio-out", ...plan.at, params: {} })).toBe("outside");
   });
 });
 

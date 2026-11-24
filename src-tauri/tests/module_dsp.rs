@@ -202,11 +202,14 @@ const LINEAR_FM: f32 = 0.0;
 const EXPONENTIAL_FM: f32 = 1.0;
 const AM: f32 = 2.0;
 
-/// `[sig~ note] → [oscillator] → left`. The Mod input is fed from a `[sig~]` set through
-/// `t-mod`, and the pulse's PWM input from one set through `t-pwm`. Settings start at
-/// their defaults.
+/// An oscillator sounds an octave below the note it is given (`ge-osc-mod`).
+const OCTAVE: f32 = 12.0;
+
+/// `[sig~ note] → [oscillator] → left`, at note 81, which an oscillator plays as A4. The Mod
+/// input is fed from a `[sig~]` set through `t-mod`, and the pulse's PWM input from one set
+/// through `t-pwm`. Settings start at their defaults.
 fn with_oscillator<T>(pd: &mut Pd, dir: &Path, name: &str, measure: impl FnOnce(&mut Pd) -> T) -> T {
-    let boxes = ["r t-pitch", "sig~ 69", "r t-pwm", "sig~ 0", "r t-mod", "sig~ 0"];
+    let boxes = ["r t-pitch", "sig~ 81", "r t-pwm", "sig~ 0", "r t-mod", "sig~ 0"];
     let connections = [[0, 0, 1, 0], [2, 0, 3, 0], [4, 0, 5, 0]];
     with_module(pd, dir, name, &boxes, &connections, [Some(1), Some(5), Some(3)], to_left, |pd| {
         pd.send_float("t1-tune", 0.0);
@@ -222,7 +225,7 @@ fn oscillators(pd: &mut Pd, dir: &Path) {
     for name in ["ge-osc-sine", "ge-osc-tri", "ge-osc-saw", "ge-osc-pulse"] {
         with_oscillator(pd, dir, name, |pd| {
             let (wave, _) = settled(pd, 1.0);
-            close(frequency(&wave), 440.0, 1.0, &format!("{name} plays A4 for note 69"));
+            close(frequency(&wave), 440.0, 1.0, &format!("{name} plays A4 for note 81, an octave down"));
             close(peak(&wave), 1.0, 0.08, &format!("{name} peaks at 1"));
             close(mean(&wave), 0.0, 0.01, &format!("{name} has no DC"));
 
@@ -230,8 +233,8 @@ fn oscillators(pd: &mut Pd, dir: &Path) {
             close(frequency(&settled(pd, 1.0).0), 880.0, 2.0, &format!("{name} follows Tune"));
             pd.send_float("t1-tune", 0.0);
             pd.send_float("t1-fine", 100.0);
-            close(frequency(&settled(pd, 1.0).0), note_hz(70.0), 1.5, &format!("{name} follows Fine"));
-            println!("{name}: 440 Hz at note 69, peak {:.3}", peak(&wave));
+            close(frequency(&settled(pd, 1.0).0), note_hz(82.0 - OCTAVE), 1.5, &format!("{name} follows Fine"));
+            println!("{name}: 440 Hz at note 81, peak {:.3}", peak(&wave));
         });
     }
 }
@@ -283,7 +286,7 @@ fn modulation(pd: &mut Pd, dir: &Path) {
 /// spaced by the modulator's frequency, with Bessel-function amplitudes. At index 2.405 the
 /// carrier itself vanishes. Any detuning or curvature in the modulation would break this.
 fn linear_fm_spectrum(pd: &mut Pd, dir: &Path) {
-    let carrier = format!("sig~ {}", 69.0 + 12.0 * (1000.0f32 / 440.0).log2());
+    let carrier = format!("sig~ {}", 69.0 + OCTAVE + 12.0 * (1000.0f32 / 440.0).log2());
     let boxes = [carrier.as_str(), "osc~ 100"];
     with_module(pd, dir, "ge-osc-sine", &boxes, &[], [Some(0), Some(1), None], to_left, |pd| {
         // Index = deviation / modulator frequency = 1000 * 8 * depth² / 100.
@@ -328,10 +331,11 @@ fn pulse_width(pd: &mut Pd, dir: &Path) {
 /// On a high note the harmonics of a plain saw above half the sample rate fold back as
 /// tones that do not belong to the note. Compare against a plain saw on the right channel.
 fn saw_aliasing(pd: &mut Pd, dir: &Path) {
-    // Box 0 is the note, 1 to 5 a plain saw into the right channel, then ours into the left.
-    let boxes = ["sig~ 100", "mtof~", "phasor~", "*~ 2", "-~ 1", "dac~ 2"];
+    // Box 0 is the note, 1 to 5 a plain saw into the right channel, 6 the note an octave up
+    // for ours, which plays it an octave down, into the left.
+    let boxes = ["sig~ 100", "mtof~", "phasor~", "*~ 2", "-~ 1", "dac~ 2", "sig~ 112"];
     let connections = [[0, 0, 1, 0], [1, 0, 2, 0], [2, 0, 3, 0], [3, 0, 4, 0], [4, 0, 5, 0]];
-    with_module(pd, dir, "ge-osc-saw", &boxes, &connections, [Some(0), None, None], to_left, |pd| {
+    with_module(pd, dir, "ge-osc-saw", &boxes, &connections, [Some(6), None, None], to_left, |pd| {
         pd.send_float("t1-tune", 0.0);
         pd.send_float("t1-fine", 0.0);
         let (ours, plain) = settled(pd, 1.0);
@@ -1891,6 +1895,71 @@ fn logic_modules(pd: &mut Pd, dir: &Path) {
     println!("logic: and, or, not, compare, toggle and divider give what they should");
 }
 
+// --- the voice's note and the keyboard -----------------------------------------------------
+
+/// `ge-voice` takes a voice's notes and `ge-keyboard` listens to every key; both give pitch,
+/// gate and velocity, which change at the very sample a note comes.
+fn note_helpers(pd: &mut Pd, dir: &Path) {
+    use gridelle_lib::engine::pd::Atom;
+    let last = |pd: &mut Pd, seconds: f32| {
+        let blocks = (seconds * SAMPLE_RATE / 64.0).ceil() as usize;
+        let mut out = vec![0.0f32; 64 * 2 * blocks];
+        pd.process(&mut out);
+        (out[out.len() - 2], out[out.len() - 1])
+    };
+    // The keyboard: pitch on the left, gate on the right; then velocity on the left.
+    let boxes = ["ge-keyboard", "dac~ 1 2"];
+    with_patch(pd, dir, &boxes, &[[0, 0, 1, 0], [0, 1, 1, 1]], |pd| {
+        let note = |pd: &mut Pd, pitch: f32, velocity: f32| pd.send_list("notes", &[Atom::Float(pitch), Atom::Float(velocity)]);
+        assert_eq!(last(pd, 0.01), (60.0, 0.0), "keyboard: pitch 60 and no gate before any key");
+        for pitch in [48.0, 55.0, 64.0] {
+            note(pd, pitch, 100.0);
+        }
+        assert_eq!(last(pd, 0.01), (64.0, 1.0), "keyboard: the last key's pitch, gate on");
+        // The same key twice counts once: one note-off lets it go.
+        note(pd, 64.0, 90.0);
+        note(pd, 48.0, 0.0);
+        note(pd, 55.0, 0.0);
+        assert_eq!(last(pd, 0.01), (64.0, 1.0), "keyboard: on while a key is held");
+        note(pd, 64.0, 0.0);
+        assert_eq!(last(pd, 0.01), (64.0, 0.0), "keyboard: off when every key is up, the pitch kept");
+        // A note-off for a key that is not held changes nothing.
+        note(pd, 70.0, 0.0);
+        note(pd, 50.0, 127.0);
+        assert_eq!(last(pd, 0.01), (50.0, 1.0), "keyboard: a stray note-off is ignored");
+        note(pd, 50.0, 0.0);
+        last(pd, 0.01);
+    });
+    with_patch(pd, dir, &["ge-keyboard", "dac~ 1"], &[[0, 2, 1, 0]], |pd| {
+        pd.send_list("notes", &[Atom::Float(60.0), Atom::Float(127.0)]);
+        assert_eq!(last(pd, 0.01).0, 1.0, "keyboard: velocity 127 is 1");
+        pd.send_list("notes", &[Atom::Float(60.0), Atom::Float(0.0)]);
+        assert_eq!(last(pd, 0.01).0, 1.0, "keyboard: a note-off leaves the velocity");
+    });
+    // A voice: the note arrives in the middle of a block (from a [delay]) and the pitch
+    // changes at that sample, with the gate.
+    let file = dir.join("bench.pd");
+    std::fs::write(
+        &file,
+        "#N canvas 0 0 600 400 12;\n#X obj 30 30 r t-go;\n#X obj 30 60 delay 1;\n#X msg 30 90 67 100;\n#X obj 30 120 ge-voice;\n#X obj 30 150 dac~ 1 2;\n\
+         #X connect 0 0 1 0;\n#X connect 1 0 2 0;\n#X connect 2 0 3 0;\n#X connect 3 0 4 0;\n#X connect 3 1 4 1;\n",
+    )
+    .unwrap();
+    let patch = pd.open(&file).expect("the test patch opens");
+    let mut out = vec![0.0f32; 64 * 2 * 4];
+    pd.process(&mut out[..64 * 2]);
+    pd.send_bang("t-go");
+    pd.process(&mut out[64 * 2..]);
+    let (pitch, gate): (Vec<f32>, Vec<f32>) = out.chunks(2).map(|frame| (frame[0], frame[1])).unzip();
+    // 1 ms after the bang, which came at the start of the second block: sample 64 + 44.1.
+    let changed = pitch.iter().position(|p| *p == 67.0).expect("the pitch changes");
+    assert!((108..=109).contains(&changed), "voice: the pitch changes 1 ms into the block, at sample {changed}");
+    assert_eq!(pitch[changed - 1], 60.0, "voice: and is 60 until then");
+    assert!(gate[..changed].iter().all(|g| *g == 0.0), "voice: the gate is off until the note");
+    pd.close(patch);
+    println!("ge-keyboard: last key, gate while any is held, each key counted once; ge-voice: pitch at the note's own sample ({changed})");
+}
+
 // --- compressor and limiter ----------------------------------------------------------------
 
 /// The Compressor with a 220 Hz sine at In, its level set through `t-amp`. Its Sidechain is
@@ -2585,6 +2654,7 @@ fn modules_do_what_they_are_designed_to() {
     pitch_modules(&mut pd, &dir);
     math_modules(&mut pd, &dir);
     logic_modules(&mut pd, &dir);
+    note_helpers(&mut pd, &dir);
     compressor(&mut pd, &dir);
     limiter(&mut pd, &dir);
     clock(&mut pd, &dir);
