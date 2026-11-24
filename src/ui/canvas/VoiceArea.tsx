@@ -1,7 +1,7 @@
 import { AREA_BORDER, VOICE_NOTES } from "../../core/model/area";
+import * as ops from "../../core/model/ops";
 import { MIN_AREA } from "../../core/model/ops";
-import type { Area } from "../../core/model/types";
-import { MAX_VOICES, MIN_VOICES } from "../../core/model/types";
+import { MAX_VOICES, MIN_VOICES, voicingOf, type Area } from "../../core/model/types";
 import { useEditor } from "../../state/store";
 import { CELL, type Point } from "./geometry";
 import "./VoiceArea.css";
@@ -60,9 +60,9 @@ export function VoiceArea({
   onPortPointerDown(e: React.PointerEvent, id: string, port: string, side: "in" | "out"): void;
 }) {
   const voices = useEditor((s) => s.doc.voices);
-  const setVoices = (n: number) => {
-    if (n >= MIN_VOICES && n <= MAX_VOICES) useEditor.getState().apply((doc) => ({ ...doc, voices: n }));
-  };
+  const { mode, unison } = useEditor((s) => voicingOf(s.doc));
+  const most = Math.floor(MAX_VOICES / unison);
+  const setVoices = (n: number) => useEditor.getState().apply((doc) => ops.setVoices(doc, n));
   const stop = (e: React.PointerEvent) => e.stopPropagation();
   const border = AREA_BORDER * CELL;
   const [width, height] = [area.width * CELL, area.height * CELL];
@@ -98,16 +98,24 @@ export function VoiceArea({
           <span className="port-dot" />
           <span className="port-label">Notes</span>
         </div>
-        <span className="voice-area-title">Voices</span>
-        <span className="voice-area-count" onPointerDown={stop}>
-          <button type="button" aria-label="One voice fewer" disabled={voices <= MIN_VOICES} onClick={() => setVoices(voices - 1)}>
-            −
-          </button>
-          <span aria-label="Number of voices">{voices}</span>
-          <button type="button" aria-label="One voice more" disabled={voices >= MAX_VOICES} onClick={() => setVoices(voices + 1)}>
-            +
-          </button>
-        </span>
+        {/* Poly: the notes at once, to change here. Mono: one note. The rest is in the settings pane. */}
+        <span className="voice-area-title">{mode === "mono" ? "Mono" : "Voices"}</span>
+        {mode === "poly" && (
+          <span className="voice-area-count" onPointerDown={stop}>
+            <button type="button" aria-label="One voice fewer" disabled={voices <= MIN_VOICES} onClick={() => setVoices(voices - 1)}>
+              −
+            </button>
+            <span aria-label="Number of voices">{voices}</span>
+            <button type="button" aria-label="One voice more" disabled={voices >= most} onClick={() => setVoices(voices + 1)}>
+              +
+            </button>
+          </span>
+        )}
+        {unison > 1 && (
+          <span className="voice-area-unison" title={`Unison: each note on ${unison} voices`}>
+            ×{unison}
+          </span>
+        )}
       </div>
     </div>
   );

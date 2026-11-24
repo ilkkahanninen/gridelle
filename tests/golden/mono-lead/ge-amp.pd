@@ -1,0 +1,16 @@
+#N canvas 0 0 420 340 12;
+#X obj 30 20 inlet~;
+#X obj 130 20 inlet~;
+#X obj 30 80 *~;
+#X obj 240 20 r \$1-level;
+#X obj 240 50 pack f 20;
+#X obj 240 80 line~;
+#X obj 30 140 *~;
+#X obj 30 200 outlet~;
+#X connect 0 0 2 0;
+#X connect 1 0 2 1;
+#X connect 2 0 6 0;
+#X connect 3 0 4 0;
+#X connect 4 0 5 0;
+#X connect 5 0 6 1;
+#X connect 6 0 7 0;

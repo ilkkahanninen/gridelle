@@ -239,6 +239,28 @@ fn golden_patches_play_in_pd() {
             assert!(peak(&after[after.len() - 4096..]) < 1e-3, "{name}: it stops when the keys are let go");
             println!("{name}: eight steps up two octaves and round, at levels {levels:.3?}");
         }
+        if name == "mono-lead" {
+            // One note at a time, the last key held, on three voices 12 cents apart: a second
+            // key held glides there, and when it is let go the note goes back to the first.
+            // The saws play each note an octave lower.
+            let hz = |note: f32| 440.0 * 2f32.powf((note - 12.0 - 69.0) / 12.0);
+            let hear = |pd: &mut Pd, key: f32, velocity: f32| {
+                pd.send_list("notes", &[Atom::Float(key), Atom::Float(velocity)]);
+                let left: Vec<f32> = render(pd, 0.4).chunks(2).map(|frame| frame[0]).collect();
+                let end = &left[left.len() - 8192..];
+                (level_at(end, hz(60.0)), level_at(end, hz(67.0)))
+            };
+            let (c, g) = hear(&mut pd, 60.0, 100.0);
+            assert!(c > 0.02 && g < c * 0.2, "{name}: the first key, C: C {c}, G {g}");
+            let (c, g) = hear(&mut pd, 67.0, 100.0);
+            assert!(g > 0.02 && c < g * 0.2, "{name}: the second key held, G alone: C {c}, G {g}");
+            let (c, g) = hear(&mut pd, 67.0, 0.0);
+            assert!(c > 0.02 && g < c * 0.2, "{name}: let go, back to the key still held: C {c}, G {g}");
+            pd.send_list("notes", &[Atom::Float(60.0), Atom::Float(0.0)]);
+            let after = render(&mut pd, 0.5);
+            assert!(peak(&after[after.len() - 4096..]) < 1e-3, "{name}: silent when no key is held");
+            println!("{name}: one note at a time, and back to the key still held");
+        }
         if name == "shared-lfo" {
             // Three keys, 30 ms apart. One square LFO outside the voice area opens and closes
             // the Amp of every voice at once, so what is heard has gaps of half its period:

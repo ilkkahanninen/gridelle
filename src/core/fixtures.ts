@@ -784,6 +784,44 @@ export const arpeggio: PatchDocument = {
 };
 
 /**
+ * A mono lead: one note at a time, the last key held, on three voices 12 cents apart.
+ * A key played while another is held glides there without starting the envelope again,
+ * and when it is let go the note goes back to the key still held.
+ */
+export const monoLead: PatchDocument = voiced({
+  version: DOCUMENT_VERSION,
+  name: "Mono Lead",
+  voices: 1,
+  voicing: { mode: "mono", unison: 3, detune: 12, priority: "last", legato: true },
+  modules: [
+    { id: "ge1", type: "pitch-glide", x: 0, y: 0, params: { time: 60 } },
+    { id: "ge2", type: "osc-saw", x: 2, y: 0, params: {} },
+    { id: "ge3", type: "filter-lp", x: 4, y: 0, params: { cutoff: 1200, res: 0.3 } },
+    { id: "ge4", type: "amp", x: 6, y: 0, params: {} },
+    { id: "ge5", type: "env-adsr", x: 4, y: 3, params: { attack: 5, decay: 200, sustain: 0.6, release: 150 } },
+    { id: "ge6", type: "audio-out", x: 7, y: 0, params: {} },
+  ],
+  cables: [
+    { from: { module: "ge1", port: "out" }, to: { module: "ge2", port: "pitch" } },
+    { from: { module: "ge2", port: "out" }, to: { module: "ge3", port: "in" } },
+    { from: { module: "ge3", port: "out" }, to: { module: "ge4", port: "in" } },
+    { from: { module: "ge5", port: "out" }, to: { module: "ge4", port: "cv" } },
+    { from: { module: "ge4", port: "out" }, to: { module: "ge6", port: "left" } },
+  ],
+  pages: [
+    {
+      name: "Lead",
+      knobs: [
+        { module: "ge3", param: "cutoff" },
+        { module: "ge3", param: "res" },
+        { module: "ge1", param: "time" },
+        { module: "ge5", param: "release" },
+      ],
+    },
+  ],
+}, ["ge6"]);
+
+/**
  * What a new patch starts as, until the user saves a base of their own over it: a saw
  * through an amp that an envelope opens, into the output. It sounds when a key is pressed,
  * and every part of it is easy to replace.
@@ -828,5 +866,6 @@ export const fixtures = {
   wavetable,
   "shared-lfo": sharedLfo,
   arpeggio,
+  "mono-lead": monoLead,
   "new-patch": newPatch,
 } as const;

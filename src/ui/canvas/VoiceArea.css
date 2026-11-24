@@ -58,6 +58,12 @@
   color: var(--text);
 }
 
+.voice-area-unison {
+  color: var(--text-dim);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
 .voice-area-count {
   display: inline-flex;
   align-items: center;

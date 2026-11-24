@@ -1,5 +1,11 @@
-import { sampleLetter, type ModuleId, type PatchDocument } from "../model/types";
-import { KEYBOARD_ABSTRACTION, VOICE_ABSTRACTION } from "../modules/registry";
+import { MAX_DETUNE, NOTE_PRIORITIES, sampleLetter, type ModuleId, type PatchDocument } from "../model/types";
+import {
+  DETUNE_RECEIVER,
+  KEYBOARD_ABSTRACTION,
+  MONO_ABSTRACTION,
+  UNISON_ABSTRACTION,
+  VOICE_ABSTRACTION,
+} from "../modules/registry";
 import type { VoiceSignal } from "../modules/types";
 import { pdNumber, PdPatch, type Box, type Position } from "../pd/patch";
 import { argumentValues, type Analysis, type ResolvedModule } from "./analyze";
@@ -97,7 +103,9 @@ export function emitVoice(analysis: Analysis): string {
 
   // Pd numbers inlets by horizontal position: the note first, then the signals coming in.
   const inlet = patch.obj("inlet", { x: MARGIN.x, y: MARGIN.y });
-  const voice = patch.obj(VOICE_ABSTRACTION, { x: MARGIN.x, y: MARGIN.y + 40 });
+  // With Unison, each voice works out its share of the Detune from its number.
+  const { unison } = analysis.voicing;
+  const voice = patch.obj(unison > 1 ? `${VOICE_ABSTRACTION} $1 ${unison}` : VOICE_ABSTRACTION, { x: MARGIN.x, y: MARGIN.y + 40 });
   patch.connect(inlet, 0, voice, 0);
   const comingIn = analysis.inward.map((_, i) => patch.obj("inlet~", { x: MARGIN.x + (i + 1) * CELL.x, y: MARGIN.y }));
 
@@ -127,15 +135,19 @@ export function emitVoice(analysis: Analysis): string {
   return patch.toString();
 }
 
-/** Current value of every parameter of every module, clamped to its range. */
+/** Current value of every parameter of every module, clamped to its range, and the voices' Detune. */
 export function paramValues(analysis: Analysis): ParamValue[] {
-  return analysis.modules.flatMap(({ instance, def }) =>
-    // A value that is built into the patch has no receiver to send to.
-    def.params.filter((param) => !param.argument).map((param) => ({
-      receiver: `${instance.id}-${param.id}`,
-      value: Math.min(param.max, Math.max(param.min, instance.params[param.id] ?? param.default)),
-    })),
-  );
+  const { unison, detune } = analysis.voicing;
+  return [
+    ...analysis.modules.flatMap(({ instance, def }) =>
+      // A value that is built into the patch has no receiver to send to.
+      def.params.filter((param) => !param.argument).map((param) => ({
+        receiver: `${instance.id}-${param.id}`,
+        value: Math.min(param.max, Math.max(param.min, instance.params[param.id] ?? param.default)),
+      })),
+    ),
+    ...(unison > 1 ? [{ receiver: DETUNE_RECEIVER, value: Math.min(MAX_DETUNE, Math.max(0, detune)) }] : []),
+  ];
 }
 
 /**
@@ -147,30 +159,59 @@ export function emitMain(doc: PatchDocument, analysis: Analysis): string {
   const patch = new PdPatch();
   const column = (row: number): Position => ({ x: MARGIN.x, y: MARGIN.y + row * 35 });
 
-  // Keys and MIDI arrive as "pitch velocity"; [poly] picks a voice, [clone] hosts them. The
-  // voices get the keyboard's notes, or a note module's (an arpeggiator's).
+  // Keys and MIDI arrive as "pitch velocity". The voices get the keyboard's notes, or a note
+  // module's (an arpeggiator's). In poly mode [poly] picks a note's place, in mono [ge-mono]
+  // picks the one note from the held keys, and [clone] hosts the voices. A voice takes
+  // "pitch velocity legato"; with Unison a note goes on to that many voices in a row.
+  const { mode, unison, priority, legato } = analysis.voicing;
   const notes = patch.obj("r notes", column(0));
-  const unpack = patch.obj("unpack f f", column(1));
-  const poly = patch.obj(`poly ${doc.voices} 1`, column(2));
-  // [poly] numbers voices from 1, [clone] from 0.
-  const zeroBased = patch.obj("- 1", column(3));
-  const pack = patch.obj("pack f f f", column(4));
-  const clone = patch.obj(`clone voice ${doc.voices}`, column(5));
-  patch.connect(unpack, 0, poly, 0);
-  patch.connect(unpack, 1, poly, 1);
-  patch.connect(poly, 0, zeroBased, 0);
-  patch.connect(zeroBased, 0, pack, 0);
-  patch.connect(poly, 1, pack, 1);
-  patch.connect(poly, 2, pack, 2);
-  patch.connect(pack, 0, clone, 0);
+  let entry: Box;
+  let last: Box;
+  let chainRow: number;
+  let poly: Box | null = null;
+  let zeroBased: Box | null = null;
+  if (mode === "mono") {
+    entry = patch.obj(`${MONO_ABSTRACTION} ${NOTE_PRIORITIES.indexOf(priority)} ${legato ? 1 : 0}`, column(1));
+    // One note, on the voices from the first.
+    last = patch.obj("list prepend 0", column(2));
+    patch.connect(entry, 0, last, 0);
+    chainRow = 3;
+  } else {
+    entry = patch.obj("unpack f f", column(1));
+    poly = patch.obj(`poly ${doc.voices} 1`, column(2));
+    // [poly] numbers voices from 1, [clone] from 0.
+    zeroBased = patch.obj("- 1", column(3));
+    // With Unison the voices are told the note is not legato; a voice alone knows that by itself.
+    last = patch.obj(unison > 1 ? "pack f f f 0" : "pack f f f", column(4));
+    patch.connect(entry, 0, poly, 0);
+    patch.connect(entry, 1, poly, 1);
+    patch.connect(poly, 0, zeroBased, 0);
+    patch.connect(zeroBased, 0, last, 0);
+    patch.connect(poly, 1, last, 1);
+    patch.connect(poly, 2, last, 2);
+    chainRow = 5;
+  }
+  if (unison > 1) {
+    const spread = patch.obj(`${UNISON_ABSTRACTION} ${unison}`, column(chainRow++));
+    patch.connect(last, 0, spread, 0);
+    last = spread;
+  }
+  const clone = patch.obj(`clone voice ${analysis.copies}`, column(chainRow));
+  patch.connect(last, 0, clone, 0);
 
-  // A Scope inside the voices shows the voice of the latest note: tell them which that is.
-  // [poly] sends the velocity before the voice, so the gate is set when the number comes.
-  if (analysis.modules.some((m) => m.def.tap && m.scope === "voice")) {
+  // A Scope inside the voices shows the voice of the latest note (the first of its voices):
+  // tell them which that is. [poly] sends the velocity before the voice, so the gate is set
+  // when the number comes. In mono that is always voice 0, where the Scopes start.
+  if (poly !== null && zeroBased !== null && analysis.modules.some((m) => m.def.tap && m.scope === "voice")) {
     const beside = (row: number): Position => ({ x: MARGIN.x + CELL.x, y: column(row).y });
     const noteOn = patch.obj("spigot", beside(4));
     const latest = patch.obj(`s ${SCOPE_VOICE}`, beside(5));
-    patch.connect(zeroBased, 0, noteOn, 0);
+    let voice = zeroBased;
+    if (unison > 1) {
+      voice = patch.obj(`* ${unison}`, beside(3));
+      patch.connect(zeroBased, 0, voice, 0);
+    }
+    patch.connect(voice, 0, noteOn, 0);
     patch.connect(poly, 2, noteOn, 1);
     patch.connect(noteOn, 0, latest, 0);
   }
@@ -194,8 +235,8 @@ export function emitMain(doc: PatchDocument, analysis: Analysis): string {
   }
 
   // The notes the voices are given, and those of note inputs with no cable: the keyboard's.
-  if (analysis.voiceNotes) patch.connect(boxes.get(analysis.voiceNotes.module)!, analysis.voiceNotes.index, unpack, 0);
-  else patch.connect(notes, 0, unpack, 0);
+  if (analysis.voiceNotes) patch.connect(boxes.get(analysis.voiceNotes.module)!, analysis.voiceNotes.index, entry, 0);
+  else patch.connect(notes, 0, entry, 0);
   for (const plug of analysis.keyboardNotes) patch.connect(notes, 0, boxes.get(plug.module)!, plug.index);
 
   // Outside the voices, an input that follows the note follows the keyboard.

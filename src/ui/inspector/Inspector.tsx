@@ -1,12 +1,17 @@
 import { placement } from "../../core/model/area";
 import * as ops from "../../core/model/ops";
 import {
+  MAX_DETUNE,
   MAX_MODULE_NAME,
   MAX_VOICES,
   MIN_VOICES,
   SAMPLE_PARAM,
   sampleLetter,
+  voiceCopies,
+  voicingOf,
   type ModuleInstance,
+  type NotePriority,
+  type Voicing,
 } from "../../core/model/types";
 import { MODULE_DOCS } from "../../core/modules/docs";
 import { getModuleDef } from "../../core/modules/registry";
@@ -144,9 +149,98 @@ function ModuleInspector({ module, def }: { module: ModuleInstance; def: ModuleD
   );
 }
 
+const PRIORITIES: [NotePriority, string][] = [
+  ["last", "Last pressed"],
+  ["low", "Lowest"],
+  ["high", "Highest"],
+];
+
+/** How the voices play notes: poly or mono, Unison and Detune, and for mono which key and legato. */
+function VoiceSettings() {
+  const voices = useEditor((s) => s.doc.voices);
+  const voicing = useEditor((s) => voicingOf(s.doc));
+  const copies = useEditor((s) => voiceCopies(s.doc));
+  const apply = useEditor((s) => s.apply);
+  const set = (change: Partial<Voicing>, coalesce?: string) => apply((doc) => ops.setVoicing(doc, change), coalesce);
+  const mono = voicing.mode === "mono";
+  const { unison, detune } = voicing;
+  const whole = (text: string) => Math.round(Number(text));
+  const notes = mono ? "One note at a time" : `${voices} ${voices === 1 ? "note" : "notes"} at once`;
+  const each = unison > 1 ? `${mono ? "" : ","} ${mono ? "on" : "each on"} ${unison} voices, up to ${detune} cents off the note` : "";
+  return (
+    <section>
+      <h3>Voices</h3>
+      <div className="inspector-param inspector-choice">
+        <label htmlFor="voice-mode">Mode</label>
+        <select id="voice-mode" value={voicing.mode} onChange={(e) => set({ mode: e.target.value as Voicing["mode"] })}>
+          <option value="poly">Poly</option>
+          <option value="mono">Mono</option>
+        </select>
+      </div>
+      {!mono && (
+        <label className="inspector-field">
+          <span>Voices</span>
+          <input
+            type="number"
+            min={MIN_VOICES}
+            max={Math.floor(MAX_VOICES / unison)}
+            value={voices}
+            onChange={(e) => apply((doc) => ops.setVoices(doc, whole(e.target.value)))}
+          />
+        </label>
+      )}
+      <label className="inspector-field">
+        <span>Unison</span>
+        <input
+          type="number"
+          min={1}
+          max={Math.floor(MAX_VOICES / (mono ? 1 : voices))}
+          value={unison}
+          onChange={(e) => set({ unison: whole(e.target.value) })}
+        />
+      </label>
+      {unison > 1 && (
+        <label className="inspector-field inspector-range">
+          <span>Detune</span>
+          <input
+            type="range"
+            min={0}
+            max={MAX_DETUNE}
+            step={1}
+            value={detune}
+            onChange={(e) => set({ detune: Number(e.target.value) }, "voice-detune")}
+          />
+          <output>{detune} ct</output>
+        </label>
+      )}
+      {mono && (
+        <>
+          <div className="inspector-param inspector-choice">
+            <label htmlFor="voice-priority">Priority</label>
+            <select id="voice-priority" value={voicing.priority} onChange={(e) => set({ priority: e.target.value as NotePriority })}>
+              {PRIORITIES.map(([value, text]) => (
+                <option key={value} value={value}>
+                  {text}
+                </option>
+              ))}
+            </select>
+          </div>
+          <label className="inspector-check">
+            <input type="checkbox" checked={voicing.legato} onChange={(e) => set({ legato: e.target.checked })} />
+            <span>Legato: a key played while another is held changes the pitch without starting the note again</span>
+          </label>
+        </>
+      )}
+      <p className="inspector-note">
+        {notes}
+        {each}. {copies} {copies === 1 ? "copy" : "copies"} of the voice area {copies === 1 ? "runs" : "run"}.
+      </p>
+    </section>
+  );
+}
+
 function PatchInspector() {
   const name = useEditor((s) => s.doc.name);
-  const voices = useEditor((s) => s.doc.voices);
   const diagnostics = usePreview((s) => s.diagnostics);
   const apply = useEditor((s) => s.apply);
   return (
@@ -164,30 +258,16 @@ function PatchInspector() {
           onChange={(e) => apply((doc) => ({ ...doc, name: e.target.value }), "patch-name")}
         />
       </header>
-      <section>
-        <label className="inspector-field">
-          <span>Voices</span>
-          <input
-            type="number"
-            min={MIN_VOICES}
-            max={MAX_VOICES}
-            value={voices}
-            onChange={(e) => {
-              const next = Math.round(Number(e.target.value));
-              if (next >= MIN_VOICES && next <= MAX_VOICES) apply((doc) => ({ ...doc, voices: next }));
-            }}
-          />
-        </label>
-      </section>
       {/* The width of the pane, like what a module's pane says of the module. */}
       <section className="inspector-doc">
         <p>
           Each voice runs its own copy of the modules in the voice area, all the time: an oscillator there sounds whether or not
           a key is down, on C3 until its voice gets a note. An Amp with an envelope gives notes a beginning and an end. Modules
           outside the area run once: a cable from one into the area gives every voice the same signal, and one out of the area
-          adds the voices up.
+          adds the voices up. Poly plays a note on voices of its own; Mono plays one note at a time, from the keys held.
         </p>
       </section>
+      <VoiceSettings />
 
       {diagnostics.length > 0 && (
         <section>

@@ -38,13 +38,15 @@ import {
   sampleAt,
   setParam,
   setSample,
+  setVoices,
+  setVoicing,
   setWavetable,
   setPrecord,
   togglePrecord,
 } from "./ops";
 import { placement } from "./area";
 import { exportFolderName, parseDocument, serializeDocument } from "./serialize";
-import { emptyDocument, type PatchDocument } from "./types";
+import { DEFAULT_VOICING, emptyDocument, voiceCopies, type PatchDocument } from "./types";
 
 const port = (module: string, p: string) => ({ module, port: p });
 
@@ -776,6 +778,45 @@ describe("removing a module from a chain", () => {
     expect(cables(useEditor.getState().doc)).toContain("ge1.out>ge3.in");
     useEditor.getState().undo();
     expect(useEditor.getState().doc).toBe(basicSynth);
+  });
+});
+
+describe("voice settings", () => {
+  const doc = emptyDocument();
+
+  it("keeps notes at once times Unison within the voices a patch can run", () => {
+    expect(setVoices(doc, 4)).toBe(doc);
+    expect(setVoices(doc, 6.4).voices).toBe(6);
+    expect(setVoices(doc, 0).voices).toBe(1);
+    expect(setVoices(doc, 40).voices).toBe(16);
+    const unison = setVoicing(doc, { unison: 3 });
+    expect(voiceCopies(unison)).toBe(12);
+    expect(setVoices(unison, 8).voices).toBe(5);
+    expect(setVoicing(doc, { unison: 9 }).voicing?.unison).toBe(4);
+    // Mono plays one note, so all sixteen can be one note's.
+    expect(setVoicing(doc, { mode: "mono", unison: 16 }).voicing).toMatchObject({ mode: "mono", unison: 16 });
+    // Back to poly with four notes at once, they cannot.
+    const mono = setVoicing(doc, { mode: "mono", unison: 16 });
+    expect(setVoicing(mono, { mode: "poly" }).voicing?.unison).toBe(4);
+  });
+
+  it("keeps Detune within its range and the rest to what they may be, and the same document when nothing changes", () => {
+    expect(setVoicing(doc, { detune: 250 }).voicing?.detune).toBe(100);
+    expect(setVoicing(doc, { detune: -5 }).voicing?.detune).toBe(0);
+    expect(setVoicing(doc, { unison: Number.NaN })).toBe(doc);
+    expect(setVoicing(doc, {})).toBe(doc);
+    expect(setVoicing(doc, { ...DEFAULT_VOICING })).toBe(doc);
+    const legato = setVoicing(doc, { legato: true, priority: "high" });
+    expect(legato.voicing).toEqual({ ...DEFAULT_VOICING, legato: true, priority: "high" });
+    expect(setVoicing(legato, { legato: true })).toBe(legato);
+  });
+
+  it("is saved and read back, and a file with settings it cannot have is refused", () => {
+    const set = setVoicing(doc, { mode: "mono", unison: 3, legato: true });
+    expect(parseDocument(serializeDocument(set)).voicing).toEqual(set.voicing);
+    const bad = JSON.parse(serializeDocument(set));
+    bad.voicing.priority = "loudest";
+    expect(() => parseDocument(JSON.stringify(bad))).toThrow();
   });
 });
 

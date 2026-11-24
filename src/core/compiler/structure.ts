@@ -1,10 +1,11 @@
 import { placement } from "../model/area";
-import type { PatchDocument } from "../model/types";
+import { notesAtOnce, voicingOf, type PatchDocument } from "../model/types";
 import { getModuleDef } from "../modules/registry";
 
 /**
  * A string that changes exactly when the compiled patch's structure changes:
- * which modules exist, how they are cabled, how many voices there are, which modules
+ * which modules exist, how they are cabled, how many voices there are and how they play
+ * notes, which modules
  * run in the voices, and what the knob pages control. Parameter values, tile positions and the patch name
  * are left out, because a running patch can take new values without being reloaded.
  * The exceptions are the values that are built into the patch (`ParamDef.argument`),
@@ -15,8 +16,11 @@ export function structureKey(doc: PatchDocument): string {
   // A module's own name is in the patch where one of its settings is on a knob: the
   // Organelle's screen names it. Elsewhere a name changes nothing that is exported.
   const onKnobs = new Set(doc.pages.flatMap((page) => page.knobs.flatMap((knob) => (knob ? [knob.module] : []))));
+  // How the voices play notes, but not Detune, which a running patch takes as a value.
+  const { mode, unison, priority, legato } = voicingOf(doc);
   return JSON.stringify([
-    doc.voices,
+    notesAtOnce(doc),
+    [mode, unison, mode === "mono" ? [priority, legato] : null],
     doc.modules.map((m) => [
       m.id,
       m.type,

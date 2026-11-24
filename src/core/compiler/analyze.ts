@@ -5,11 +5,15 @@ import {
   MIN_VOICES,
   SAMPLE_PARAM,
   SAMPLE_SLOTS,
+  NOTE_PRIORITIES,
   sampleLetter,
+  voiceCopies,
+  voicingOf,
   type ModuleId,
   type ModuleInstance,
   type PatchDocument,
   type SampleSlot,
+  type Voicing,
 } from "../model/types";
 import { isVoiceNotes, placement } from "../model/area";
 import { defaultPageName, moduleName } from "../model/ops";
@@ -138,6 +142,9 @@ export interface Analysis {
   samples: UsedSample[];
   /** The knob pages that are exported, in order: those with a knob in use. */
   pages: ResolvedPage[];
+  /** How the voices play notes, and how many copies of the voice run (`[clone]`'s count). */
+  voicing: Voicing;
+  copies: number;
 }
 
 export interface UsedSample {
@@ -178,8 +185,18 @@ export function analyze(doc: PatchDocument): Analysis {
   const error = (code: Diagnostic["code"], message: string, module?: ModuleId) =>
     diagnostics.push({ severity: "error", code, message, module });
 
+  const voicing = voicingOf(doc);
   if (!Number.isInteger(doc.voices) || doc.voices < MIN_VOICES || doc.voices > MAX_VOICES) {
     error("voice-count", `Voice count must be a whole number from ${MIN_VOICES} to ${MAX_VOICES}.`);
+  } else if (
+    !Number.isInteger(voicing.unison) ||
+    voicing.unison < 1 ||
+    !Number.isFinite(voicing.detune) ||
+    !NOTE_PRIORITIES.includes(voicing.priority)
+  ) {
+    error("voice-count", "Unison must be a whole number from 1, and Detune a number of cents.");
+  } else if (voiceCopies(doc) > MAX_VOICES) {
+    error("voice-count", `A patch runs at most ${MAX_VOICES} voices: these settings take ${voiceCopies(doc)}.`);
   }
 
   const byId = new Map<ModuleId, ResolvedModule>();
@@ -513,5 +530,7 @@ export function analyze(doc: PatchDocument): Analysis {
     taps,
     samples,
     pages,
+    voicing,
+    copies: voiceCopies(doc),
   };
 }

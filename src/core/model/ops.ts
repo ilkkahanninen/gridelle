@@ -12,6 +12,12 @@ import type { ModuleDef, PortDef } from "../modules/types";
 import {
   KNOBS_PER_PAGE,
   MAX_CYCLE,
+  MAX_DETUNE,
+  MAX_VOICES,
+  MIN_VOICES,
+  NOTE_PRIORITIES,
+  voicingOf,
+  type Voicing,
   MAX_MODULE_NAME,
   MAX_PAGES,
   MAX_TAPE_SECONDS,
@@ -730,6 +736,38 @@ export function setWavetable(doc: PatchDocument, id: ModuleId, bank: string): Pa
  */
 export function moduleName(module: Pick<ModuleInstance, "name">, def: Pick<ModuleDef, "name">): string {
   return module.name?.trim() || def.name;
+}
+
+/**
+ * Set how many notes play at once: a whole number, never so many that the voices they take
+ * (times Unison) are more than `MAX_VOICES`.
+ */
+export function setVoices(doc: PatchDocument, voices: number): PatchDocument {
+  if (!Number.isFinite(voices)) return doc;
+  const most = Math.max(MIN_VOICES, Math.floor(MAX_VOICES / voicingOf(doc).unison));
+  const next = Math.min(most, Math.max(MIN_VOICES, Math.round(voices)));
+  return next === doc.voices ? doc : { ...doc, voices: next };
+}
+
+/**
+ * Change how the voices play notes. Unison is a whole number from 1, as many as fit in
+ * `MAX_VOICES` with the notes that play at once; Detune is 0 to `MAX_DETUNE` cents.
+ */
+export function setVoicing(doc: PatchDocument, change: Partial<Voicing>): PatchDocument {
+  const current = voicingOf(doc);
+  const wanted = { ...current, ...change };
+  const notes = wanted.mode === "mono" ? 1 : doc.voices;
+  const unison = Number.isFinite(wanted.unison) ? Math.round(wanted.unison) : current.unison;
+  const detune = Number.isFinite(wanted.detune) ? wanted.detune : current.detune;
+  const next: Voicing = {
+    mode: wanted.mode === "mono" ? "mono" : "poly",
+    unison: Math.min(Math.max(1, Math.floor(MAX_VOICES / notes)), Math.max(1, unison)),
+    detune: Math.min(MAX_DETUNE, Math.max(0, detune)),
+    priority: NOTE_PRIORITIES.includes(wanted.priority) ? wanted.priority : current.priority,
+    legato: !!wanted.legato,
+  };
+  const same = (Object.keys(next) as (keyof Voicing)[]).every((key) => next[key] === current[key]);
+  return same ? doc : { ...doc, voicing: next };
 }
 
 /**

@@ -1,5 +1,5 @@
 import type { ModuleId, PatchDocument } from "../model/types";
-import { KEYBOARD_ABSTRACTION, VOICE_ABSTRACTION } from "../modules/registry";
+import { KEYBOARD_ABSTRACTION, MONO_ABSTRACTION, UNISON_ABSTRACTION, VOICE_ABSTRACTION } from "../modules/registry";
 import { objectClasses } from "../pd/inspect";
 import { isPdObject } from "../pd/vanilla049";
 import { analyze, type Diagnostic } from "./analyze";
@@ -95,6 +95,8 @@ export function compile(doc: PatchDocument, library: AbstractionLibrary): Compil
   const needed = withHelpers(
     [
       VOICE_ABSTRACTION,
+      ...(analysis.voicing.mode === "mono" ? [MONO_ABSTRACTION] : []),
+      ...(analysis.voicing.unison > 1 ? [UNISON_ABSTRACTION] : []),
       ...analysis.modules.map((m) => m.def.pd),
       ...(usesKnobs(analysis) ? [KNOB_ABSTRACTION] : []),
       ...(analysis.precords.some((p) => analysis.modules.find((m) => m.instance.id === p.to)?.scope === "global") ? [KEYBOARD_ABSTRACTION] : []),

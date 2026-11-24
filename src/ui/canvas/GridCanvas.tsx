@@ -203,7 +203,12 @@ export function GridCanvas() {
       },
       (_up, cancelled) => {
         setAreaDrag(null);
-        if (cancelled || !drag) return;
+        if (cancelled) return;
+        // A click on the header, with no drag, shows the voices' settings in the settings pane.
+        if (!drag) {
+          if (grip === "move") useEditor.getState().clearSelection();
+          return;
+        }
         const { area } = drag;
         useEditor
           .getState()

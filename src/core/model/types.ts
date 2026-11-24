@@ -103,11 +103,34 @@ export interface Area {
   height: number;
 }
 
+/** Which of the held keys a mono patch plays. */
+export type NotePriority = "last" | "low" | "high";
+export const NOTE_PRIORITIES: readonly NotePriority[] = ["last", "low", "high"];
+
+/** How the voice area plays notes. */
+export interface Voicing {
+  /** `poly`: `PatchDocument.voices` notes at once, each on voices of its own. `mono`: one note at a time. */
+  mode: "poly" | "mono";
+  /** The voices each note plays on, detuned from each other by `detune`. */
+  unison: number;
+  /** Cents the outermost voices of a note are from it; the others are spread evenly between. */
+  detune: number;
+  /** Mono: which of the held keys sounds. */
+  priority: NotePriority;
+  /** Mono: a key played while a note sounds changes its pitch without starting it again. */
+  legato: boolean;
+}
+
+export const DEFAULT_VOICING: Voicing = { mode: "poly", unison: 1, detune: 10, priority: "last", legato: false };
+export const MAX_DETUNE = 100;
+
 export interface PatchDocument {
   version: typeof DOCUMENT_VERSION;
   name: string;
-  /** Number of voices the Organelle patch allocates. 1 makes it monophonic. */
+  /** The notes that play at once, in poly mode. Each note takes `voicing.unison` voices. */
   voices: number;
+  /** How the voices play notes; `DEFAULT_VOICING` when absent. */
+  voicing?: Voicing;
   /**
    * The voice area: the modules whose tiles lie inside it run once in every voice, the
    * others once for the whole patch. Its first row is its header. See `model/area.ts`.
@@ -121,7 +144,15 @@ export interface PatchDocument {
 }
 
 export const MIN_VOICES = 1;
+/** The most voices a patch runs: notes at once times Unison. */
 export const MAX_VOICES = 16;
+
+export const voicingOf = (doc: Pick<PatchDocument, "voicing">): Voicing => doc.voicing ?? DEFAULT_VOICING;
+/** How many notes sound at once. */
+export const notesAtOnce = (doc: Pick<PatchDocument, "voices" | "voicing">): number =>
+  voicingOf(doc).mode === "mono" ? 1 : doc.voices;
+/** How many copies of the voice run: notes at once times Unison. */
+export const voiceCopies = (doc: Pick<PatchDocument, "voices" | "voicing">): number => notesAtOnce(doc) * voicingOf(doc).unison;
 
 export function emptyDocument(name = "Untitled"): PatchDocument {
   return { version: DOCUMENT_VERSION, name, voices: 4, voiceArea: { x: 0, y: 0, width: 0, height: 0 }, modules: [], cables: [], pages: [] };

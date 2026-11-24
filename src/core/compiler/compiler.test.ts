@@ -2,7 +2,7 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { basicSynth, fixtures, sharedFilter } from "../fixtures";
 import * as ops from "../model/ops";
-import { DOCUMENT_VERSION, type PatchDocument } from "../model/types";
+import { DEFAULT_VOICING, DOCUMENT_VERSION, type PatchDocument, type Voicing } from "../model/types";
 import { objectBoxes, objectClasses } from "../pd/inspect";
 import { PD_EXTRA_049, VANILLA_049_OBJECTS } from "../pd/vanilla049";
 import { abstractionLibrary } from "../pdlib";
@@ -129,6 +129,53 @@ describe("compile", () => {
     const outside = compile(doc({ modules: [{ id: "ge1", type: "keys", x: 100, y: 0, params: {} }] }), abstractionLibrary).files;
     for (const inlet of [0, 1, 2]) expect(outside["main.pd"]).toMatch(new RegExp(`#X connect \\d+ ${inlet} \\d+ ${inlet};`));
     expect(objectBoxes(outside["main.pd"]).map((b) => b.name)).toEqual(expect.arrayContaining(["ge-keyboard", "ge-keys"]));
+  });
+
+  describe("voice behaviour", () => {
+    const voiced = (voicing: Partial<Voicing>, voices = 4) => ({ ...basicSynth, voices, voicing: { ...DEFAULT_VOICING, ...voicing } });
+    const boxes = (text: string) => objectBoxes(text).map((b) => [b.name, ...b.args].join(" "));
+
+    it("plays one note at a time in mono, by priority and legato, on one voice", () => {
+      const { files, params } = compile(voiced({ mode: "mono", priority: "high", legato: true }), abstractionLibrary);
+      const main = boxes(files["main.pd"]);
+      expect(main).toEqual(expect.arrayContaining(["ge-mono 2 1", "list prepend 0", "clone voice 1"]));
+      expect(main.some((b) => b.startsWith("poly"))).toBe(false);
+      expect(Object.keys(files)).toContain("ge-mono.pd");
+      expect(files["ge-unison.pd"]).toBeUndefined();
+      // With one voice to a note, nothing is detuned.
+      expect(params.map((p) => p.receiver)).not.toContain("ge-detune");
+      expect(boxes(files["voice.pd"])).toContain("ge-voice");
+    });
+
+    it("gives each note Unison voices in a row, each with its share of Detune", () => {
+      const { files, params } = compile(voiced({ unison: 3, detune: 20 }), abstractionLibrary);
+      const main = boxes(files["main.pd"]);
+      expect(main).toEqual(expect.arrayContaining(["poly 4 1", "pack f f f 0", "ge-unison 3", "clone voice 12"]));
+      expect(boxes(files["voice.pd"])).toContain("ge-voice $1 3");
+      expect(params).toContainEqual({ receiver: "ge-detune", value: 20 });
+      // In mono the one note goes to all of them.
+      const mono = boxes(compile(voiced({ mode: "mono", unison: 3 }), abstractionLibrary).files["main.pd"]);
+      expect(mono).toEqual(expect.arrayContaining(["ge-mono 0 0", "list prepend 0", "ge-unison 3", "clone voice 3"]));
+    });
+
+    it("tells a Scope the first voice of the latest note", () => {
+      const scoped = { ...fixtures.scoped, voicing: { ...DEFAULT_VOICING, unison: 2 }, voices: 2 };
+      expect(boxes(compile(scoped, abstractionLibrary).files["main.pd"])).toContain("* 2");
+    });
+
+    it("reloads for the mode, Unison, priority and legato, and takes Detune live", () => {
+      const key = structureKey(voiced({ unison: 2 }));
+      expect(structureKey(voiced({ unison: 2, detune: 40 }))).toBe(key);
+      expect(structureKey(voiced({ unison: 3 }))).not.toBe(key);
+      expect(structureKey(voiced({ mode: "mono", unison: 2 }))).not.toBe(key);
+      const mono = structureKey(voiced({ mode: "mono" }));
+      expect(structureKey(voiced({ mode: "mono", legato: true }))).not.toBe(mono);
+      expect(structureKey(voiced({ mode: "mono", priority: "low" }))).not.toBe(mono);
+      // Mono plays one note, however many the poly setting says.
+      expect(structureKey(voiced({ mode: "mono" }, 8))).toBe(mono);
+      // A document with no voice settings is the default.
+      expect(structureKey({ ...basicSynth, voicing: DEFAULT_VOICING })).toBe(structureKey(basicSynth));
+    });
   });
 
   it("reloads when a module moves into the voice area or out of it, not when it moves within", () => {
@@ -701,6 +748,8 @@ describe("diagnostics", () => {
     ["voice-count", { ...wired, voices: 0 }],
     ["voice-count", { ...wired, voices: 2.5 }],
     ["voice-count", { ...wired, voices: 17 }],
+    ["voice-count", { ...wired, voices: 8, voicing: { ...DEFAULT_VOICING, unison: 3 } }],
+    ["voice-count", { ...wired, voicing: { ...DEFAULT_VOICING, unison: 0 } }],
   ];
   it.each(broken)("reports %s and produces no files", (code, bad) => {
     const result = compile(bad, abstractionLibrary);

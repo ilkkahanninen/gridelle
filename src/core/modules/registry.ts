@@ -973,3 +973,9 @@ export const VOICE_ABSTRACTION = "ge-voice";
  * what Keys gives there. Pitch, gate and velocity, as `ge-voice` gives them in a voice.
  */
 export const KEYBOARD_ABSTRACTION = "ge-keyboard";
+/** The mono note allocator: one note at a time from the held keys, by priority, legato or not. */
+export const MONO_ABSTRACTION = "ge-mono";
+/** Sends a note on to each of the voices it plays on, with Unison above 1. */
+export const UNISON_ABSTRACTION = "ge-unison";
+/** What every voice's Detune listens to: the cents its outermost voices are from the note. */
+export const DETUNE_RECEIVER = "ge-detune";

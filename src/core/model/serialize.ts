@@ -1,4 +1,4 @@
-import { DOCUMENT_VERSION, KNOBS_PER_PAGE, SAMPLE_SLOTS, type PatchDocument } from "./types";
+import { DOCUMENT_VERSION, KNOBS_PER_PAGE, NOTE_PRIORITIES, SAMPLE_SLOTS, type NotePriority, type PatchDocument } from "./types";
 
 /** File extension for saved patches. */
 export const FILE_EXTENSION = "gridelle";
@@ -83,7 +83,25 @@ export function parseDocument(text: string): PatchDocument {
     Number.isInteger(area.height) &&
     (area.width as number) >= 0 &&
     (area.height as number) >= 0;
-  if (typeof data.name !== "string" || typeof data.voices !== "number" || !areaOk || !modulesOk || !cablesOk || !pagesOk || !samplesOk) {
+  const voicing = data.voicing;
+  const voicingOk =
+    voicing === undefined ||
+    (isRecord(voicing) &&
+      (voicing.mode === "poly" || voicing.mode === "mono") &&
+      typeof voicing.unison === "number" &&
+      typeof voicing.detune === "number" &&
+      NOTE_PRIORITIES.includes(voicing.priority as NotePriority) &&
+      typeof voicing.legato === "boolean");
+  if (
+    typeof data.name !== "string" ||
+    typeof data.voices !== "number" ||
+    !voicingOk ||
+    !areaOk ||
+    !modulesOk ||
+    !cablesOk ||
+    !pagesOk ||
+    !samplesOk
+  ) {
     throw new Error("This patch file is damaged and cannot be opened.");
   }
   return data as unknown as PatchDocument;

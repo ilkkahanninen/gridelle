@@ -122,6 +122,30 @@
   width: 64px;
 }
 
+/* A slider with its value after it. */
+.inspector-range {
+  grid-template-columns: 56px 1fr auto;
+}
+
+.inspector-field input[type="range"] {
+  padding: 0;
+  border: none;
+  background: none;
+  accent-color: var(--accent);
+}
+
+.inspector-range output {
+  min-width: 44px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.inspector-note {
+  margin: 0;
+  line-height: 1.4;
+  color: var(--text-dim);
+}
+
 .inspector-check {
   display: flex;
   align-items: baseline;
