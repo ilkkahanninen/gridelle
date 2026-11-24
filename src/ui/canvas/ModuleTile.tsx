@@ -151,6 +151,9 @@ function Port({
 }
 
 /** The module's picture from the browser, in the colour of its category. */
+/** A typed value as a tile shows it: up to three decimals, and none it does not need. */
+const shownValue = (value: number) => String(Number(value.toFixed(3)));
+
 function Glyph({ type, className }: { type: string; className: string }) {
   const path = GLYPHS[type];
   return path ? (
@@ -183,8 +186,10 @@ export const ModuleTile = memo(function ModuleTile({
   const rows = def.layout === "rows";
   if (rows) classes.push("tile-rows");
   // Below the name is the first row: a narrow tile whose first row has a knob (the
-  // Attenuator) has no room there for the picture.
-  const picture = !narrow || !(rows && def.inputs[0]?.param);
+  // Attenuator) has no room there for the picture. A typed value (the Constant's) is shown
+  // there instead of it.
+  const entry = def.params.find((p) => p.entry);
+  const picture = !entry && (!narrow || !(rows && def.inputs[0]?.param));
 
   return (
     <div
@@ -204,6 +209,7 @@ export const ModuleTile = memo(function ModuleTile({
         <span>{ops.moduleName(module, def)}</span>
       </div>
       {narrow && picture && <Glyph type={def.type} className="tile-glyph-body" />}
+      {entry && <span className="tile-value">{shownValue(ops.paramValue(module, entry.id))}</span>}
       {def.tap && <ScopeView module={module} />}
       {def.inputs.map((port, i) => (
         <Port

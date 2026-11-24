@@ -90,7 +90,8 @@ describe("module registry", () => {
 
   it("gives every knob a row, and every module with knobs the rows layout", () => {
     for (const def of moduleDefs) {
-      const knobs = def.params.filter((p) => !p.options).map((p) => p.id);
+      // A choice is made in the settings pane, and so is a number typed there.
+      const knobs = def.params.filter((p) => !p.options && !p.entry).map((p) => p.id);
       if (knobs.length === 0) continue;
       expect(def.layout, def.type).toBe("rows");
       expect(def.inputs.flatMap((port) => (port.param ? [port.param] : [])).sort(), def.type).toEqual(knobs.sort());

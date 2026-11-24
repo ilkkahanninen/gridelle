@@ -132,7 +132,7 @@ export const MODULE_DOCS: Record<string, string> = {
   "math-add": "A plus B. Adds two signals: two modulations into one input, or an offset onto a wave.",
   "math-multiply": "A times B. One signal sets the level of the other: an envelope on an LFO, or two sounds for ring modulation.",
   "math-constant":
-    "A fixed value as a signal, to patch into any input. Out is Value times Range, and times whatever is patched into the Value input.",
+    "A fixed value as a signal, to patch into any input. Type the Value here; the tile shows it.",
   "math-scale": "In times Amount, plus Offset. A negative Amount turns the signal upside down.",
   "math-crossfade": "Blends two signals: A at Mix 0, B at Mix 1, and both in between. Patch a signal into Mix to move from one to the other.",
   "math-smooth":

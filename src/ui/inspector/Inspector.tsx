@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { containerOf, groupParent, groupsOf, placement } from "../../core/model/area";
 import * as ops from "../../core/model/ops";
 import {
@@ -81,6 +82,39 @@ function ChoiceRow({ module, param }: { module: ModuleInstance; param: ParamDef 
 }
 
 /**
+ * A number typed in, not turned on a knob (`ParamDef.entry`): the Constant's Value. What is
+ * typed is kept as it is while it is not yet a number ("-", "0."), and set when it is; the
+ * field follows the value when it changes otherwise (an undo).
+ */
+function EntryRow({ module, param }: { module: ModuleInstance; param: ParamDef }) {
+  const id = `param-${module.id}-${param.id}`;
+  const value = ops.paramValue(module, param.id);
+  const [text, setText] = useState(String(value));
+  useEffect(() => setText((shown) => (Number(shown) === value ? shown : String(value))), [value]);
+  return (
+    <div className="inspector-param inspector-entry">
+      <label htmlFor={id}>{param.label}</label>
+      <input
+        id={id}
+        type="text"
+        inputMode="decimal"
+        spellCheck={false}
+        value={text}
+        onChange={(e) => {
+          setText(e.target.value);
+          const typed = Number(e.target.value.replace(",", "."));
+          if (e.target.value.trim() !== "" && Number.isFinite(typed)) {
+            useEditor.getState().apply((doc) => ops.setParam(doc, module.id, param.id, typed), `param:${module.id}:${param.id}`);
+          }
+        }}
+        // Leaving it shows what was set: within the range, and a number.
+        onBlur={() => setText(String(ops.paramValue(useEditor.getState().doc.modules.find((m) => m.id === module.id) ?? module, param.id)))}
+      />
+    </div>
+  );
+}
+
+/**
  * What the module does, and what it has besides the knobs on its tile: its choices, and
  * whether its inputs follow the played note while nothing is patched into them.
  */
@@ -89,6 +123,7 @@ function ModuleInspector({ module, def }: { module: ModuleInstance; def: ModuleD
   const inVoices = useEditor((s) => placement(s.doc, module) === "inside");
   const precordPorts = def.inputs.filter((p) => p.precord);
   const choices = def.params.filter((param) => param.options);
+  const entries = def.params.filter((param) => param.entry);
   return (
     <>
       <header className={`inspector-title category-${def.category}`}>
@@ -112,6 +147,14 @@ function ModuleInspector({ module, def }: { module: ModuleInstance; def: ModuleD
       {MODULE_DOCS[def.type] && (
         <section className="inspector-doc">
           <p>{MODULE_DOCS[def.type]}</p>
+        </section>
+      )}
+
+      {entries.length > 0 && (
+        <section>
+          {entries.map((param) => (
+            <EntryRow key={param.id} module={module} param={param} />
+          ))}
         </section>
       )}
 

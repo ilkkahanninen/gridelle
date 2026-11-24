@@ -106,6 +106,25 @@
 }
 
 /* On a tile one cell wide: in the middle, between the ports of its edges. */
+/* A typed value, where a narrow tile's picture would be: the Constant's. */
+.tile-value {
+  position: absolute;
+  /* In the middle of the tile, as clear of its left edge as of the output on its right. */
+  left: 18px;
+  right: 18px;
+  top: 46px;
+  transform: translateY(-50%);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
+  font-size: 14px;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  pointer-events: none;
+}
+
 .tile-glyph-body {
   position: absolute;
   left: 50%;

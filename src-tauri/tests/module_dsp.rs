@@ -73,7 +73,7 @@ fn inlets_of(name: &str) -> &'static [Inlet] {
         "ge-sample-hold" | "ge-pitch-quantize" => &[Main, Mod],
         "ge-math-add" | "ge-math-multiply" | "ge-math-min" | "ge-math-max" | "ge-logic-and" | "ge-logic-or" => &[Main, Mod],
         "ge-math-abs" | "ge-logic-not" | "ge-logic-toggle" => &[Main],
-        "ge-math-constant" => &[Setting],
+        "ge-math-constant" => &[],
         "ge-math-scale" | "ge-math-smooth" => &[Main, Setting, Setting],
         "ge-math-crossfade" => &[Main, Mod, Setting],
         "ge-logic-compare" | "ge-logic-divider" => &[Main, Setting],
@@ -1785,14 +1785,10 @@ fn math_modules(pd: &mut Pd, dir: &Path) {
         }
     });
     with_values(pd, dir, "ge-math-constant", |pd| {
-        set(pd, &[("value", 0.5), ("range", 0.0)]);
-        close(settled_pitch(pd), 0.5, 0.0001, "constant is its Value");
-        set(pd, &[("range", 1.0)]);
-        close(settled_pitch(pd), 5.0, 0.0001, "constant times 10");
-        set(pd, &[("range", 2.0), ("value", -0.25)]);
-        close(settled_pitch(pd), -25.0, 0.0001, "constant times 100");
-        pd.send_float("t-in0", 0.5);
-        close(settled_pitch(pd), -12.5, 0.0001, "constant's input multiplies it");
+        for value in [0.5, -25.0, 440.0] {
+            set(pd, &[("value", value)]);
+            close(settled_pitch(pd), value, 0.0001, &format!("constant is its Value, {value}"));
+        }
     });
     with_values(pd, dir, "ge-math-scale", |pd| {
         set(pd, &[("amount", -2.0), ("offset", 0.25)]);
@@ -2533,7 +2529,6 @@ fn setting_inputs(pd: &mut Pd, dir: &Path) {
         ("ge-pitch-transpose", 1, "octave", 2.0, 0.5),
         ("ge-pitch-transpose", 2, "semi", 3.0, 4.0),
         ("ge-pitch-glide", 1, "time", 400.0, 0.5),
-        ("ge-math-constant", 0, "value", 0.8, 0.5),
         ("ge-math-scale", 1, "amount", 1.6, 0.5),
         ("ge-math-scale", 2, "offset", 0.8, -0.5),
         ("ge-math-crossfade", 2, "mix", 0.8, 0.5),

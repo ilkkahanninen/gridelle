@@ -62,6 +62,11 @@ export interface ParamDef {
    */
   options?: string[];
   /**
+   * A number typed in the settings pane instead of turned on a knob: no knob on the tile
+   * and no input of its own (the Constant's Value). The tile shows the value.
+   */
+  entry?: boolean;
+  /**
    * The value is built into the patch instead of sent to it: it is passed to the module's
    * abstraction as a creation argument after the module's id (`$2`, then `$3` for a second
    * such parameter), there is no receiver for it, and changing it reloads the patch. For

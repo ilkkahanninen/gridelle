@@ -834,12 +834,18 @@ const DEFS: ModuleDef[] = [
   operator("math-add", "Add", "math", [anyInput("a", "A"), anyInput("b", "B")], anyOutput),
   // A ring modulator for two sounds, a VCA for a sound and a modulation.
   operator("math-multiply", "Multiply", "math", [anyInput("a", "A"), anyInput("b", "B")], anyOutput),
-  // A knob as a signal, to patch a fixed value into any input. Range multiplies it.
-  calculator("math-constant", "Constant", "math", [settingInput("value", "Value")], anyOutput, [
-    { id: "value", label: "Value", min: -1, max: 1, default: 1, curve: "lin" },
-    // In the order `ge-math-constant` numbers them.
-    choice("range", "Range", ["x 1", "x 10", "x 100"]),
-  ]),
+  // A value as a signal, to patch into any input: typed in the settings pane, shown on the tile.
+  {
+    type: "math-constant",
+    name: "Constant",
+    category: "math",
+    width: 1,
+    height: 1,
+    inputs: [],
+    outputs: [anyOutput],
+    params: [{ id: "value", label: "Value", min: -10000, max: 10000, default: 1, curve: "lin", entry: true }],
+    pd: "ge-math-constant",
+  },
   // An attenuverter with an offset: in x Amount + Offset.
   calculator("math-scale", "Scale", "math", [anyInput("in", "In"), settingInput("amount", "Amount"), settingInput("offset", "Offset")], anyOutput, [
     { id: "amount", label: "Amount", min: -2, max: 2, default: 1, curve: "lin" },
