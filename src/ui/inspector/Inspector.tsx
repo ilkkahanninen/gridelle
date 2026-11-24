@@ -221,16 +221,12 @@ function VoiceSettings() {
               ))}
             </select>
           </div>
-          <label className="inspector-check">
+          <label className="inspector-check" title="A key played while another is held changes the pitch without starting the note again">
             <input type="checkbox" checked={voicing.legato} onChange={(e) => set({ legato: e.target.checked })} />
-            <span>Legato: a key played while another is held changes the pitch without starting the note again</span>
+            <span>Legato</span>
           </label>
         </>
       )}
-      <p className="inspector-note">
-        {mono ? "One note at a time, on one voice." : `${voices} ${voices === 1 ? "note" : "notes"} at once, each on a voice of its own.`} For
-        several detuned copies of an oscillator, put it in a unison group (Groups, in the module browser).
-      </p>
     </section>
   );
 }
@@ -294,15 +290,6 @@ function PatchInspector() {
           onChange={(e) => apply((doc) => ({ ...doc, name: e.target.value }), "patch-name")}
         />
       </header>
-      {/* The width of the pane, like what a module's pane says of the module. */}
-      <section className="inspector-doc">
-        <p>
-          Each voice runs its own copy of the modules in the voice area, all the time: an oscillator there sounds whether or not
-          a key is down, on C3 until its voice gets a note. An Amp with an envelope gives notes a beginning and an end. Modules
-          outside the area run once: a cable from one into the area gives every voice the same signal, and one out of the area
-          adds the voices up. Poly plays a note on voices of its own; Mono plays one note at a time, from the keys held.
-        </p>
-      </section>
       <VoiceSettings />
 
       {diagnostics.length > 0 && (
