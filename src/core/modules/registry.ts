@@ -986,7 +986,8 @@ export const PLACE_ABSTRACTION = "ge-unison-place";
 export const VOICE_SHELF: readonly PortDef[] = [
   { id: "pitch", label: "Pitch", hint: "pitch" },
   { id: "gate", label: "Gate", hint: "gate" },
-  { id: "velocity", label: "Velocity", hint: "mod" },
+  // The shelf is narrow: its tooltip says Velocity in full.
+  { id: "velocity", label: "Vel.", hint: "mod" },
 ];
 export const UNISON_SHELF: readonly PortDef[] = [
   { id: "index", label: "Index", hint: "mod" },

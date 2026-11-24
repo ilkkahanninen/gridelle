@@ -17,9 +17,16 @@ const NOTES_INSET = 26;
 /** Where the voices' Notes input is, on the left of the area's header, in world pixels. */
 export const notesPortPoint = (area: Area): Point => ({ x: area.x * CELL + NOTES_INSET, y: area.y * CELL + CELL / 2 });
 
+/**
+ * How far a container's lines keep from the tiles, in pixels: its outline is drawn this far
+ * in from its cells, and its header's bottom and its shelf's right side this far out from
+ * its inside, so that none of them runs along a tile's.
+ */
+export const CONTAINER_PAD = 8;
+
 /** Where output `index` of a container's shelf is, at the right edge of its left column, in world pixels. */
 export const shelfPortPoint = (area: Area, index: number): Point => ({
-  x: area.x * CELL + AREA_BORDER * CELL - PORT_INSET,
+  x: area.x * CELL + AREA_BORDER * CELL - CONTAINER_PAD - PORT_INSET,
   y: (area.y + AREA_BORDER) * CELL + ROW_PITCH / 2 + index * ROW_PITCH,
 });
 
@@ -109,7 +116,14 @@ function Frame({
   children: React.ReactNode;
 }) {
   const border = AREA_BORDER * CELL;
+  const pad = CONTAINER_PAD;
+  // The cells it covers, and the panel drawn `pad` in from them; positions below are the panel's.
   const [width, height] = [area.width * CELL, area.height * CELL];
+  const [w, h] = [width - 2 * pad, height - 2 * pad];
+  // The header's height and the shelf's width: `pad` short of the inside.
+  const band = border - 2 * pad;
+  // Where the inside begins, from the panel's edge.
+  const edge = border - pad;
   const grip = (where: AreaGrip, style: React.CSSProperties) => (
     <div className={`voice-area-grip voice-area-${where}`} style={style} onPointerDown={(e) => onGrip(e, where)} title={`Drag to resize the ${name}`} />
   );
@@ -117,15 +131,15 @@ function Frame({
   if (blocked) classes.push("voice-area-blocked");
   if (selected) classes.push("container-selected");
   return (
-    <div className={classes.join(" ")} style={{ left: area.x * CELL, top: area.y * CELL, width, height }}>
-      <div className="container-shelf" style={{ left: 0, top: border, width: border, height: height - border }} />
-      {grip("left", { left: 0, top: border, width: border, height: height - 2 * border })}
-      {grip("right", { left: width - border, top: border, width: border, height: height - 2 * border })}
-      {grip("bottom", { left: 0, top: height - border, width: width - border, height: border })}
-      {grip("corner", { left: width - border, top: height - border, width: border, height: border })}
+    <div className={classes.join(" ")} style={{ left: area.x * CELL + pad, top: area.y * CELL + pad, width: w, height: h }}>
+      <div className="container-shelf" style={{ left: 0, top: band, width: band, height: h - band }} />
+      {grip("left", { left: 0, top: band, width: edge, height: h - band - edge })}
+      {grip("right", { left: w - edge, top: band, width: edge, height: h - band - edge })}
+      {grip("bottom", { left: 0, top: h - edge, width: w - edge, height: edge })}
+      {grip("corner", { left: w - edge, top: h - edge, width: edge, height: edge })}
       <div
         className="voice-area-grip voice-area-header"
-        style={{ left: 0, top: 0, width, height: border }}
+        style={{ left: 0, top: 0, width: w, height: band }}
         onPointerDown={(e) => onGrip(e, "move")}
         title={`Drag to move the ${name} with what is in it`}
       >
@@ -136,7 +150,7 @@ function Frame({
         <div
           key={port.id}
           className={`port port-out hint-${port.hint} container-shelf-port${shelf.connected.has(`out:${port.id}`) ? " port-cabled" : ""}`}
-          style={{ top: border + ROW_PITCH / 2 + i * ROW_PITCH, right: width - border + PORT_INSET }}
+          style={{ top: edge + ROW_PITCH / 2 + i * ROW_PITCH, right: width - border + PORT_INSET }}
           data-port-module={shelf.module}
           data-port-id={port.id}
           data-port-side="out"
@@ -180,7 +194,7 @@ export function VoiceArea({
       {/* The notes the voices play: the keyboard's, or a note module's patched in here. */}
       <div
         className={`port port-in hint-notes voice-area-notes${notesCabled ? " port-cabled" : " port-precord"}`}
-        style={{ top: CELL / 2, left: NOTES_INSET }}
+        style={{ top: CELL / 2 - CONTAINER_PAD, left: NOTES_INSET - CONTAINER_PAD }}
         data-port-module={VOICE_NOTES.module}
         data-port-id={VOICE_NOTES.port}
         data-port-side="in"

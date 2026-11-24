@@ -18,7 +18,7 @@ import {
   type Point,
 } from "./geometry";
 import { ModuleTile } from "./ModuleTile";
-import { GroupArea, gripped, notesPortPoint, shelfPortPoint, VoiceArea, type AreaGrip } from "./VoiceArea";
+import { CONTAINER_PAD, GroupArea, gripped, notesPortPoint, shelfPortPoint, VoiceArea, type AreaGrip } from "./VoiceArea";
 import "./canvas.css";
 
 interface TileDrag {
@@ -656,7 +656,12 @@ export function GridCanvas() {
         {ghost && placing === GROUP_PLACING && (
           <div
             className="tile-ghost group-ghost"
-            style={{ left: ghost.cell.x * CELL, top: ghost.cell.y * CELL, width: ops.NEW_GROUP.width * CELL, height: ops.NEW_GROUP.height * CELL }}
+            style={{
+              left: ghost.cell.x * CELL + CONTAINER_PAD,
+              top: ghost.cell.y * CELL + CONTAINER_PAD,
+              width: ops.NEW_GROUP.width * CELL - 2 * CONTAINER_PAD,
+              height: ops.NEW_GROUP.height * CELL - 2 * CONTAINER_PAD,
+            }}
           />
         )}
         {marquee && (
