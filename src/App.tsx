@@ -1,11 +1,12 @@
 import { useEffect } from "react";
-import { exportToOrganelle, newPatch, savePatch, sendToOrganelle } from "./state/actions";
 import { startPresets } from "./state/presets";
 import { cancelAssign } from "./state/assign";
-import { copySelection, cutSelection, duplicateSelection, pasteClipboard } from "./state/clipboard";
+import { installMenu } from "./bridge/menu";
+import { runCommand, type Command } from "./state/commands";
 import { startPreviewSync } from "./state/preview";
 import { useEditor } from "./state/store";
-import { showSidePane, useUi } from "./state/ui";
+import { useUi } from "./state/ui";
+import { isTextField } from "./ui/textField";
 import { GridCanvas } from "./ui/canvas/GridCanvas";
 import { Palette } from "./ui/palette/Palette";
 import { Dock } from "./ui/shell/Dock";
@@ -16,66 +17,62 @@ import "@fontsource/barlow-semi-condensed/500.css";
 import "@fontsource/barlow-semi-condensed/600.css";
 import "./App.css";
 
-const isTextField = (target: EventTarget | null) =>
-  target instanceof HTMLElement &&
-  (target.isContentEditable || (/^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) && (target as HTMLInputElement).type !== "range"));
-
 function useShortcuts() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const editor = useEditor.getState();
       const command = e.metaKey || e.ctrlKey;
       const key = e.key.toLowerCase();
+      const run = (name: Command) => {
+        e.preventDefault();
+        runCommand(name, "key");
+      };
 
       if (command && key === "s") {
-        e.preventDefault();
-        void savePatch();
+        run("save");
       } else if (command && key === "o") {
-        // Opening is picking from the Presets pane.
-        e.preventDefault();
-        showSidePane("presets");
+        run("open");
       } else if (command && key === "n") {
-        e.preventDefault();
-        void newPatch();
+        run("new");
       } else if (command && key === "e") {
-        e.preventDefault();
         // Shift sends it over Wi-Fi instead of writing a folder.
-        void (e.shiftKey ? sendToOrganelle() : exportToOrganelle());
+        run(e.shiftKey ? "send" : "export");
       } else if (isTextField(e.target)) {
         // Let text fields keep undo, select-all and delete for themselves.
       } else if (command && key === "z") {
-        e.preventDefault();
-        if (e.shiftKey) editor.redo();
-        else editor.undo();
+        run(e.shiftKey ? "redo" : "undo");
       } else if (command && key === "a") {
-        e.preventDefault();
-        editor.select(editor.doc.modules.map((m) => m.id));
+        run("selectAll");
       } else if (command && (key === "c" || key === "x")) {
         // Text that has been selected, as in the settings pane, is what gets copied then.
         if (window.getSelection()?.isCollapsed === false) return;
-        e.preventDefault();
-        if (key === "c") copySelection();
-        else cutSelection();
+        run(key === "c" ? "copy" : "cut");
       } else if (command && key === "v") {
-        e.preventDefault();
-        pasteClipboard();
+        run("paste");
       } else if (command && key === "d") {
-        e.preventDefault();
-        duplicateSelection();
+        run("duplicate");
       } else if (command && key === "g") {
-        e.preventDefault();
-        editor.wrapSelection();
+        run("group");
       } else if (key === "delete" || key === "backspace") {
-        e.preventDefault();
-        editor.deleteSelection();
+        run("delete");
       } else if (key === "escape" && useUi.getState().assigning) {
         cancelAssign();
       } else if (key === "escape" && !useUi.getState().placing && !useUi.getState().cableDrag) {
-        editor.clearSelection();
+        useEditor.getState().clearSelection();
       }
     };
+    // The menu bar's Cut, Copy and Paste are the system's, for text; on the patch they arrive
+    // as these events, which a key the page handled above never brings.
+    const onClipboard = (e: ClipboardEvent) => {
+      if (isTextField(e.target) || isTextField(document.activeElement) || window.getSelection()?.isCollapsed === false) return;
+      e.preventDefault();
+      runCommand(e.type as "cut" | "copy" | "paste", "menu");
+    };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    for (const type of ["cut", "copy", "paste"] as const) document.addEventListener(type, onClipboard);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      for (const type of ["cut", "copy", "paste"] as const) document.removeEventListener(type, onClipboard);
+    };
   }, []);
 }
 
@@ -100,6 +97,8 @@ function App() {
   useEffect(() => startPreviewSync(), []);
   // The presets that come with the editor are files in the presets folder from its first run on.
   useEffect(() => void startPresets(), []);
+  // The desktop app's menu bar; nothing in a plain browser.
+  useEffect(() => void installMenu(), []);
   useShortcuts();
   useAssignCancel();
 
