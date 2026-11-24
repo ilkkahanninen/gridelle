@@ -136,8 +136,9 @@ function place(doc: PatchDocument, id: ModuleId, type: string, at: Cell): PatchD
 }
 
 /**
- * Whether the modules `ids` can all shift by `delta` without landing on another module, or
- * across the edge of the voice area or a unison group. A module may move into either or out.
+ * Whether the modules `ids` can all shift by `delta` as they are, without landing on another
+ * module or across the edge of the voice area or a unison group: what `moveModules` does
+ * when they may leave their containers.
  */
 export function canMove(doc: PatchDocument, ids: ReadonlySet<ModuleId>, delta: Cell): boolean {
   return doc.modules.every((m) => {
@@ -148,12 +149,43 @@ export function canMove(doc: PatchDocument, ids: ReadonlySet<ModuleId>, delta: C
   });
 }
 
-export function moveModules(doc: PatchDocument, ids: ReadonlySet<ModuleId>, delta: Cell): PatchDocument {
-  if ((delta.x === 0 && delta.y === 0) || ids.size === 0 || !canMove(doc, ids, delta)) return doc;
-  return {
-    ...doc,
-    modules: doc.modules.map((m) => (ids.has(m.id) ? { ...m, x: m.x + delta.x, y: m.y + delta.y } : m)),
-  };
+/**
+ * Move the modules `ids` by `delta`.
+ *
+ * A module stays in its container (the voice area, a unison group) or goes into one in it:
+ * where it would go past the container's edge, the container grows instead, its border
+ * moving out with the module, and pushes what is beside it, which may push the border of
+ * another container in turn (see `Boxes`). With `leave` the modules go wherever `delta`
+ * takes them, out of their containers too, as long as none lands across an edge. Either way
+ * the move is refused when a module would land on another or where it may not be.
+ */
+export function moveModules(doc: PatchDocument, ids: ReadonlySet<ModuleId>, delta: Cell, leave = false): PatchDocument {
+  if ((delta.x === 0 && delta.y === 0) || ids.size === 0) return doc;
+  if (leave) {
+    if (!canMove(doc, ids, delta)) return doc;
+    return { ...doc, modules: doc.modules.map((m) => (ids.has(m.id) ? { ...m, x: m.x + delta.x, y: m.y + delta.y } : m)) };
+  }
+  const boxes = new Boxes(doc);
+  const moving = doc.modules.filter((m) => ids.has(m.id) && boxes.rects.has(m.id));
+  if (moving.length === 0) return doc;
+  for (const module of moving) boxes.shift(module.id, delta);
+  const grown = new Set<string>();
+  for (const module of moving) {
+    const rect = boxes.rects.get(module.id)!;
+    const home = boxes.parentOf(module.id);
+    // Into a container in its own: one whose inside now holds it.
+    const deeper = boxes.childrenOf(home).find((c) => boxes.containers.has(c) && contains(interior(boxes.rects.get(c)!), rect));
+    if (deeper) boxes.setParent(module.id, deeper);
+    else if (home !== TOP && !contains(interior(boxes.rects.get(home)!), rect)) grown.add(home);
+  }
+  const starts = [...grown].map((key) => ({ key, ways: boxes.fit(key) }));
+  if (!boxes.push(starts, new Set(moving.map((m) => m.id)))) return doc;
+  const next = boxes.apply(doc);
+  const free = moving.every((m) => {
+    const rect = rectOf(next, next.modules.find((n) => n.id === m.id)!);
+    return !rect || isFree(next, rect, ids);
+  });
+  return free && layoutAllowed(next) ? next : doc;
 }
 
 /**

@@ -26,6 +26,8 @@ interface TileDrag {
   /** Whole cells moved so far. */
   delta: ops.Cell;
   moved: boolean;
+  /** Shift is down: the modules may leave their containers. Without it a container grows to keep them. */
+  leave: boolean;
 }
 
 /** A container (the voice area, or a unison group by its id) moved by its header or resized by an edge: where it would go. */
@@ -151,36 +153,53 @@ export function GridCanvas() {
     window.addEventListener("keydown", cancel);
   };
 
+  // A tile dragged moves the selection. It stays in its container, which grows to keep it,
+  // unless Shift is down: then it may leave. Shift and a click without a drag adds the
+  // module to the selection or takes it out.
   const onTilePointerDown = useCallback((e: React.PointerEvent, id: ModuleId) => {
     if (e.button !== 0) return;
     e.stopPropagation();
     const editor = useEditor.getState();
-    if (e.shiftKey) {
-      editor.toggleSelected(id);
-      return;
-    }
-    if (!editor.selection.has(id)) editor.select([id]);
+    const shiftClick = e.shiftKey;
+    if (!shiftClick && !editor.selection.has(id)) editor.select([id]);
 
     const start = { x: e.clientX, y: e.clientY };
-    let drag: TileDrag = { start, delta: { x: 0, y: 0 }, moved: false };
+    let drag: TileDrag = { start, delta: { x: 0, y: 0 }, moved: false, leave: e.shiftKey };
+    // Shift pressed or let go during the drag counts at once, without the pointer moving.
+    const shift = (key: KeyboardEvent) => {
+      if (key.key !== "Shift") return;
+      drag = { ...drag, leave: key.type === "keydown" };
+      if (drag.moved) setTileDrag(drag);
+    };
+    window.addEventListener("keydown", shift);
+    window.addEventListener("keyup", shift);
     track(
       (move) => {
         const dx = move.clientX - start.x;
         const dy = move.clientY - start.y;
         if (!drag.moved && Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
+        // A Shift-drag of a module that is not selected moves it alone.
+        if (!drag.moved && shiftClick && !useEditor.getState().selection.has(id)) useEditor.getState().select([id]);
         const zoom = useUi.getState().view.zoom;
         drag = {
           start,
           moved: true,
           delta: { x: Math.round(dx / zoom / CELL), y: Math.round(dy / zoom / CELL) },
+          leave: move.shiftKey,
         };
         setTileDrag(drag);
       },
       (_up, cancelled) => {
+        window.removeEventListener("keydown", shift);
+        window.removeEventListener("keyup", shift);
         setTileDrag(null);
-        if (cancelled || !drag.moved) return;
+        if (cancelled) return;
+        if (!drag.moved) {
+          if (shiftClick) useEditor.getState().toggleSelected(id);
+          return;
+        }
         const { selection, apply } = useEditor.getState();
-        apply((d) => ops.moveModules(d, selection, drag.delta));
+        apply((d) => ops.moveModules(d, selection, drag.delta, drag.leave));
       },
     );
   }, []);
@@ -428,7 +447,13 @@ export function GridCanvas() {
     };
   }, [placing, toWorld]);
 
-  const dragBlocked = !!tileDrag?.moved && !ops.canMove(doc, selection, tileDrag.delta);
+  // What the drag would do where it is: the modules moved, and the containers grown and what
+  // they push. The document itself when the move would be refused.
+  const movePreview = useMemo(
+    () => (tileDrag?.moved ? ops.moveModules(doc, selection, tileDrag.delta, tileDrag.leave) : null),
+    [doc, selection, tileDrag?.moved, tileDrag?.delta.x, tileDrag?.delta.y, tileDrag?.leave],
+  );
+  const dragBlocked = !!tileDrag?.moved && movePreview === doc;
   const dragOffset = tileDrag?.moved ? { x: tileDrag.delta.x * CELL, y: tileDrag.delta.y * CELL } : null;
 
   // The modules in the voice area: they run in every voice, and go with the area when it moves.
@@ -463,7 +488,7 @@ export function GridCanvas() {
   const offsetOf = (id: ModuleId): Point | null =>
     (selection.has(id) ? dragOffset : null) ?? (carry && carried.has(id) ? carry : null) ?? shifts.get(id) ?? null;
   // Where the containers are drawn: as the drag would leave them.
-  const shown = areaPreview && areaPreview !== doc ? areaPreview : doc;
+  const shown = areaPreview && areaPreview !== doc ? areaPreview : movePreview && movePreview !== doc ? movePreview : doc;
   const shownArea = areaDrag?.key === ops.VOICE_AREA ? areaDrag.area : shown.voiceArea;
   const groupShownAt = (group: UnisonGroup): Area => {
     if (areaDrag?.key === group.id) return areaDrag.area;
@@ -482,7 +507,10 @@ export function GridCanvas() {
   const pushOn = drop?.plan.push ? drop.target : null;
   const shifts = useMemo(() => {
     const moved = new Map<ModuleId, Point>();
-    const after = (areaPreview !== doc ? areaPreview : null) ?? (placing && pushOn ? ops.addModuleAtPort(doc, placing, pushOn).doc : null);
+    const after =
+      (areaPreview && areaPreview !== doc ? areaPreview : null) ??
+      (movePreview && movePreview !== doc ? movePreview : null) ??
+      (placing && pushOn ? ops.addModuleAtPort(doc, placing, pushOn).doc : null);
     if (!after) return moved;
     for (const module of doc.modules) {
       const then = after.modules.find((m) => m.id === module.id);
@@ -492,7 +520,7 @@ export function GridCanvas() {
     }
     return moved;
     // The target is a new object on every pointer move; its parts say whether it changed.
-  }, [doc, areaPreview, placing, pushOn?.module, pushOn?.port, pushOn?.side]);
+  }, [doc, areaPreview, movePreview, placing, pushOn?.module, pushOn?.port, pushOn?.side]);
 
   /** Port position including the offset of tiles being dragged or pushed aside, so cables follow. */
   const portPoint = useCallback(

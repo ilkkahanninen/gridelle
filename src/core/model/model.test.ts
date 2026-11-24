@@ -884,6 +884,26 @@ describe("unison groups", () => {
     expect(at(voices, "ge2")).toEqual([4, 4]);
   });
 
+  it("keeps a tile in it when it may not leave, growing and pushing on, as far as the voice area's border", () => {
+    // A saw in the group, a Noise beside it in the voices.
+    const doc = addModule(addModule(grouped(), "osc-saw", { x: 4, y: 2 }).doc, "noise", { x: 7, y: 2 }).doc;
+    const nudged = moveModules(doc, new Set(["ge2"]), { x: 1, y: 0 });
+    expect(where(nudged, "ge2")).toBe("ge1");
+    expect(groupArea(nudged).width).toBe(5);
+    expect(at(nudged, "ge3")).toEqual([8, 2]);
+    // It may leave the group into the voices.
+    expect(where(moveModules(doc, new Set(["ge2"]), { x: 5, y: 0 }, true), "ge2")).toBe("voice");
+    // A tile goes into a group without leaving its own container.
+    const loose = addModule(grouped(), "osc-saw", { x: 8, y: 2 }).doc;
+    expect(where(moveModules(loose, new Set(["ge2"]), { x: -4, y: 0 }), "ge2")).toBe("ge1");
+    // A group at the right of the voices grows past their border, and the voices grow, pushing the Audio Out.
+    const edge = addModule(addModule(grouped({ x: 8, y: 1 }), "osc-saw", { x: 9, y: 2 }).doc, "audio-out", { x: 14, y: 1 }).doc;
+    const pushed = moveModules(edge, new Set(["ge2"]), { x: 2, y: 0 });
+    expect(groupArea(pushed).width).toBe(6);
+    expect(pushed.voiceArea).toEqual({ ...area, width: 13 });
+    expect(at(pushed, "ge3")).toEqual([15, 1]);
+  });
+
   it("resizes, pushing what is beside it, as long as what is in it stays clear of its border", () => {
     const doc = addModule(addModule(grouped(), "osc-saw", { x: 4, y: 2 }).doc, "noise", { x: 7, y: 2 }).doc;
     const wider = resizeContainer(doc, "ge1", { x: 3, y: 1, width: 5, height: 5 });
@@ -952,17 +972,37 @@ describe("the voice area", () => {
     expect(placement({ ...doc, cables: [] }, { id: "x", type: "audio-out", ...near, params: {} })).toBe("outside");
   });
 
-  it("moves tiles into the voices and out of them, but not onto the border", () => {
+  it("moves tiles into the voices, and out of them when they may leave, but not onto the border", () => {
     const doc = start(["osc-saw", 3, 1], ["noise", 0, 1]);
     expect(where(doc, "ge1")).toBe("inside");
     expect(canMove(doc, new Set(["ge1"]), { x: -1, y: 0 })).toBe(false);
     expect(canMove(doc, new Set(["ge1"]), { x: 6, y: 0 })).toBe(false);
-    const out = moveModules(doc, new Set(["ge1"]), { x: 7, y: 0 });
+    expect(moveModules(doc, new Set(["ge1"]), { x: 6, y: 0 }, true)).toBe(doc);
+    const out = moveModules(doc, new Set(["ge1"]), { x: 7, y: 0 }, true);
     expect(where(out, "ge1")).toBe("outside");
     const into = moveModules(doc, new Set(["ge2"]), { x: 5, y: 0 });
     expect(where(into, "ge2")).toBe("inside");
     const audio = start(["audio-out", 11, 1]);
     expect(canMove(audio, new Set(["ge1"]), { x: -5, y: 0 })).toBe(false);
+    // Onto the border from outside: refused, whether it may leave or not.
+    expect(moveModules(doc, new Set(["ge2"]), { x: 2, y: 0 })).toBe(doc);
+  });
+
+  it("keeps a tile in the voices when it may not leave: the border moves out with it, pushing what is outside", () => {
+    const doc = start(["osc-saw", 3, 1], ["noise", 0, 1], ["audio-out", 11, 1]);
+    // Right, past the edge: the area grows two cells, and the Audio Out beside it moves on.
+    const right = moveModules(doc, new Set(["ge1"]), { x: 6, y: 0 });
+    expect(where(right, "ge1")).toBe("inside");
+    expect(right.voiceArea).toEqual({ ...area, width: 10 });
+    expect(at(right, "ge3")).toEqual([12, 1]);
+    // Left: the area's left side moves out, and pushes the Noise on to the left.
+    const left = moveModules(doc, new Set(["ge1"]), { x: -3, y: 0 });
+    expect(left.voiceArea).toEqual({ x: -1, y: 0, width: 11, height: 8 });
+    expect(where(left, "ge1")).toBe("inside");
+    expect(where(left, "ge2")).toBe("outside");
+    expect(at(left, "ge2")[0]).toBeLessThan(-1);
+    // Down too.
+    expect(moveModules(doc, new Set(["ge1"]), { x: 0, y: 5 }).voiceArea).toEqual({ ...area, height: 10 });
   });
 
   it("grows when a tile in it pushes another past its border, and pushes what is outside along", () => {

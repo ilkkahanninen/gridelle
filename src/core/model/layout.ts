@@ -57,6 +57,8 @@ export class Boxes {
   readonly rects = new Map<string, Area>();
   readonly moved = new Set<string>();
   private readonly parents = new Map<string, string>();
+  /** The boxes that are containers: the voice area and the groups. */
+  readonly containers = new Set<string>();
 
   /** `start` is a module whose container is given (or found from its top-left cell): see `holderOf`. */
   constructor(doc: PatchDocument, start?: { id: ModuleId; parent?: string }) {
@@ -64,10 +66,12 @@ export class Boxes {
     if (area.width > 0 && area.height > 0) {
       this.rects.set(AREA, { ...area });
       this.parents.set(AREA, TOP);
+      this.containers.add(AREA);
     }
     for (const group of groupsOf(doc)) {
       this.rects.set(group.id, { ...group.area });
       this.parents.set(group.id, holderAt(doc, group.area, false));
+      this.containers.add(group.id);
     }
     for (const module of doc.modules) {
       const rect = tileArea(doc, module);
@@ -86,6 +90,11 @@ export class Boxes {
     return [...this.parents].flatMap(([child, parent]) => (parent === key ? [child] : []));
   }
 
+  /** Put a box in another container, as a tile moved into a group is. */
+  setParent(key: string, parent: string): void {
+    this.parents.set(key, parent);
+  }
+
   /** Move a box, and all that is in it, by `by`; never one of `fixed`. */
   shift(key: string, by: Cell, fixed: ReadonlySet<string> = new Set()): void {
     if (fixed.has(key)) return;
@@ -96,13 +105,28 @@ export class Boxes {
     for (const child of this.childrenOf(key)) this.shift(child, by, fixed);
   }
 
-  /** Grow a container right and down to hold all that is in it. The ways it grew. */
+  /**
+   * Grow a container to hold all that is in it, its border moving out on whichever side
+   * something lies past it. The ways it grew.
+   */
   fit(key: string): Way[] {
     const rect = this.rects.get(key)!;
     const ways = new Set<Way>();
     for (const child of this.childrenOf(key)) {
-      const inner = interior(rect);
+      let inner = interior(rect);
       const box = this.rects.get(child)!;
+      if (box.x < inner.x) {
+        rect.width += inner.x - box.x;
+        rect.x -= inner.x - box.x;
+        ways.add("left");
+        inner = interior(rect);
+      }
+      if (box.y < inner.y) {
+        rect.height += inner.y - box.y;
+        rect.y -= inner.y - box.y;
+        ways.add("up");
+        inner = interior(rect);
+      }
       if (box.x + box.width > inner.x + inner.width) {
         rect.width += box.x + box.width - (inner.x + inner.width);
         ways.add("right");
