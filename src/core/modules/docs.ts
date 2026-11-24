@@ -157,5 +157,7 @@ export const MODULE_DOCS: Record<string, string> = {
     "Evens out the loud and the quiet. What is over Threshold is turned down: at a Ratio of 4, four decibels over come out as one. Attack is how fast it turns down, Release how fast it lets go, and Gain makes up the level. It listens to Sidechain: patch another sound there and that sound ducks this one.",
   limiter:
     "Keeps the sound under Ceiling, as the last thing before the output. It turns down at once and comes back up in Release; a sudden peak is flattened at the ceiling. Gain pushes the sound up into it, for loudness. Left and Right are turned down together.",
+  attenuator:
+    "Turns a signal down by a fixed amount, set on its knob: In times Level, from 0 to 1. For a level that moves, with an envelope or an LFO, use an Amp.",
   mixer: "Adds signals together, each at its own level. A new input appears when the last one is taken, up to eight.",
 };

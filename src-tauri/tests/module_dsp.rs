@@ -83,6 +83,8 @@ fn inlets_of(name: &str) -> &'static [Inlet] {
         "ge-shaper-hard" | "ge-shaper-rectify" => &[Main, Setting, Mod],
         "ge-shaper-crush" => &[Main, Setting, Setting, Mod],
         "ge-amp" => &[Main, Setting],
+        // In is the input of Level, with no rest value: no cable, no signal.
+        "ge-attenuator" => &[Main],
         "ge-compressor" => &[Main, Mod, Setting, Setting, Setting, Setting, Setting],
         "ge-limiter" => &[Main, Mod, Setting, Setting, Setting],
         "ge-lfo" | "ge-clock" | "ge-env-ar" | "ge-env-ad" => &[Main, Setting, Setting],
@@ -2600,6 +2602,14 @@ fn amp_and_output(pd: &mut Pd, dir: &Path) {
         pd.send_float("t-in1", 0.0);
         assert_eq!(peak(&settled(pd, 0.1).0), 0.0, "amp CV 0 closes it");
         println!("ge-amp: in x Level x CV, open with nothing in CV");
+    });
+
+    with_module(pd, dir, "ge-attenuator", &["sig~ 0.5"], &[], [Some(0), None, None], to_left, |pd| {
+        pd.send_float("t1-level", 0.6);
+        close(mean(&settled(pd, 0.1).0), 0.3, 0.001, "attenuator: In times Level");
+        pd.send_float("t1-level", 0.0);
+        assert_eq!(peak(&settled(pd, 0.1).0), 0.0, "attenuator at 0 is silent");
+        println!("ge-attenuator: in x Level");
     });
 
     // Audio Out throws to the host's buses: catch them as the host does.

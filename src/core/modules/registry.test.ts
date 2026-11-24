@@ -98,9 +98,14 @@ describe("module registry", () => {
   });
 
   it("holds the input of a setting at 1 while nothing is patched, and a Mod input at 0", () => {
+    // A signal with a level of its own (the Mixer's channels, the Attenuator's In) is silent unpatched.
+    const leveled = (port: (typeof moduleDefs)[number]["inputs"][number]) => port.hint === "audio" && !!port.param?.startsWith("level");
+    expect(moduleDefs.flatMap((def) => def.inputs.filter(leveled).map((p) => `${def.type}.${p.id}`))).toEqual(
+      expect.arrayContaining(["attenuator.in", "mixer.in1"]),
+    );
     for (const def of moduleDefs) {
       for (const port of def.inputs) {
-        if (!port.param || def.growsWithInputs) continue;
+        if (!port.param || leveled(port)) continue;
         expect(port.unpatched, `${def.type}.${port.id}`).toBe(port.id === "mod" ? undefined : 1);
       }
     }

@@ -885,6 +885,20 @@ const DEFS: ModuleDef[] = [
     pd: "ge-amp",
   },
   {
+    // A level set by hand and left there: In times Level, on a tile of one cell. The knob is
+    // In's own (an input times its knob, as the Mixer's channels are); there is no CV.
+    type: "attenuator",
+    name: "Attenuator",
+    category: "level",
+    width: 1,
+    height: 1,
+    layout: "rows",
+    inputs: [{ ...audioInput, param: "level" }],
+    outputs: [audioOutput],
+    params: [level("level", "Level", 1, 1)],
+    pd: "ge-attenuator",
+  },
+  {
     type: "mixer",
     name: "Mixer",
     category: "level",
