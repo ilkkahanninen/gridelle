@@ -44,6 +44,8 @@ interface EditorState {
   paste(clip: ops.Clip, near: ops.Cell): ModuleId[];
   /** Copy the selected modules to right below themselves, and select the copies. Returns their ids. */
   duplicateSelection(): ModuleId[];
+  /** Put the selected modules in a new unison group (`ops.wrapInGroup`) and select it. Returns its id. */
+  wrapSelection(): ModuleId | null;
 
   /** Replace the document (New, Open). Clears history and selection. */
   load(doc: PatchDocument, filePath: string | null): void;
@@ -146,6 +148,17 @@ export const useEditor = create<EditorState>((set, get) => ({
     });
     if (added.length > 0) set({ selection: new Set(added), selectedCable: null });
     return added;
+  },
+
+  wrapSelection() {
+    let id: ModuleId | null = null;
+    get().apply((doc) => {
+      const result = ops.wrapInGroup(doc, get().selection);
+      id = result.id;
+      return result.doc;
+    });
+    if (id) set({ selection: new Set([id]), selectedCable: null });
+    return id;
   },
 
   duplicateSelection() {

@@ -34,6 +34,8 @@ import {
   NEW_GROUP,
   resizeContainer,
   setGroupSize,
+  wrapInGroup,
+  wrapProblem,
   nextFreeKnob,
   nextModuleId,
   paramValue,
@@ -931,6 +933,54 @@ describe("unison groups", () => {
     expect(where(patch, "ge3")).toBe("ge1");
     patch = connect(patch, port("ge2", "out"), port("ge4", "in"));
     expect(connectionProblem(patch, port("ge4", "out"), port("ge3", "in"))).toMatch(/unison group and back/);
+  });
+
+  it("wraps the selected modules in a new group, pushing what is on its cells out of the way", () => {
+    // In the voices: a saw, an Amp right after it, a Noise right under it.
+    let doc = addModule(base(), "osc-saw", { x: 4, y: 2 }).doc;
+    doc = addModule(doc, "amp", { x: 6, y: 2 }).doc;
+    doc = addModule(doc, "noise", { x: 4, y: 5 }).doc;
+    const { doc: wrapped, id } = wrapInGroup(doc, new Set(["ge1"]));
+    expect(id).toBe("ge4");
+    expect(wrapped.groups).toEqual([{ id: "ge4", area: { x: 3, y: 1, width: 4, height: 5 }, size: 3 }]);
+    expect(where(wrapped, "ge1")).toBe("ge4");
+    expect(at(wrapped, "ge2")).toEqual([7, 2]);
+    expect(at(wrapped, "ge3")).toEqual([4, 6]);
+    for (const m of ["ge2", "ge3"]) expect(where(wrapped, m)).toBe("voice");
+  });
+
+  it("pushes out what lies between the selected modules, and grows the voice area round a group at its border", () => {
+    // Two saws at the top left of the voices, with a Noise between them.
+    let doc = addModule(base(), "osc-saw", { x: 3, y: 1 }).doc;
+    doc = addModule(doc, "osc-saw", { x: 6, y: 1 }).doc;
+    doc = addModule(doc, "noise", { x: 5, y: 2 }).doc;
+    const { doc: wrapped, id } = wrapInGroup(doc, new Set(["ge1", "ge2"]));
+    expect(groupArea(wrapped, id!)).toEqual({ x: 2, y: 0, width: 7, height: 5 });
+    expect(wrapped.voiceArea).toEqual({ x: 1, y: -1, width: 13, height: 11 });
+    for (const m of ["ge1", "ge2"]) expect(where(wrapped, m)).toBe(id);
+    expect(where(wrapped, "ge3")).toBe("voice");
+    expect(at(wrapped, "ge3")).toEqual([5, 5]);
+  });
+
+  it("pushes what is beside the voice area the shortest way, however many ways the area grew", () => {
+    // Basic Synth's saw is at the top left of the voices: a group round it makes them grow
+    // left and up, and the filter it pushes makes them grow right, onto the Audio Out.
+    const { doc, id } = wrapInGroup(basicSynth, new Set(["ge1"]));
+    expect(id).toBe("ge7");
+    expect(doc.voiceArea).toEqual({ x: -1, y: -1, width: 9, height: 10 });
+    expect(at(doc, "ge4")).toEqual([8, 1]);
+  });
+
+  it("refuses modules in different places, one that runs once, and one in a group already", () => {
+    let doc = addModule(base(), "osc-saw", { x: 4, y: 2 }).doc;
+    doc = addModule(doc, "noise", { x: 20, y: 2 }).doc;
+    expect(wrapProblem(doc, new Set(["ge1", "ge2"]))).toMatch(/different places/);
+    expect(wrapInGroup(doc, new Set(["ge1", "ge2"])).doc).toBe(doc);
+    expect(wrapProblem(addModule(doc, "audio-out", { x: 24, y: 2 }).doc, new Set(["ge2", "ge3"]))).toMatch(/runs once/);
+    const grouped = wrapInGroup(doc, new Set(["ge1"])).doc;
+    expect(wrapProblem(grouped, new Set(["ge1"]))).toMatch(/already/);
+    // Outside the voices a group runs once, and is as good.
+    expect(wrapInGroup(doc, new Set(["ge2"])).id).toBe("ge3");
   });
 
   it("runs from one copy to sixteen", () => {

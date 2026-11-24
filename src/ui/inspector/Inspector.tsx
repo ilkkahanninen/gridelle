@@ -81,6 +81,25 @@ function ChoiceRow({ module, param }: { module: ModuleInstance; param: ParamDef 
 }
 
 /**
+ * Put the selected modules in a new unison group (⌘G). Shown when they can be; with
+ * `explain`, a selection that cannot be says why instead.
+ */
+function WrapInGroup({ explain = false }: { explain?: boolean }) {
+  const problem = useEditor((s) => ops.wrapProblem(s.doc, s.selection));
+  if (problem) return explain ? <p className="inspector-note">{problem}</p> : null;
+  return (
+    <button
+      type="button"
+      className="button inspector-wrap"
+      title="Put the selected modules in a new unison group, which runs them several times side by side (⌘G)"
+      onClick={() => useEditor.getState().wrapSelection()}
+    >
+      Put in a unison group
+    </button>
+  );
+}
+
+/**
  * What the module does, and what it has besides the knobs on its tile: its choices, and
  * whether its inputs follow the played note while nothing is patched into them.
  */
@@ -146,6 +165,10 @@ function ModuleInspector({ module, def }: { module: ModuleInstance; def: ModuleD
           })}
         </section>
       )}
+
+      <section>
+        <WrapInGroup />
+      </section>
     </>
   );
 }
@@ -316,11 +339,18 @@ export function Inspector() {
       ) : group ? (
         <GroupInspector group={group} />
       ) : selected.length + selectedGroups.length > 1 ? (
-        <header className="inspector-title">
-          <h2>
-            {selected.length + selectedGroups.length} {selectedGroups.length > 0 ? "modules and groups" : "modules"} selected
-          </h2>
-        </header>
+        <>
+          <header className="inspector-title">
+            <h2>
+              {selected.length + selectedGroups.length} {selectedGroups.length > 0 ? "modules and groups" : "modules"} selected
+            </h2>
+          </header>
+          {selectedGroups.length === 0 && (
+            <section>
+              <WrapInGroup explain />
+            </section>
+          )}
+        </>
       ) : (
         <PatchInspector />
       )}

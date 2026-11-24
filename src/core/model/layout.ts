@@ -150,9 +150,24 @@ export class Boxes {
   push(starts: { key: string; ways: Way[] }[], fixed: ReadonlySet<string>): boolean {
     const queue = [...starts];
     const size = (by: Cell) => Math.abs(by.x) + Math.abs(by.y);
+    // A container may grow again while it waits its turn to push: it pushes the ways it has
+    // grown so far, not only those it had when it was queued.
+    const before = new Map([...this.containers].map((key) => [key, { ...this.rects.get(key)! }]));
+    const grownSince = (key: string): Way[] => {
+      const [was, is] = [before.get(key), this.rects.get(key)!];
+      if (!was) return [];
+      return [
+        ...(is.x + is.width > was.x + was.width ? (["right"] as const) : []),
+        ...(is.y + is.height > was.y + was.height ? (["down"] as const) : []),
+        ...(is.x < was.x ? (["left"] as const) : []),
+        ...(is.y < was.y ? (["up"] as const) : []),
+      ];
+    };
     for (let steps = 0; queue.length > 0; steps++) {
       if (steps > 64 * (this.rects.size + 1)) return false;
-      const { key, ways } = queue.shift()!;
+      const next = queue.shift()!;
+      const key = next.key;
+      const ways = [...new Set([...next.ways, ...grownSince(key)])];
       const pusher = this.rects.get(key)!;
       const parent = this.parentOf(key);
       if (ways.length > 0) {

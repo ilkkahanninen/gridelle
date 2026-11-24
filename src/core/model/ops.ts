@@ -547,6 +547,63 @@ export function addGroup(doc: PatchDocument, at: Cell): { doc: PatchDocument; id
   return { doc: { ...doc, groups: [...groupsOf(doc), group] }, id };
 }
 
+/**
+ * Why the modules `ids` cannot be put in a unison group together, or `null` when they can:
+ * they must be in one container (the patch or the voice area, since a group is in no
+ * group), and none may run once.
+ */
+export function wrapProblem(doc: PatchDocument, ids: ReadonlySet<ModuleId>): string | null {
+  const modules = doc.modules.filter((m) => ids.has(m.id) && rectOf(doc, m));
+  if (modules.length === 0) return "Select the modules to put in a unison group.";
+  const containers = new Set(modules.map((m) => containerOf(doc, m)));
+  const [container] = containers;
+  if (containers.size > 1 || container === null) return "The modules are in different places: some in the voice area or a group, some not.";
+  if (groupsOf(doc).some((g) => g.id === container)) return "They are in a unison group already, and a group cannot be in another.";
+  const once = modules.find((m) => getModuleDef(m.type)?.place === "outside");
+  if (once) return `${moduleName(once, getModuleDef(once.type)!)} runs once for the whole patch, so it cannot be copied in a group.`;
+  return null;
+}
+
+/**
+ * Put the modules `ids` in a new unison group, its border a cell round them. What lies on
+ * the group's cells and is not put in it (beside them, or between them) is pushed out of
+ * the way, each the shortest way out, and pushes on what it lands on; the voice area grows
+ * if the group reaches past its border. Unchanged, with no id, when `wrapProblem` says no
+ * or the pushing cannot settle where everything may be.
+ */
+export function wrapInGroup(doc: PatchDocument, ids: ReadonlySet<ModuleId>): { doc: PatchDocument; id: ModuleId | null } {
+  if (wrapProblem(doc, ids)) return { doc, id: null };
+  const modules = doc.modules.filter((m) => ids.has(m.id) && rectOf(doc, m));
+  const bounds = boundsOf(modules.map((m) => rectOf(doc, m)!));
+  const area = {
+    x: bounds.x - AREA_BORDER,
+    y: bounds.y - AREA_BORDER,
+    width: bounds.width + 2 * AREA_BORDER,
+    height: bounds.height + 2 * AREA_BORDER,
+  };
+  const id = nextModuleId(doc);
+  const wrapped: PatchDocument = { ...doc, groups: [...groupsOf(doc), { id, area, size: DEFAULT_UNISON }] };
+  const home = containerOf(doc, modules[0]) === MAIN ? TOP : AREA;
+  const boxes = new Boxes(wrapped);
+  // The group is in the modules' container, even where it reaches over its border, and only
+  // the modules put in it are in it: any other on its cells is beside it, to be pushed out.
+  boxes.setParent(id, home);
+  for (const m of doc.modules) {
+    if (boxes.parentOf(m.id) === id && !ids.has(m.id)) boxes.setParent(m.id, home);
+  }
+  for (const m of modules) boxes.setParent(m.id, id);
+  boxes.moved.add(id);
+  const fixed = new Set([id, ...modules.map((m) => m.id)]);
+  // On a tie, right and then down: the ways a patch grows anyway.
+  if (!boxes.push([{ key: id, ways: ["right", "down", "left", "up"] }], fixed)) return { doc, id: null };
+  const next = boxes.apply(wrapped);
+  const clear = next.modules.every((m) => {
+    const rect = rectOf(next, m);
+    return !rect || isFree(next, rect, new Set([m.id]));
+  });
+  return clear && layoutAllowed(next) ? { doc: next, id } : { doc, id: null };
+}
+
 /** Set how many copies a unison group runs: a whole number from `MIN_UNISON` to `MAX_UNISON`. */
 export function setGroupSize(doc: PatchDocument, id: ModuleId, size: number): PatchDocument {
   const group = groupsOf(doc).find((g) => g.id === id);

@@ -62,6 +62,9 @@ function useShortcuts() {
       } else if (command && key === "d") {
         e.preventDefault();
         duplicateSelection();
+      } else if (command && key === "g") {
+        e.preventDefault();
+        editor.wrapSelection();
       } else if (key === "delete" || key === "backspace") {
         e.preventDefault();
         editor.deleteSelection();
