@@ -153,8 +153,3 @@
 .problem-warning {
   color: var(--hint-gate);
 }
-
-/* Put the selection in a unison group: a button of its own size, not the width of the pane. */
-.inspector-wrap {
-  align-self: flex-start;
-}

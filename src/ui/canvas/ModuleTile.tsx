@@ -182,6 +182,9 @@ export const ModuleTile = memo(function ModuleTile({
   if (narrow) classes.push("tile-narrow");
   const rows = def.layout === "rows";
   if (rows) classes.push("tile-rows");
+  // Below the name is the first row: a narrow tile whose first row has a knob (the
+  // Attenuator) has no room there for the picture.
+  const picture = !narrow || !(rows && def.inputs[0]?.param);
 
   return (
     <div
@@ -200,7 +203,7 @@ export const ModuleTile = memo(function ModuleTile({
         {!narrow && <Glyph type={def.type} className="tile-glyph-name" />}
         <span>{ops.moduleName(module, def)}</span>
       </div>
-      {narrow && <Glyph type={def.type} className="tile-glyph-body" />}
+      {narrow && picture && <Glyph type={def.type} className="tile-glyph-body" />}
       {def.tap && <ScopeView module={module} />}
       {def.inputs.map((port, i) => (
         <Port
