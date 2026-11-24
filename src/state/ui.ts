@@ -4,9 +4,6 @@ import type { Cable, PortRef } from "../core/model/types";
 import type { Point, View } from "../ui/canvas/geometry";
 
 /** A cable being dragged out of a port. */
-/** What `placing` holds while a unison group is dragged in from the module browser: no module type. */
-export const GROUP_PLACING = "@unison-group";
-
 export interface CableDrag {
   /** The port the drag started from (or, for a picked-up cable, its far end). */
   anchor: PortRef;
@@ -27,7 +24,7 @@ interface UiState {
   view: View;
   /** Size of the canvas viewport in screen pixels. */
   viewport: { width: number; height: number };
-  /** Module type being dragged in from the palette, or `GROUP_PLACING` for a unison group. */
+  /** Module type being dragged in from the palette. */
   placing: string | null;
   cableDrag: CableDrag | null;
   /** The knob page shown in the Knob pages panel, 0 to 7; its knobs are ringed on the tiles. */

@@ -376,8 +376,3 @@
   pointer-events: none;
   z-index: 4;
 }
-
-/* A unison group about to be put down: as big as a new one, as round as one. */
-.group-ghost {
-  border-radius: 30px;
-}

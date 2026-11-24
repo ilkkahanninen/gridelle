@@ -561,8 +561,8 @@ export function resizeContainer(doc: PatchDocument, key: string, area: Area): Pa
 export const resizeArea = (doc: PatchDocument, area: Area) => resizeContainer(doc, AREA, area);
 
 /*
- * Unison groups. A group is added empty, from the module browser, and then holds what is
- * put in it; its header holds the number of copies.
+ * Unison groups. A group is made round the selected modules (`wrapInGroup`); its header
+ * holds the number of copies. `addGroup` puts down an empty one.
  */
 
 /** The size a new unison group has: its border round room for one oscillator. */
@@ -581,11 +581,6 @@ function canPlaceGroupAt(doc: PatchDocument, area: Area, skip?: string): boolean
 /** Whether a new unison group fits with its top-left corner at `at`. */
 export function canPlaceGroup(doc: PatchDocument, at: Cell): boolean {
   return canPlaceGroupAt(doc, { ...at, ...NEW_GROUP });
-}
-
-/** The free spot for a new unison group closest to `near`. */
-export function findGroupCell(doc: PatchDocument, near: Cell): Cell {
-  return nearestCell(near, (cell) => canPlaceGroup(doc, cell)) ?? near;
 }
 
 /** Add an empty unison group at `at`. Unchanged where it does not fit. */

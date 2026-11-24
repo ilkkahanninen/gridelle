@@ -5,7 +5,7 @@ import type { Area, Cable, ModuleId, PortRef, UnisonGroup } from "../../core/mod
 import { getModuleDef } from "../../core/modules/registry";
 import { visibleDef } from "../../core/modules/shape";
 import { useEditor } from "../../state/store";
-import { GROUP_PLACING, gridPointer, useUi } from "../../state/ui";
+import { gridPointer, useUi } from "../../state/ui";
 import { CableLayer } from "./CableLayer";
 import {
   CELL,
@@ -18,7 +18,7 @@ import {
   type Point,
 } from "./geometry";
 import { ModuleTile } from "./ModuleTile";
-import { CONTAINER_PAD, GroupArea, gripped, notesPortPoint, shelfPortPoint, VoiceArea, type AreaGrip } from "./VoiceArea";
+import { GroupArea, gripped, notesPortPoint, shelfPortPoint, VoiceArea, type AreaGrip } from "./VoiceArea";
 import "./canvas.css";
 
 interface TileDrag {
@@ -357,40 +357,6 @@ export function GridCanvas() {
       const rect = viewportRef.current!.getBoundingClientRect();
       return e.clientX >= rect.left && e.clientX <= rect.right && e.clientY >= rect.top && e.clientY <= rect.bottom;
     };
-    // A unison group lands, empty, on the nearest cells it fits on; it is then selected.
-    if (placing === GROUP_PLACING) {
-      const size = { width: ops.NEW_GROUP.width, height: ops.NEW_GROUP.height, inputs: [], outputs: [] };
-      const landing = (x: number, y: number) => ops.findGroupCell(useEditor.getState().doc, cellCentredOn(toWorld(x, y), size));
-      const put = (cell: ops.Cell) => {
-        const editor = useEditor.getState();
-        let id: string | null = null;
-        editor.apply((doc) => {
-          const added = ops.addGroup(doc, cell);
-          id = added.id;
-          return added.doc;
-        });
-        if (id) editor.select([id]);
-      };
-      const move = (e: PointerEvent) => setGhost(overCanvas(e) ? { cell: landing(e.clientX, e.clientY), drop: null } : null);
-      const up = (e: PointerEvent) => {
-        useUi.setState({ placing: null });
-        if (overCanvas(e)) put(landing(e.clientX, e.clientY));
-        else if ((e.target as HTMLElement | null)?.closest(".palette-modules")) {
-          const { viewport } = useUi.getState();
-          const rect = viewportRef.current!.getBoundingClientRect();
-          put(landing(rect.left + viewport.width / 2, rect.top + viewport.height / 2));
-        }
-      };
-      const key = (e: KeyboardEvent) => e.key === "Escape" && useUi.setState({ placing: null });
-      window.addEventListener("pointermove", move);
-      window.addEventListener("pointerup", up);
-      window.addEventListener("keydown", key);
-      return () => {
-        window.removeEventListener("pointermove", move);
-        window.removeEventListener("pointerup", up);
-        window.removeEventListener("keydown", key);
-      };
-    }
     const def = getModuleDef(placing);
     if (!def) return;
     // The ghost shows where the module will land: the cell under the pointer, or the nearest free one.
@@ -499,7 +465,7 @@ export function GridCanvas() {
     return shown.groups?.find((g) => g.id === group.id)?.area ?? group.area;
   };
 
-  const ghostDef = placing && placing !== GROUP_PLACING ? getModuleDef(placing) : undefined;
+  const ghostDef = placing ? getModuleDef(placing) : undefined;
   const drop = (ghostDef && ghost?.drop) || null;
 
   // A drop that needs room, or a container resized onto tiles beside it, moves tiles aside.
@@ -652,17 +618,6 @@ export function GridCanvas() {
 
         {ghost && ghostDef && (
           <div className="tile-ghost" style={tileRect(ghost.cell, ghostDef)} />
-        )}
-        {ghost && placing === GROUP_PLACING && (
-          <div
-            className="tile-ghost group-ghost"
-            style={{
-              left: ghost.cell.x * CELL + CONTAINER_PAD,
-              top: ghost.cell.y * CELL + CONTAINER_PAD,
-              width: ops.NEW_GROUP.width * CELL - 2 * CONTAINER_PAD,
-              height: ops.NEW_GROUP.height * CELL - 2 * CONTAINER_PAD,
-            }}
-          />
         )}
         {marquee && (
           <div

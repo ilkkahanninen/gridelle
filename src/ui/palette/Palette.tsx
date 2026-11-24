@@ -2,7 +2,7 @@ import { useState } from "react";
 import { moduleDefs } from "../../core/modules/registry";
 import { visiblePairs } from "../../core/modules/shape";
 import type { Category, ModuleDef, PortDef } from "../../core/modules/types";
-import { GROUP_PLACING, useUi } from "../../state/ui";
+import { useUi } from "../../state/ui";
 import { GLYPHS } from "./glyphs";
 import "./Palette.css";
 
@@ -48,34 +48,6 @@ function Ports({ ports, side }: { ports: PortDef[]; side: "in" | "out" }) {
   );
 }
 
-/** The browser's kinds: the categories of modules, and the containers that hold modules. */
-type Kind = Category | "groups";
-
-/** The picture on the Unison card: one line becoming several. */
-const UNISON_GLYPH = "M2 10H9 M9 10L26 4 M9 10H26 M9 10L26 16";
-
-/** A unison group in the browser, to drag onto the grid like a module. */
-function GroupCard({ active }: { active: boolean }) {
-  return (
-    <button
-      className={`palette-item${active ? " palette-item-active" : ""}`}
-      title="Unison group. What is put in it runs several times side by side, added up where its cables leave it: a Unison Index in it can detune the copies. Drag onto the grid, or click to add."
-      onPointerDown={(e) => {
-        if (e.button !== 0) return;
-        e.preventDefault();
-        useUi.setState({ placing: GROUP_PLACING });
-      }}
-    >
-      <span className="palette-card palette-card-group">
-        <svg className="palette-glyph" viewBox="0 0 28 20" aria-hidden="true">
-          <path d={UNISON_GLYPH} />
-        </svg>
-      </span>
-      <span className="palette-name">Unison</span>
-    </button>
-  );
-}
-
 /** A module in the browser: a small tile with its ports and picture, and its name below. */
 function ModuleCard({ def, active }: { def: ModuleDef; active: boolean }) {
   return (
@@ -106,8 +78,7 @@ function ModuleCard({ def, active }: { def: ModuleDef; active: boolean }) {
  */
 export function Palette() {
   const placing = useUi((s) => s.placing);
-  const [category, setCategory] = useState<Kind>("oscillator");
-  const groups = category === "groups";
+  const [category, setCategory] = useState<Category>("oscillator");
   const group = GROUPS.find((g) => g.category === category) ?? GROUPS[0];
 
   return (
@@ -124,27 +95,17 @@ export function Palette() {
             {CATEGORY_NAMES[g.category]}
           </button>
         ))}
-        <button
-          className={`palette-category category-groups${groups ? " palette-category-selected" : ""}`}
-          aria-pressed={groups}
-          onClick={() => setCategory("groups")}
-        >
-          <span className="palette-swatch" />
-          Groups
-        </button>
       </div>
       <div
-        className={`palette-modules category-${groups ? "groups" : group.category}`}
+        className={`palette-modules category-${group.category}`}
         // A mouse wheel only turns one way; let it move the row sideways.
         onWheel={(e) => {
           if (!e.deltaX) e.currentTarget.scrollLeft += e.deltaY;
         }}
       >
-        {groups ? (
-          <GroupCard active={placing === GROUP_PLACING} />
-        ) : (
-          group.defs.map((def) => <ModuleCard key={def.type} def={def} active={placing === def.type} />)
-        )}
+        {group.defs.map((def) => (
+          <ModuleCard key={def.type} def={def} active={placing === def.type} />
+        ))}
       </div>
     </nav>
   );
