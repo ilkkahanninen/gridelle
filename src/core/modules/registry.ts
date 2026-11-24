@@ -322,20 +322,6 @@ const DEFS: ModuleDef[] = [
     pd: "ge-keys",
   },
   {
-    // In a unison group, its copy's place among the copies: -1 the first, 1 the last, evenly
-    // between. Elsewhere 0, the middle. Into an oscillator's Fine tune it detunes the copies.
-    type: "unison-index",
-    name: "Unison Index",
-    category: "io",
-    width: 2,
-    height: 1,
-    inputs: [],
-    voiceInlets: ["unison"],
-    outputs: modOutputs,
-    params: [],
-    pd: "ge-unison-index",
-  },
-  {
     // Plays its sample from a trigger. Middle C is the sample as recorded. Once plays to
     // the end whatever the key does; Loop goes round.
     type: "sample-player",
@@ -989,5 +975,20 @@ export const VOICE_ABSTRACTION = "ge-voice";
 export const KEYBOARD_ABSTRACTION = "ge-keyboard";
 /** The mono note allocator: one note at a time from the held keys, by priority, legato or not. */
 export const MONO_ABSTRACTION = "ge-mono";
-/** A unison group's copy's place among the copies, from its number and their count: what a Unison Index gives. */
+/** A unison group's copy's place among the copies, from its number and their count: what the group's shelf gives. */
 export const PLACE_ABSTRACTION = "ge-unison-place";
+
+/**
+ * The outputs on a container's shelf, the left column of its border. The voice area's give
+ * the voice's own signals, as `ge-voice` makes them (in that order); a unison group's give a
+ * copy's place among the copies, from -1 (the first) to 1 (the last), and from 0 to 1.
+ */
+export const VOICE_SHELF: readonly PortDef[] = [
+  { id: "pitch", label: "Pitch", hint: "pitch" },
+  { id: "gate", label: "Gate", hint: "gate" },
+  { id: "velocity", label: "Velocity", hint: "mod" },
+];
+export const UNISON_SHELF: readonly PortDef[] = [
+  { id: "index", label: "Index", hint: "mod" },
+  { id: "uni", label: "0–1", hint: "mod" },
+];

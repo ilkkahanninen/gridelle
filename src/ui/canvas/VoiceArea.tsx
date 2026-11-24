@@ -1,9 +1,11 @@
 import { AREA_BORDER, VOICE_NOTES } from "../../core/model/area";
+import { UNISON_SHELF, VOICE_SHELF } from "../../core/modules/registry";
+import type { PortDef } from "../../core/modules/types";
 import * as ops from "../../core/model/ops";
 import { MIN_AREA } from "../../core/model/ops";
 import { MAX_UNISON, MAX_VOICES, MIN_UNISON, MIN_VOICES, voicingOf, type Area, type UnisonGroup } from "../../core/model/types";
 import { useEditor } from "../../state/store";
-import { CELL, type Point } from "./geometry";
+import { CELL, PORT_INSET, ROW_PITCH, type Point } from "./geometry";
 import "./VoiceArea.css";
 
 /** Which part of a container a press took hold of: the header moves it, an edge resizes it. */
@@ -14,6 +16,31 @@ const NOTES_INSET = 26;
 
 /** Where the voices' Notes input is, on the left of the area's header, in world pixels. */
 export const notesPortPoint = (area: Area): Point => ({ x: area.x * CELL + NOTES_INSET, y: area.y * CELL + CELL / 2 });
+
+/** Where output `index` of a container's shelf is, at the right edge of its left column, in world pixels. */
+export const shelfPortPoint = (area: Area, index: number): Point => ({
+  x: area.x * CELL + AREA_BORDER * CELL - PORT_INSET,
+  y: (area.y + AREA_BORDER) * CELL + ROW_PITCH / 2 + index * ROW_PITCH,
+});
+
+/** What each shelf output gives, for its tooltip. */
+const SHELF_TIPS: Record<string, string> = {
+  pitch: "Pitch: the voice's note, as a note number (60 is middle C).",
+  gate: "Gate: 1 while the voice's key is held.",
+  velocity: "Velocity: how hard the voice's key was played, from 0 to 1.",
+  index: "Index: each copy's place among the copies, from -1 (the first) to 1 (the last). Into an oscillator's Fine tune, it detunes them.",
+  uni: "0–1: each copy's place among the copies from 0 to 1, for inputs that multiply a knob.",
+};
+
+/** The outputs on a container's shelf, and what is cabled to them. */
+interface Shelf {
+  /** What a cable from them names as its module: "voices", or the group's id. */
+  module: string;
+  ports: readonly PortDef[];
+  /** `out:<port>` for each output with a cable. */
+  connected: ReadonlySet<string>;
+  onPortPointerDown(e: React.PointerEvent, id: string, port: string, side: "in" | "out"): void;
+}
 
 /** The area with its header or a side of its border moved by `cells`. Never smaller than `MIN_AREA`. */
 export function gripped(area: Area, grip: AreaGrip, cells: { x: number; y: number }): Area {
@@ -53,9 +80,10 @@ function Stepper({ value, min, max, label, set }: { value: number; min: number; 
 /**
  * A container on the grid: a panel with rounded corners under the modules in it. Its outer
  * ring of cells is its border, where no module goes, so that inside and outside never
- * touch; it is the same colour as the inside, and is what is taken hold of: the top row,
- * the header, moves the container, and the sides, the bottom and the corner resize it.
- * What is inside is drawn by the canvas, not here, and presses there go through to the grid.
+ * touch, and is what is taken hold of: the top row, the header, moves the container, and
+ * the sides, the bottom and the corner resize it. The header is drawn darkest, and the
+ * left column below it, the container's shelf, between that and the rest. What is inside
+ * is drawn by the canvas, not here, and presses there go through to the grid.
  */
 function Frame({
   kind,
@@ -64,6 +92,7 @@ function Frame({
   blocked,
   selected,
   onGrip,
+  shelf,
   children,
 }: {
   kind: "voices" | "unison";
@@ -75,6 +104,8 @@ function Frame({
   blocked: boolean;
   selected?: boolean;
   onGrip(e: React.PointerEvent, grip: AreaGrip): void;
+  /** The outputs in its left column, below the header. */
+  shelf: Shelf;
   children: React.ReactNode;
 }) {
   const border = AREA_BORDER * CELL;
@@ -87,6 +118,7 @@ function Frame({
   if (selected) classes.push("container-selected");
   return (
     <div className={classes.join(" ")} style={{ left: area.x * CELL, top: area.y * CELL, width, height }}>
+      <div className="container-shelf" style={{ left: 0, top: border, width: border, height: height - border }} />
       {grip("left", { left: 0, top: border, width: border, height: height - 2 * border })}
       {grip("right", { left: width - border, top: border, width: border, height: height - 2 * border })}
       {grip("bottom", { left: 0, top: height - border, width: width - border, height: border })}
@@ -99,6 +131,22 @@ function Frame({
       >
         {children}
       </div>
+      {/* The shelf's outputs, two to a cell, at its right edge, as a tile's are at its. */}
+      {shelf.ports.map((port, i) => (
+        <div
+          key={port.id}
+          className={`port port-out hint-${port.hint} container-shelf-port${shelf.connected.has(`out:${port.id}`) ? " port-cabled" : ""}`}
+          style={{ top: border + ROW_PITCH / 2 + i * ROW_PITCH, right: width - border + PORT_INSET }}
+          data-port-module={shelf.module}
+          data-port-id={port.id}
+          data-port-side="out"
+          title={SHELF_TIPS[port.id] ?? port.label}
+          onPointerDown={(e) => shelf.onPortPointerDown(e, shelf.module, port.id, "out")}
+        >
+          <span className="port-dot" />
+          <span className="port-label">{port.label}</span>
+        </div>
+      ))}
     </div>
   );
 }
@@ -111,6 +159,7 @@ export function VoiceArea({
   area,
   blocked,
   notesCabled,
+  connected,
   onGrip,
   onPortPointerDown,
 }: {
@@ -118,13 +167,16 @@ export function VoiceArea({
   blocked: boolean;
   /** A cable brings the voices their notes; without one they get the keyboard's. */
   notesCabled: boolean;
+  /** The shelf's outputs with a cable, as `out:<port>`. */
+  connected: ReadonlySet<string>;
   onGrip(e: React.PointerEvent, grip: AreaGrip): void;
   onPortPointerDown(e: React.PointerEvent, id: string, port: string, side: "in" | "out"): void;
 }) {
   const voices = useEditor((s) => s.doc.voices);
   const { mode } = useEditor((s) => voicingOf(s.doc));
+  const shelf = { module: VOICE_NOTES.module, ports: VOICE_SHELF, connected, onPortPointerDown };
   return (
-    <Frame kind="voices" name="voice area" area={area} blocked={blocked} onGrip={onGrip}>
+    <Frame kind="voices" name="voice area" area={area} blocked={blocked} onGrip={onGrip} shelf={shelf}>
       {/* The notes the voices play: the keyboard's, or a note module's patched in here. */}
       <div
         className={`port port-in hint-notes voice-area-notes${notesCabled ? " port-cabled" : " port-precord"}`}
@@ -159,23 +211,29 @@ export function VoiceArea({
 
 /**
  * A unison group: what is in it runs as many times side by side as its header says, and
- * its copies are added up where a cable leaves it. A click on its header selects it.
+ * its copies are added up where a cable leaves it. Its shelf gives each copy its place
+ * among them. A click on its header selects it.
  */
 export function GroupArea({
   group,
   area,
   blocked,
   selected,
+  connected,
   onGrip,
+  onPortPointerDown,
 }: {
   group: UnisonGroup;
   area: Area;
   blocked: boolean;
   selected: boolean;
+  connected: ReadonlySet<string>;
   onGrip(e: React.PointerEvent, grip: AreaGrip): void;
+  onPortPointerDown(e: React.PointerEvent, id: string, port: string, side: "in" | "out"): void;
 }) {
+  const shelf = { module: group.id, ports: UNISON_SHELF, connected, onPortPointerDown };
   return (
-    <Frame kind="unison" name="unison group" area={area} blocked={blocked} selected={selected} onGrip={onGrip}>
+    <Frame kind="unison" name="unison group" area={area} blocked={blocked} selected={selected} onGrip={onGrip} shelf={shelf}>
       <span className="voice-area-title">Unison</span>
       <Stepper
         value={group.size}

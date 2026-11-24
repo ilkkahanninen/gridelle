@@ -28,4 +28,4 @@ describe("module documentation", () => {
 });
 
 /** Names the texts use that are not ports or settings: products, people, other modules. */
-const OTHER_NAMES = new Set(["Organelle", "Pd", "Moog", "LFO", "Soft", "Clip", "Room", "Recorder", "Amp", "Sequencer", "Samples", "C", "Unison"]);
+const OTHER_NAMES = new Set(["Organelle", "Pd", "Moog", "LFO", "Soft", "Clip", "Room", "Recorder", "Amp", "Sequencer", "Samples", "C"]);

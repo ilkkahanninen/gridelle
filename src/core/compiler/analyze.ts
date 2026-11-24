@@ -18,7 +18,20 @@ import {
   type UnisonGroup,
   type Voicing,
 } from "../model/types";
-import { containerAt, groupParent, groupsOf, isVoiceNotes, MAIN, overlaps, placement, tileArea, VOICE, type ContainerKey } from "../model/area";
+import {
+  containerAt,
+  groupParent,
+  groupsOf,
+  isVoiceNotes,
+  MAIN,
+  overlaps,
+  placement,
+  shelfPorts,
+  tileArea,
+  VOICE,
+  VOICE_NOTES,
+  type ContainerKey,
+} from "../model/area";
 import { defaultPageName, moduleName } from "../model/ops";
 import { wavetableBank } from "../wavetables/banks";
 import { getModuleDef, SCOPE_SLOTS } from "../modules/registry";
@@ -77,7 +90,7 @@ export interface ResolvedGroup {
  */
 export const VOICE_SOURCE = "@voice";
 /** Outlet of `ge-voice` (and `ge-keyboard`) that carries each of the voice's signals. */
-export const VOICE_OUTLET: Record<Exclude<VoiceSignal, "unison">, number> = { pitch: 0, gate: 1, velocity: 2 };
+export const VOICE_OUTLET: Record<VoiceSignal, number> = { pitch: 0, gate: 1, velocity: 2 };
 
 /**
  * An output whose cable crosses the edge of a container (the voice area or a unison
@@ -294,7 +307,43 @@ export function analyze(doc: PatchDocument): Analysis {
       "bad-cable",
       `A cable refers to a missing module or port (${cable.from.module}.${cable.from.port} → ${cable.to.module}.${cable.to.port}).`,
     );
+  // The container a wire's source is in: a module's, the voice area for the voice's own
+  // signals, and a unison group for its copy's place.
+  const sourceContainer = (from: string): ContainerKey =>
+    byId.get(from)?.container ?? (from === VOICE_SOURCE ? VOICE : from);
   for (const cable of doc.cables) {
+    // From a container's shelf: the voice's signals, or a unison group's copy's place, to an
+    // input in that container (and in a group in it), as a wire from `VOICE_SOURCE` or the group.
+    const shelf = shelfPorts(resolvedDoc, cable.from.module);
+    if (shelf) {
+      const port = shelf.findIndex((p) => p.id === cable.from.port);
+      const to = byId.get(cable.to.module);
+      const inlet = to ? inletOf(to.def, cable.to.port) : -1;
+      if (port < 0 || !to || inlet < 0) {
+        missing(cable);
+        continue;
+      }
+      const voices = cable.from.module === VOICE_NOTES.module;
+      const container = voices ? VOICE : cable.from.module;
+      if (to.def.inputs[inlet - firstInlet(to.def)].kind === "notes") {
+        error("bad-cable", `${called(to)}'s ${to.def.inputs[inlet - firstInlet(to.def)].label} takes notes, not a signal.`, to.instance.id);
+        continue;
+      }
+      if (!chainOf(to.container).includes(container)) {
+        const what = voices ? "the voices' signals, which go to modules in the voice area" : "a unison group's Index, which goes to modules in the group";
+        error("bad-cable", `${called(to)} gets ${what}.`, to.instance.id);
+        continue;
+      }
+      const key = inputKey(to.instance.id, inlet);
+      if (fed.has(key)) {
+        error("input-in-use", `${called(to)} input "${to.def.inputs[inlet - firstInlet(to.def)].label}" has more than one cable.`, to.instance.id);
+        continue;
+      }
+      fed.add(key);
+      const outlet = voices ? VOICE_OUTLET[cable.from.port as VoiceSignal] : port;
+      wires.push({ from: voices ? VOICE_SOURCE : container, outlet, to: to.instance.id, inlet });
+      continue;
+    }
     const from = byId.get(cable.from.module);
     const outlet = from?.def.outputs.findIndex((p) => p.id === cable.from.port) ?? -1;
     const notesOut = !!from && from.def.outputs[outlet]?.kind === "notes";
@@ -383,7 +432,7 @@ export function analyze(doc: PatchDocument): Analysis {
 
   // Pd runs a container as one object, [clone], so a path that leaves the voice area or a
   // unison group and comes back into it is a loop to Pd, though no module feeds itself.
-  const within = (id: ModuleId, key: ContainerKey) => chainOf(byId.get(id)!.container).includes(key);
+  const within = (id: string, key: ContainerKey) => chainOf(sourceContainer(id)).includes(key);
   const containers: [ContainerKey, string][] = [
     [VOICE, "the voice area, which is a feedback loop: the voices are added up before anything outside them runs"],
     ...groups.map((g): [ContainerKey, string] => [g.group.id, "a unison group, which is a feedback loop: its copies are added up before anything outside it runs"]),
@@ -428,7 +477,7 @@ export function analyze(doc: PatchDocument): Analysis {
   };
   for (const wire of wires) {
     if (wire.notes) continue;
-    const up = chainOf(byId.get(wire.from)!.container);
+    const up = chainOf(sourceContainer(wire.from));
     const down = chainOf(byId.get(wire.to)!.container);
     const common = up.find((key) => down.includes(key))!;
     for (const key of up.slice(0, up.indexOf(common))) add(crossingsOf(key).outward, wire.from, wire.outlet);
@@ -436,7 +485,7 @@ export function analyze(doc: PatchDocument): Analysis {
   }
 
   // Pre-cords follow the voice's note in the voice area, and the keyboard outside it. One in
-  // a unison group gets it through the group's edge; a Unison Index gets its copy's place.
+  // a unison group gets it through the group's edge.
   const precords: PrecordWire[] = [];
   for (const { instance, def } of byId.values()) {
     def.voiceInlets?.forEach((signal, inlet) => precords.push({ signal, to: instance.id, inlet }));
@@ -453,7 +502,6 @@ export function analyze(doc: PatchDocument): Analysis {
 
   let keyboard = false;
   for (const precord of precords) {
-    if (precord.signal === "unison") continue;
     const container = byId.get(precord.to)!.container;
     const group = groups.find((g) => g.group.id === container);
     if (group) add(group.inward, VOICE_SOURCE, VOICE_OUTLET[precord.signal]);

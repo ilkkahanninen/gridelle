@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { containerOf, groupParent, groupsOf, isVoiceNotes, placement, VOICE } from "../../core/model/area";
+import { containerOf, groupParent, groupsOf, isVoiceNotes, placement, shelfPorts, VOICE, VOICE_NOTES } from "../../core/model/area";
 import * as ops from "../../core/model/ops";
 import type { Area, Cable, ModuleId, PortRef, UnisonGroup } from "../../core/model/types";
 import { getModuleDef } from "../../core/modules/registry";
@@ -18,7 +18,7 @@ import {
   type Point,
 } from "./geometry";
 import { ModuleTile } from "./ModuleTile";
-import { GroupArea, gripped, notesPortPoint, VoiceArea, type AreaGrip } from "./VoiceArea";
+import { GroupArea, gripped, notesPortPoint, shelfPortPoint, VoiceArea, type AreaGrip } from "./VoiceArea";
 import "./canvas.css";
 
 interface TileDrag {
@@ -526,6 +526,13 @@ export function GridCanvas() {
   const portPoint = useCallback(
     (ref: PortRef, side: "in" | "out"): Point | null => {
       if (side === "in" && isVoiceNotes(ref)) return notesPortPoint(shownArea);
+      // An output on a container's shelf, where the container is drawn.
+      const shelf = side === "out" ? shelfPorts(doc, ref.module) : null;
+      if (shelf) {
+        const index = shelf.findIndex((p) => p.id === ref.port);
+        const group = groupsOf(doc).find((g) => g.id === ref.module);
+        return index < 0 ? null : shelfPortPoint(group ? groupShownAt(group) : shownArea, index);
+      }
       const module = doc.modules.find((m) => m.id === ref.module);
       const def = module && visibleDef(doc, module);
       if (!module || !def) return null;
@@ -535,15 +542,17 @@ export function GridCanvas() {
       const offset = offsetOf(module.id);
       return offset ? { x: point.x + offset.x, y: point.y + offset.y } : point;
     },
-    [doc, selection, dragOffset?.x, dragOffset?.y, shifts, carried, carry?.x, carry?.y, shownArea],
+    [doc, selection, dragOffset?.x, dragOffset?.y, shifts, carried, carry?.x, carry?.y, shownArea, shown, areaDrag],
   );
 
   const hintOf = useCallback(
     (cable: Cable) => {
+      const shelf = shelfPorts(doc, cable.from.module);
+      if (shelf) return shelf.find((p) => p.id === cable.from.port)?.hint ?? "mod";
       const module = doc.modules.find((m) => m.id === cable.from.module);
       return getModuleDef(module?.type ?? "")?.outputs.find((p) => p.id === cable.from.port)?.hint ?? "audio";
     },
-    [doc.modules],
+    [doc.modules, doc.groups],
   );
 
   // The cables a drop on the port under the pointer would patch, between the ghost and the tiles.
@@ -594,6 +603,7 @@ export function GridCanvas() {
             area={shownArea}
             blocked={areaBlocked && areaDrag?.key === ops.VOICE_AREA}
             notesCabled={doc.cables.some((c) => isVoiceNotes(c.to))}
+            connected={connectedByModule.get(VOICE_NOTES.module) ?? NONE}
             onGrip={onAreaGrip}
             onPortPointerDown={onPortPointerDown}
           />
@@ -605,7 +615,9 @@ export function GridCanvas() {
             area={groupShownAt(group)}
             blocked={areaBlocked && areaDrag?.key === group.id}
             selected={selection.has(group.id)}
+            connected={connectedByModule.get(group.id) ?? NONE}
             onGrip={(e, grip) => onAreaGrip(e, grip, group.id)}
+            onPortPointerDown={onPortPointerDown}
           />
         ))}
         {doc.modules.map((module) => {

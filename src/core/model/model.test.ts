@@ -983,6 +983,28 @@ describe("unison groups", () => {
     expect(wrapInGroup(doc, new Set(["ge2"])).id).toBe("ge3");
   });
 
+  it("lets a shelf's outputs go only to what is in its container, and keeps them there", () => {
+    // A saw in the group, a Noise beside it in the voices, an LFO outside them.
+    let doc = addModule(addModule(grouped(), "osc-saw", { x: 4, y: 2 }).doc, "noise", { x: 8, y: 2 }).doc;
+    doc = addModule(doc, "lfo", { x: 20, y: 2 }).doc;
+    const index = port("ge1", "index");
+    expect(connectionProblem(doc, index, port("ge2", "fine"))).toBeNull();
+    expect(connectionProblem(doc, port("voices", "gate"), port("ge2", "mod"))).toBeNull();
+    expect(connectionProblem(doc, port("voices", "pitch"), port("ge4", "rate"))).toMatch(/voice area/);
+    expect(connectionProblem(doc, port("ge1", "uni"), port("ge4", "rate"))).toMatch(/in the group/);
+    expect(connectionProblem(doc, port("ge1", "nope"), port("ge2", "fine"))).toMatch(/does not exist/);
+    const cabled = connect(connect(doc, index, port("ge2", "fine")), port("voices", "velocity"), port("ge2", "mod"));
+    expect(cabled.cables).toHaveLength(2);
+    // Out of the group and the voices with Shift: both cables are left behind.
+    expect(moveModules(cabled, new Set(["ge2"]), { x: 21, y: 4 }, true).cables).toEqual([]);
+    // Out of the group, still in the voices: only the group's.
+    expect(moveModules(cabled, new Set(["ge2"]), { x: 6, y: 4 }, true).cables).toEqual([{ from: port("voices", "velocity"), to: port("ge2", "mod") }]);
+    // Copied with its group, renamed with it; removed with it.
+    const pasted = pasteModules(cabled, copyModules(cabled, new Set(["ge1"]))!, { x: 30, y: 1 });
+    expect(pasted.doc.cables).toContainEqual({ from: port(pasted.ids[1], "index"), to: port(pasted.ids[0], "fine") });
+    expect(removeModules(cabled, new Set(["ge1"])).cables).toEqual([]);
+  });
+
   it("runs from one copy to sixteen", () => {
     const doc = grouped();
     expect(setGroupSize(doc, "ge1", 3)).toBe(doc);

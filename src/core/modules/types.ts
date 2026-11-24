@@ -5,8 +5,8 @@
 export type SignalHint = "audio" | "pitch" | "gate" | "phase" | "mod" | "notes";
 
 /** The per-voice signals a pre-cord can supply. */
-/** The voice's signals: its note's pitch, gate and velocity, and its place among the note's voices (Unison). */
-export type VoiceSignal = "pitch" | "gate" | "velocity" | "unison";
+/** The voice's signals: its note's pitch, gate and velocity. */
+export type VoiceSignal = "pitch" | "gate" | "velocity";
 
 export interface PortDef {
   id: string;

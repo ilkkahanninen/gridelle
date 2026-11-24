@@ -120,7 +120,8 @@ const crossingIndex = (list: Crossing[], from: string, outlet: number) => list.f
  */
 function wiring(analysis: Analysis, c: Contents) {
   const byId = new Map(analysis.modules.map((m) => [m.instance.id, m]));
-  const owner = (id: ModuleId) => byId.get(id)!.container;
+  // A module's container; a unison group's own place is in the group.
+  const owner = (id: string) => byId.get(id)?.container ?? id;
   const crossings = (key: ContainerKey): Pick<Analysis, "inward" | "outward"> =>
     key === VOICE ? analysis : analysis.groups.find((g) => g.group.id === key)!;
   // The container in this one that `key` is in, or is; `null` for this one, or one outside it.
@@ -132,6 +133,8 @@ function wiring(analysis: Analysis, c: Contents) {
   const holds = (key: ContainerKey) => containerChain(analysis.groups, key).includes(c.key);
   const source = (from: string, outlet: number): [Box, number] => {
     if (from === VOICE_SOURCE && c.voiceSource) return [c.voiceSource, outlet];
+    // The group's shelf: its copy's place, from -1 to 1 and from 0 to 1.
+    if (from === c.key && c.place) return [c.place, outlet];
     if (from !== VOICE_SOURCE) {
       const at = owner(from);
       if (at === c.key) return [c.boxes.get(from)!, outlet];
@@ -164,16 +167,11 @@ function wiring(analysis: Analysis, c: Contents) {
     },
     /**
      * The inputs that follow the note: from the voice's signals here, or passed into a
-     * group at its edge. The voices have their own, from `ge-voice`. A Unison Index gets
-     * its copy's place in a group, and nothing (0) elsewhere.
+     * group at its edge. The voices have their own, from `ge-voice`.
      */
     precords() {
       for (const precord of analysis.precords) {
         const at = owner(precord.to);
-        if (precord.signal === "unison") {
-          if (at === c.key && c.place) connect([c.place, 0], c.boxes.get(precord.to)!, precord.inlet);
-          continue;
-        }
         if (childToward(at) === VOICE) continue;
         feed(VOICE_SOURCE, VOICE_OUTLET[precord.signal], precord.to, precord.inlet);
       }
@@ -246,7 +244,8 @@ export function emitGroup(analysis: Analysis, group: ResolvedGroup): string {
   const patch = new PdPatch();
   const key = group.group.id;
   const inlets = group.inward.map((_, i) => patch.obj("inlet~", { x: MARGIN.x + i * CELL.x, y: MARGIN.y }));
-  const placed = analysis.modules.some((m) => m.container === key && m.def.voiceInlets?.includes("unison"));
+  // The place of this copy, for the cables from the group's shelf.
+  const placed = analysis.wires.some((w) => w.from === key);
   const place = placed
     ? patch.obj(`${PLACE_ABSTRACTION} $1 ${group.group.size}`, { x: MARGIN.x + inlets.length * CELL.x, y: MARGIN.y + 40 })
     : null;

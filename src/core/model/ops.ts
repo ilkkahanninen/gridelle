@@ -6,7 +6,21 @@
 
 import { getModuleDef } from "../modules/registry";
 import { clampParam } from "../modules/params";
-import { AREA_BORDER, containerAt, containerOf, contains, groupParent, groupsOf, interior, isVoiceNotes, MAIN, overlaps, tileArea } from "./area";
+import {
+  AREA_BORDER,
+  containerAt,
+  containerOf,
+  contains,
+  groupParent,
+  groupsOf,
+  interior,
+  isVoiceNotes,
+  MAIN,
+  overlaps,
+  shelfPorts,
+  tileArea,
+  VOICE_NOTES,
+} from "./area";
 import { AREA, Boxes, holderOf, layoutAllowed, TOP, type Way } from "./layout";
 import { DEFAULT_BANK, wavetableBank } from "../wavetables/banks";
 import type { ModuleDef, PortDef } from "../modules/types";
@@ -163,7 +177,10 @@ export function moveModules(doc: PatchDocument, ids: ReadonlySet<ModuleId>, delt
   if ((delta.x === 0 && delta.y === 0) || ids.size === 0) return doc;
   if (leave) {
     if (!canMove(doc, ids, delta)) return doc;
-    return { ...doc, modules: doc.modules.map((m) => (ids.has(m.id) ? { ...m, x: m.x + delta.x, y: m.y + delta.y } : m)) };
+    return dropStrandedShelfCables({
+      ...doc,
+      modules: doc.modules.map((m) => (ids.has(m.id) ? { ...m, x: m.x + delta.x, y: m.y + delta.y } : m)),
+    });
   }
   const boxes = new Boxes(doc);
   const moving = doc.modules.filter((m) => ids.has(m.id) && boxes.rects.has(m.id));
@@ -185,7 +202,7 @@ export function moveModules(doc: PatchDocument, ids: ReadonlySet<ModuleId>, delt
     const rect = rectOf(next, next.modules.find((n) => n.id === m.id)!);
     return !rect || isFree(next, rect, ids);
   });
-  return free && layoutAllowed(next) ? next : doc;
+  return free && layoutAllowed(next) ? dropStrandedShelfCables(next) : doc;
 }
 
 /**
@@ -263,7 +280,8 @@ export function copyModules(doc: PatchDocument, ids: ReadonlySet<ModuleId>): Cli
   const copied = new Set(modules.map((m) => m.id));
   return {
     modules,
-    cables: doc.cables.filter((c) => copied.has(c.from.module) && copied.has(c.to.module)),
+    // The cables between them, and from a copied group's shelf to what is in it.
+    cables: doc.cables.filter((c) => (copied.has(c.from.module) || groups.some((g) => g.id === c.from.module)) && copied.has(c.to.module)),
     ...(groups.length > 0 ? { groups } : {}),
   };
 }
@@ -321,7 +339,7 @@ export function pasteModules(doc: PatchDocument, clip: Clip, near: Cell): { doc:
   const fresh = freeIds(doc, modules.length + clipGroups.length);
   const ids = fresh.slice(0, modules.length);
   const groupIds = fresh.slice(modules.length);
-  const renamed = new Map(modules.map((m, i) => [m.id, ids[i]]));
+  const renamed = new Map([...modules.map((m, i): [string, string] => [m.id, ids[i]]), ...clipGroups.map((g, i): [string, string] => [g.id, groupIds[i]])]);
   return {
     doc: {
       ...doc,
@@ -361,9 +379,14 @@ const samePort = (a: PortRef, b: PortRef) => a.module === b.module && a.port ===
 
 export const sameCable = (a: Cable, b: Cable) => samePort(a.from, b.from) && samePort(a.to, b.to);
 
-/** A port's definition; the voice area's Notes input is a note input of no module. */
+/**
+ * A port's definition. The voice area's Notes input is a note input of no module, and the
+ * outputs on a container's shelf are outputs of the container (`shelfPorts`).
+ */
 function portOf(doc: PatchDocument, ref: PortRef, side: "inputs" | "outputs"): Pick<PortDef, "kind"> | undefined {
   if (side === "inputs" && isVoiceNotes(ref)) return { kind: "notes" };
+  const shelf = side === "outputs" ? shelfPorts(doc, ref.module) : null;
+  if (shelf) return shelf.find((p) => p.id === ref.port);
   const module = doc.modules.find((m) => m.id === ref.module);
   return module && getModuleDef(module.type)?.[side].find((p) => p.id === ref.port);
 }
@@ -398,6 +421,24 @@ function reaches(doc: PatchDocument, from: string, to: string, notes: boolean, n
 /** The node all modules in the voice area are to Pd: one `[clone]`. No module id has a hyphen there. */
 const VOICES_NODE = "ge-voices";
 
+/** Whether a module is in the container whose shelf `shelf` names (deeply: a group in the voices is in them). */
+function onShelfOf(doc: PatchDocument, shelf: string, module: ModuleInstance): boolean {
+  return containersOf(doc, module).includes(shelf === VOICE_NOTES.module ? VOICES_NODE : shelf);
+}
+
+/**
+ * The document without the cables from a container's shelf to a module no longer in that
+ * container: a move out of it takes them along. The same document when there are none.
+ */
+function dropStrandedShelfCables(doc: PatchDocument): PatchDocument {
+  const cables = doc.cables.filter((c) => {
+    if (!shelfPorts(doc, c.from.module)) return true;
+    const target = doc.modules.find((m) => m.id === c.to.module);
+    return !!target && onShelfOf(doc, c.from.module, target);
+  });
+  return cables.length === doc.cables.length ? doc : { ...doc, cables };
+}
+
 /** The containers a module is in, from the inside out: a unison group, and the voice area. */
 function containersOf(doc: PatchDocument, module: ModuleInstance): string[] {
   const at = containerOf(doc, module);
@@ -412,6 +453,14 @@ export function connectionProblem(doc: PatchDocument, from: PortRef, to: PortRef
   if (!output || !input) return "That port does not exist.";
   const notes = output.kind === "notes";
   if (notes !== (input.kind === "notes")) return notes ? "Notes go to a Notes input only." : "A Notes input takes notes only.";
+  // A container's shelf gives what only means something in it: per voice, or per copy.
+  if (shelfPorts(doc, from.module)) {
+    const target = doc.modules.find((m) => m.id === to.module);
+    if (target && onShelfOf(doc, from.module, target)) return null;
+    return from.module === VOICE_NOTES.module
+      ? "The voices' signals go to modules in the voice area."
+      : "A unison group's Index goes to modules in the group.";
+  }
   if (reaches(doc, to.module, from.module, notes)) return "That would create a feedback loop, which is not supported yet.";
   // Pd runs the voice area as one object: a way out of it and back in is a loop too. Notes
   // are messages, and go into the voices without taking part in that.
@@ -473,7 +522,7 @@ export function moveContainer(doc: PatchDocument, key: string, delta: Cell): Pat
     if (!boxes.moved.has(other) && other !== AREA && overlaps(rect, box)) return doc;
   }
   const next = boxes.apply(doc);
-  return key === AREA || groupParent(next, { area: rect }) !== null ? next : doc;
+  return key === AREA || groupParent(next, { area: rect }) !== null ? dropStrandedShelfCables(next) : doc;
 }
 
 /** Move the voice area by `delta`, with what is in it: see `moveContainer`. */

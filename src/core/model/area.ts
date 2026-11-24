@@ -1,4 +1,6 @@
+import { UNISON_SHELF, VOICE_SHELF } from "../modules/registry";
 import { visibleDef } from "../modules/shape";
+import type { PortDef } from "../modules/types";
 import type { Area, ModuleInstance, PatchDocument, PortRef, UnisonGroup } from "./types";
 
 /*
@@ -103,6 +105,15 @@ export function containerAt(doc: Pick<PatchDocument, "voiceArea" | "groups">, ti
 export function containerOf(doc: Pick<PatchDocument, "cables" | "voiceArea" | "groups">, module: ModuleInstance): ContainerKey | null {
   const tile = tileArea(doc, module);
   return tile && containerAt(doc, tile);
+}
+
+/**
+ * The outputs on a container's shelf, by the `module` a cable from one names: the voice
+ * area's (`VOICE_NOTES.module`, "voices") or a unison group's (its id). `null` for anything else.
+ */
+export function shelfPorts(doc: Pick<PatchDocument, "groups">, module: string): readonly PortDef[] | null {
+  if (module === VOICE_NOTES.module) return VOICE_SHELF;
+  return groupsOf(doc).some((g) => g.id === module) ? UNISON_SHELF : null;
 }
 
 /** Where a group is: in the voice area or out of it; `null` across its edge. */

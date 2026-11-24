@@ -12,8 +12,6 @@ export const MODULE_DOCS: Record<string, string> = {
   "audio-in":
     "The Organelle's audio input, left and right. It is always on and runs once, outside the voice area; patched into the area, every voice gets it. In the editor it is the computer's audio input.",
   keys: "The note being played, as signals: Pitch as a note number (60 is middle C), Gate at 1 while the key is down, Velocity from 0 to 1, and Key, the note number over 127, for inputs that multiply a knob. Outside the voice area it is the keyboard: the last key, with Gate on while any key is held.",
-  "unison-index":
-    "In a unison group, where this copy is among the copies: -1 the first, 1 the last, the others evenly between, and 0 outside a group. Into an oscillator's fine tune it spreads the copies over plus and minus the cents of its knob. 0–1 is the same place, for inputs that multiply a knob.",
   scope:
     "Draws the signal patched into it, in the editor only. Time is the width of the picture and Range its height. In the voice area it shows the voice of the latest note.",
 

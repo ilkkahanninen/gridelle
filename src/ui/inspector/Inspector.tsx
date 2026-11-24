@@ -249,9 +249,10 @@ function GroupInspector({ group }: { group: UnisonGroup }) {
       <section className="inspector-doc">
         <p>
           What is in the group runs {group.size} times side by side{inVoices ? ", in every voice" : ""}, and the copies are added up
-          where a cable leaves the group; a cable into it gives every copy the same signal. A Unison Index in it tells each copy its
-          place among them, from -1 to 1: into an oscillator&apos;s Fine tune, it detunes the copies by as many cents as the knob
-          says. Only what is in the group is copied, so the rest of the patch costs no more.
+          where a cable leaves the group; a cable into it gives every copy the same signal. The Index on the group&apos;s shelf, its
+          left column, gives each copy its place among them, from -1 to 1 (and 0–1 from 0 to 1): into an oscillator&apos;s Fine tune,
+          it detunes the copies by as many cents as the knob says. Only what is in the group is copied, so the rest of the patch
+          costs no more.
         </p>
       </section>
       <section>

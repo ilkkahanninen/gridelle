@@ -99,10 +99,8 @@ export function compile(doc: PatchDocument, library: AbstractionLibrary): Compil
       VOICE_ABSTRACTION,
       ...(analysis.voicing.mode === "mono" ? [MONO_ABSTRACTION] : []),
       ...analysis.modules.map((m) => m.def.pd),
-      // A Unison Index in a group gets its copy's place from a helper.
-      ...(analysis.modules.some((m) => m.def.voiceInlets?.includes("unison") && analysis.groups.some((g) => g.group.id === m.container))
-        ? [PLACE_ABSTRACTION]
-        : []),
+      // A cable from a unison group's shelf gets its copy's place from a helper.
+      ...(analysis.groups.some((g) => analysis.wires.some((w) => w.from === g.group.id)) ? [PLACE_ABSTRACTION] : []),
       ...(usesKnobs(analysis) ? [KNOB_ABSTRACTION] : []),
       ...(analysis.keyboard ? [KEYBOARD_ABSTRACTION] : []),
       ...analysis.samples.flatMap(({ table, wave }) => [

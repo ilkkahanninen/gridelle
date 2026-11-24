@@ -36,6 +36,24 @@
   pointer-events: auto;
 }
 
+/* The header row is the darkest part of a container; the left column below it, its shelf,
+   sits between the header and the rest. */
+.voice-area-header {
+  background: rgb(0 0 0 / 0.34);
+}
+
+/* An output on the shelf: a port as on a tile, which takes presses through the panel. */
+.container-shelf-port {
+  pointer-events: auto;
+}
+
+.container-shelf {
+  position: absolute;
+  border-radius: 0 0 0 38px;
+  background: rgb(0 0 0 / 0.17);
+  pointer-events: none;
+}
+
 .voice-area-left,
 .voice-area-right {
   cursor: ew-resize;

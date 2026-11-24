@@ -1,7 +1,7 @@
 //! Plays the helpers behind the voices' settings in real Pd: `ge-mono`, which picks one note
 //! at a time from the held keys (by priority, legato or not), `ge-voice`, which takes a
 //! legato note without starting the gate again, and `ge-unison-place`, which gives a unison
-//! group's copy its place among the copies, for a Unison Index.
+//! group's copy its place among the copies, for the group's shelf.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -157,10 +157,10 @@ fn voice(pd: &mut Pd, dir: &Path) {
 }
 
 /// A unison group's copy's place among the copies (`ge-unison-place`, from the copy's number
-/// and their count), through a Unison Index: from -1 to 1 on the left, 0 to 1 on the right.
+/// and their count), what the group's shelf gives: from -1 to 1 on the left, 0 to 1 on the right.
 fn place(pd: &mut Pd, dir: &Path) {
     for (args, expected) in [("0 3", -1.0), ("1 3", 0.0), ("2 3", 1.0), ("1 4", -1.0 / 3.0), ("3 4", 1.0), ("0 1", 0.0), ("", 0.0)] {
-        let patch = open(pd, dir, &[&format!("ge-unison-place {args}"), "ge-unison-index t1", "dac~ 1 2"], &[[0, 0, 1, 0], [1, 0, 2, 0], [1, 1, 2, 1]]);
+        let patch = open(pd, dir, &[&format!("ge-unison-place {args}"), "dac~ 1 2"], &[[0, 0, 1, 0], [0, 1, 1, 1]]);
         let (place, unipolar) = render(pd, 0.02);
         let (place, unipolar) = (*place.last().unwrap(), *unipolar.last().unwrap());
         assert!((place - expected).abs() < 1e-6, "ge-unison-place {args}: {place} for {expected}");
