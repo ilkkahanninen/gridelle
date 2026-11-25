@@ -9,14 +9,15 @@ vi.mock("../bridge/engine", () => ({
     scope: vi.fn(async () => []),
     send: vi.fn(async () => {}),
     setVolume: vi.fn(async () => {}),
-    peak: vi.fn(async () => 0),
+    levels: vi.fn(async () => [0, 0, 0, 0]),
     onEvent: vi.fn(async () => () => {}),
   },
 }));
 
 import { engine } from "../bridge/engine";
-import { startPreviewSync, usePreview } from "./preview";
+import { dismissConsole, startPreviewSync, usePreview } from "./preview";
 import { useEditor } from "./store";
+import { useUi } from "./ui";
 
 const load = vi.mocked(engine.load);
 const send = vi.mocked(engine.send);
@@ -35,7 +36,7 @@ describe("preview sync", () => {
       screen: ["", "", "", "", ""],
       led: 0,
       revision: 0,
-      log: [],
+      console: [],
       loadError: null,
     });
     stop = startPreviewSync();
@@ -81,6 +82,26 @@ describe("preview sync", () => {
     await settle();
     expect(atLoad).toEqual({ screen: ["", "", "", "", ""], led: 0, revision: 1 });
     expect(usePreview.getState()).toMatchObject({ screen: ["New", "", "", "", ""], revision: 2 });
+  });
+
+  it("shows what Pd prints, and opens the Problems pane for an error", () => {
+    useUi.setState({ sidePanes: { left: null, right: null } });
+    const emit = vi.mocked(engine.onEvent).mock.calls[0][0];
+    emit({ kind: "print", text: "hello: bang" });
+    expect(usePreview.getState().console).toEqual([{ text: "hello: bang", error: false }]);
+    expect(useUi.getState().sidePanes.right).toBeNull();
+    emit({ kind: "print", text: "error: nobody: no such object" });
+    expect(usePreview.getState().console).toHaveLength(2);
+    expect(useUi.getState().sidePanes.right).toBe("problems");
+    // Closed while the error stands, it stays closed when the error is printed again.
+    useUi.setState({ sidePanes: { left: null, right: null } });
+    emit({ kind: "print", text: "error: nobody: no such object" });
+    expect(useUi.getState().sidePanes.right).toBeNull();
+    // Dismissed, the lines go, and so does the pane.
+    useUi.setState({ sidePanes: { left: null, right: "problems" } });
+    dismissConsole();
+    expect(usePreview.getState().console).toEqual([]);
+    expect(useUi.getState().sidePanes.right).toBeNull();
   });
 
   it("sends a changed parameter to its receiver without reloading", async () => {

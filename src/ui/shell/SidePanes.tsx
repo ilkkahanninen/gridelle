@@ -1,30 +1,41 @@
 import type { ComponentType } from "react";
+import { usePreview } from "../../state/preview";
 import { PANE_SIDE, useUi, type PaneSide, type SidePaneId } from "../../state/ui";
 import { SamplesPane } from "../samples/SamplesPane";
 import { OrganellePane } from "./OrganellePane";
+import { ProblemsPane } from "./ProblemsPane";
 import { PresetsPane } from "./PresetsPane";
 
 /**
  * A pane that opens at one side of the window, from a tab in the top bar above it. To add
  * one: an id and its side (`SidePaneId` and `PANE_SIDE` in `state/ui.ts`), its tab's name,
- * and the component that fills the pane.
+ * and the component that fills the pane. A pane with `useShown` has its tab only while that
+ * says so; whatever empties it closes it too.
  */
 interface SidePane {
   id: SidePaneId;
   label: string;
   Pane: ComponentType;
+  /** A hook: whether the tab is there. Without it, always. */
+  useShown?: () => boolean;
 }
+
+const always = () => true;
 
 export const SIDE_PANES: SidePane[] = [
   { id: "presets", label: "Presets", Pane: PresetsPane },
   { id: "samples", label: "Samples", Pane: SamplesPane },
   { id: "organelle", label: "Organelle", Pane: OrganellePane },
+  { id: "problems", label: "Problems", Pane: ProblemsPane, useShown: () => usePreview((s) => s.console.length > 0) },
 ];
 
 const on = (side: PaneSide) => SIDE_PANES.filter((pane) => PANE_SIDE[pane.id] === side);
 
 function Tab({ pane, side }: { pane: SidePane; side: PaneSide }) {
   const open = useUi((s) => s.sidePanes[side] === pane.id);
+  // The same pane for as long as this tab is there, so the same hook at every render.
+  const shown = (pane.useShown ?? always)();
+  if (!shown) return null;
   return (
     <button
       className={`pane-tab${open ? " pane-tab-open" : ""}`}

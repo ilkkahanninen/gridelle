@@ -15,10 +15,10 @@ export interface CableDrag {
 }
 
 /** The panes that open at the sides of the window from the tabs of the top bar. */
-export type SidePaneId = "presets" | "samples" | "organelle";
+export type SidePaneId = "presets" | "samples" | "organelle" | "problems";
 export type PaneSide = "left" | "right";
 /** Which side each pane opens on. One can be open on each side. */
-export const PANE_SIDE: Record<SidePaneId, PaneSide> = { presets: "left", samples: "right", organelle: "right" };
+export const PANE_SIDE: Record<SidePaneId, PaneSide> = { presets: "left", samples: "right", organelle: "right", problems: "right" };
 
 interface UiState {
   view: View;

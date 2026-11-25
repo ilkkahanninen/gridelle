@@ -5,7 +5,9 @@ import { SCREEN_COLUMNS } from "../core/compiler/knobPages";
 import { structureKey } from "../core/compiler/structure";
 import type { PatchDocument } from "../core/model/types";
 import { abstractionLibrary } from "../core/pdlib";
+import { consoleLine, withLine, type ConsoleLine } from "./console";
 import { useEditor } from "./store";
+import { PANE_SIDE, showSidePane, useUi } from "./ui";
 
 type EngineState =
   | { kind: "starting" }
@@ -22,8 +24,8 @@ interface PreviewState {
   led: number;
   /** Bumped every time a patch finishes loading into the engine. */
   revision: number;
-  /** Lines printed by Pd, most recent last. Kept for looking at; nothing draws them. */
-  log: string[];
+  /** What Pd printed since the patch was first loaded, most recent last; the Problems pane shows it. */
+  console: ConsoleLine[];
   /** Set when the engine refused the last patch. */
   loadError: string | null;
   /** Why the patch's Audio In is silent in the preview, when its input could not be opened. */
@@ -45,11 +47,19 @@ export const usePreview = create<PreviewState>(() => ({
   screen: blankScreen(),
   led: 0,
   revision: 0,
-  log: [],
+  console: [],
   loadError: null,
   inputProblem: null,
   scopes: {},
 }));
+
+/** Clear Pd's console, and close the Problems pane, which has nothing more to show. */
+export function dismissConsole() {
+  usePreview.setState({ console: [] });
+  if (useUi.getState().sidePanes[PANE_SIDE.problems] === "problems") {
+    useUi.setState((s) => ({ sidePanes: { ...s.sidePanes, [PANE_SIDE.problems]: null } }));
+  }
+}
 
 /** Structural edits come in bursts (dragging a cable across ports); wait for them to settle. */
 const RELOAD_DELAY_MS = 120;
@@ -68,6 +78,8 @@ export function startPreviewSync(): () => void {
   let timer: ReturnType<typeof setTimeout> | undefined;
   let loading = false;
   let pending = false;
+  // What Pd prints before the first patch (its version, at start) is not the patch's.
+  let started = false;
 
   const sendChangedParams = (doc: PatchDocument) => {
     const result = compile(doc, abstractionLibrary);
@@ -97,6 +109,7 @@ export function startPreviewSync(): () => void {
       if (result.ok && usePreview.getState().engine.kind === "ready") {
         // A patch writes to the screen while it loads, so blank it before the load starts.
         usePreview.setState({ screen: blankScreen(), led: 0 });
+        started = true;
         const inputProblem = await engine.load(result.files, result.entry, result.samples);
         if (stopped) return;
         loadedKey = key;
@@ -135,7 +148,14 @@ export function startPreviewSync(): () => void {
   // writes a line when it changes, so a display that forgot its contents would stay blank.
   const onEvent = (event: PdEvent) => {
     if (event.kind === "print") {
-      usePreview.setState((s) => ({ log: [...s.log.slice(-199), event.text] }));
+      const line = consoleLine(event.text);
+      if (!line || !started) return;
+      const before = usePreview.getState().console;
+      const lines = withLine(before, line);
+      if (lines === before) return;
+      usePreview.setState({ console: lines });
+      // An error opens the Problems pane; it stays shut if it was closed while the error stands.
+      if (line.error) showSidePane("problems");
       return;
     }
     const line = /^screenLine([1-5])$/.exec(event.recv);
