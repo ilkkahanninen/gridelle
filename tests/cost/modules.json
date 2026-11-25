@@ -1,0 +1,736 @@
+[
+  {
+    "type": "audio-out",
+    "pd": "ge-audio-out",
+    "inlets": [
+      "main",
+      "main",
+      1
+    ],
+    "args": ""
+  },
+  {
+    "type": "audio-in",
+    "pd": "ge-audio-in",
+    "inlets": [],
+    "args": ""
+  },
+  {
+    "type": "keys",
+    "pd": "ge-keys",
+    "inlets": [
+      "main",
+      "main",
+      "main"
+    ],
+    "args": ""
+  },
+  {
+    "type": "sample-player",
+    "pd": "ge-sample-player",
+    "inlets": [
+      "main",
+      60,
+      1,
+      1,
+      1
+    ],
+    "args": "0"
+  },
+  {
+    "type": "sample-head",
+    "pd": "ge-sample-head",
+    "inlets": [
+      1,
+      1
+    ],
+    "args": "0"
+  },
+  {
+    "type": "sample-recorder",
+    "pd": "ge-sample-recorder",
+    "inlets": [
+      "main",
+      1,
+      1
+    ],
+    "args": "0"
+  },
+  {
+    "type": "tape-head",
+    "pd": "ge-tape-head",
+    "inlets": [
+      1
+    ],
+    "args": "0"
+  },
+  {
+    "type": "sample-grains",
+    "pd": "ge-sample-grains",
+    "inlets": [
+      60,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "args": "0"
+  },
+  {
+    "type": "scope",
+    "pd": "ge-scope",
+    "inlets": [
+      "main"
+    ],
+    "args": "0 -1"
+  },
+  {
+    "type": "osc-sine",
+    "pd": "ge-osc-sine",
+    "inlets": [
+      "main",
+      1,
+      1,
+      "mod"
+    ],
+    "args": ""
+  },
+  {
+    "type": "osc-tri",
+    "pd": "ge-osc-tri",
+    "inlets": [
+      "main",
+      1,
+      1,
+      "mod"
+    ],
+    "args": ""
+  },
+  {
+    "type": "osc-saw",
+    "pd": "ge-osc-saw",
+    "inlets": [
+      "main",
+      1,
+      1,
+      "mod"
+    ],
+    "args": ""
+  },
+  {
+    "type": "osc-pulse",
+    "pd": "ge-osc-pulse",
+    "inlets": [
+      "main",
+      1,
+      1,
+      1,
+      "mod",
+      "mod"
+    ],
+    "args": ""
+  },
+  {
+    "type": "osc-wavetable",
+    "pd": "ge-osc-wavetable",
+    "inlets": [
+      "main",
+      1,
+      1,
+      1,
+      "main",
+      "mod"
+    ],
+    "args": "0"
+  },
+  {
+    "type": "noise",
+    "pd": "ge-noise",
+    "inlets": [],
+    "args": ""
+  },
+  {
+    "type": "sample-hold",
+    "pd": "ge-sample-hold",
+    "inlets": [
+      "main",
+      "main"
+    ],
+    "args": ""
+  },
+  {
+    "type": "env-adsr",
+    "pd": "ge-env-adsr",
+    "inlets": [
+      "main",
+      1,
+      1,
+      1,
+      1
+    ],
+    "args": ""
+  },
+  {
+    "type": "env-ar",
+    "pd": "ge-env-ar",
+    "inlets": [
+      "main",
+      1,
+      1
+    ],
+    "args": ""
+  },
+  {
+    "type": "env-ad",
+    "pd": "ge-env-ad",
+    "inlets": [
+      "main",
+      1,
+      1
+    ],
+    "args": ""
+  },
+  {
+    "type": "follower",
+    "pd": "ge-follower",
+    "inlets": [
+      "main",
+      1,
+      1
+    ],
+    "args": ""
+  },
+  {
+    "type": "lfo",
+    "pd": "ge-lfo",
+    "inlets": [
+      "main",
+      1,
+      1
+    ],
+    "args": ""
+  },
+  {
+    "type": "lfo-random",
+    "pd": "ge-lfo-random",
+    "inlets": [
+      1,
+      1,
+      1
+    ],
+    "args": ""
+  },
+  {
+    "type": "clock",
+    "pd": "ge-clock",
+    "inlets": [
+      1,
+      1,
+      1
+    ],
+    "args": ""
+  },
+  {
+    "type": "arpeggiator",
+    "pd": "ge-arpeggiator",
+    "inlets": [
+      "control",
+      -1,
+      1,
+      1,
+      1
+    ],
+    "args": ""
+  },
+  {
+    "type": "sequencer",
+    "pd": "ge-sequencer",
+    "inlets": [
+      "main",
+      "main",
+      60,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "args": ""
+  },
+  {
+    "type": "pitch-transpose",
+    "pd": "ge-pitch-transpose",
+    "inlets": [
+      "main",
+      1,
+      1,
+      "mod"
+    ],
+    "args": ""
+  },
+  {
+    "type": "pitch-glide",
+    "pd": "ge-pitch-glide",
+    "inlets": [
+      "main",
+      1
+    ],
+    "args": ""
+  },
+  {
+    "type": "pitch-quantize",
+    "pd": "ge-pitch-quantize",
+    "inlets": [
+      "main",
+      "mod"
+    ],
+    "args": ""
+  },
+  {
+    "type": "filter-lp",
+    "pd": "ge-filter-lp",
+    "inlets": [
+      "main",
+      1,
+      1,
+      "mod"
+    ],
+    "args": ""
+  },
+  {
+    "type": "filter-hp",
+    "pd": "ge-filter-hp",
+    "inlets": [
+      "main",
+      1,
+      1,
+      "mod"
+    ],
+    "args": ""
+  },
+  {
+    "type": "filter-bp",
+    "pd": "ge-filter-bp",
+    "inlets": [
+      "main",
+      1,
+      1,
+      "mod"
+    ],
+    "args": ""
+  },
+  {
+    "type": "filter-notch",
+    "pd": "ge-filter-notch",
+    "inlets": [
+      "main",
+      1,
+      1,
+      "mod"
+    ],
+    "args": ""
+  },
+  {
+    "type": "filter-allpass",
+    "pd": "ge-filter-allpass",
+    "inlets": [
+      "main",
+      1,
+      1,
+      "mod"
+    ],
+    "args": ""
+  },
+  {
+    "type": "filter-ladder",
+    "pd": "ge-filter-ladder",
+    "inlets": [
+      "main",
+      1,
+      1,
+      "mod"
+    ],
+    "args": ""
+  },
+  {
+    "type": "filter-resonator",
+    "pd": "ge-filter-resonator",
+    "inlets": [
+      "main",
+      1,
+      1,
+      "mod"
+    ],
+    "args": ""
+  },
+  {
+    "type": "filter-soft-lp",
+    "pd": "ge-filter-soft-lp",
+    "inlets": [
+      "main",
+      1,
+      "mod"
+    ],
+    "args": ""
+  },
+  {
+    "type": "filter-soft-hp",
+    "pd": "ge-filter-soft-hp",
+    "inlets": [
+      "main",
+      1,
+      "mod"
+    ],
+    "args": ""
+  },
+  {
+    "type": "shaper-soft",
+    "pd": "ge-shaper-soft",
+    "inlets": [
+      "main",
+      1,
+      "mod",
+      1
+    ],
+    "args": ""
+  },
+  {
+    "type": "shaper-hard",
+    "pd": "ge-shaper-hard",
+    "inlets": [
+      "main",
+      1,
+      "mod"
+    ],
+    "args": ""
+  },
+  {
+    "type": "shaper-fold",
+    "pd": "ge-shaper-fold",
+    "inlets": [
+      "main",
+      1,
+      "mod",
+      1
+    ],
+    "args": ""
+  },
+  {
+    "type": "shaper-cheby",
+    "pd": "ge-shaper-cheby",
+    "inlets": [
+      "main",
+      1,
+      "mod",
+      1
+    ],
+    "args": ""
+  },
+  {
+    "type": "shaper-rectify",
+    "pd": "ge-shaper-rectify",
+    "inlets": [
+      "main",
+      1,
+      "mod"
+    ],
+    "args": ""
+  },
+  {
+    "type": "shaper-crush",
+    "pd": "ge-shaper-crush",
+    "inlets": [
+      "main",
+      1,
+      1,
+      "mod"
+    ],
+    "args": ""
+  },
+  {
+    "type": "fx-delay",
+    "pd": "ge-fx-delay",
+    "inlets": [
+      "main",
+      1,
+      1,
+      1,
+      1
+    ],
+    "args": ""
+  },
+  {
+    "type": "fx-reverb",
+    "pd": "ge-fx-reverb",
+    "inlets": [
+      "main",
+      1,
+      1,
+      1,
+      1
+    ],
+    "args": ""
+  },
+  {
+    "type": "fx-chorus",
+    "pd": "ge-fx-chorus",
+    "inlets": [
+      "main",
+      1,
+      1,
+      1,
+      1
+    ],
+    "args": ""
+  },
+  {
+    "type": "fx-phaser",
+    "pd": "ge-fx-phaser",
+    "inlets": [
+      "main",
+      1,
+      1,
+      1,
+      1
+    ],
+    "args": ""
+  },
+  {
+    "type": "fx-cavern",
+    "pd": "ge-fx-cavern",
+    "inlets": [
+      "main",
+      1,
+      1
+    ],
+    "args": ""
+  },
+  {
+    "type": "fx-room",
+    "pd": "ge-fx-room",
+    "inlets": [
+      "main",
+      1,
+      1,
+      1,
+      1
+    ],
+    "args": ""
+  },
+  {
+    "type": "fx-hall",
+    "pd": "ge-fx-hall",
+    "inlets": [
+      "main",
+      1,
+      1,
+      1,
+      1
+    ],
+    "args": ""
+  },
+  {
+    "type": "math-add",
+    "pd": "ge-math-add",
+    "inlets": [
+      "main",
+      "main"
+    ],
+    "args": ""
+  },
+  {
+    "type": "math-multiply",
+    "pd": "ge-math-multiply",
+    "inlets": [
+      "main",
+      "main"
+    ],
+    "args": ""
+  },
+  {
+    "type": "math-constant",
+    "pd": "ge-math-constant",
+    "inlets": [],
+    "args": ""
+  },
+  {
+    "type": "math-scale",
+    "pd": "ge-math-scale",
+    "inlets": [
+      "main",
+      1,
+      1
+    ],
+    "args": ""
+  },
+  {
+    "type": "math-crossfade",
+    "pd": "ge-math-crossfade",
+    "inlets": [
+      "main",
+      "main",
+      1
+    ],
+    "args": ""
+  },
+  {
+    "type": "math-smooth",
+    "pd": "ge-math-smooth",
+    "inlets": [
+      "main",
+      1,
+      1
+    ],
+    "args": ""
+  },
+  {
+    "type": "math-abs",
+    "pd": "ge-math-abs",
+    "inlets": [
+      "main"
+    ],
+    "args": ""
+  },
+  {
+    "type": "math-min",
+    "pd": "ge-math-min",
+    "inlets": [
+      "main",
+      "main"
+    ],
+    "args": ""
+  },
+  {
+    "type": "math-max",
+    "pd": "ge-math-max",
+    "inlets": [
+      "main",
+      "main"
+    ],
+    "args": ""
+  },
+  {
+    "type": "logic-compare",
+    "pd": "ge-logic-compare",
+    "inlets": [
+      "main",
+      1
+    ],
+    "args": ""
+  },
+  {
+    "type": "logic-and",
+    "pd": "ge-logic-and",
+    "inlets": [
+      "main",
+      "main"
+    ],
+    "args": ""
+  },
+  {
+    "type": "logic-or",
+    "pd": "ge-logic-or",
+    "inlets": [
+      "main",
+      "main"
+    ],
+    "args": ""
+  },
+  {
+    "type": "logic-not",
+    "pd": "ge-logic-not",
+    "inlets": [
+      "main"
+    ],
+    "args": ""
+  },
+  {
+    "type": "logic-toggle",
+    "pd": "ge-logic-toggle",
+    "inlets": [
+      "main"
+    ],
+    "args": ""
+  },
+  {
+    "type": "logic-divider",
+    "pd": "ge-logic-divider",
+    "inlets": [
+      "main",
+      1
+    ],
+    "args": ""
+  },
+  {
+    "type": "amp",
+    "pd": "ge-amp",
+    "inlets": [
+      "main",
+      1
+    ],
+    "args": ""
+  },
+  {
+    "type": "attenuator",
+    "pd": "ge-attenuator",
+    "inlets": [
+      "main"
+    ],
+    "args": ""
+  },
+  {
+    "type": "mixer",
+    "pd": "ge-mixer",
+    "inlets": [
+      "main",
+      "main",
+      "main",
+      "main",
+      "main",
+      "main",
+      "main",
+      "main"
+    ],
+    "args": ""
+  },
+  {
+    "type": "compressor",
+    "pd": "ge-compressor",
+    "inlets": [
+      "main",
+      "main",
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "args": ""
+  },
+  {
+    "type": "limiter",
+    "pd": "ge-limiter",
+    "inlets": [
+      "main",
+      "main",
+      1,
+      1,
+      1
+    ],
+    "args": ""
+  },
+  {
+    "type": "@voice",
+    "pd": "ge-voice",
+    "inlets": [
+      "control"
+    ],
+    "args": ""
+  }
+]

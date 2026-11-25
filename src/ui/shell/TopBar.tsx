@@ -1,3 +1,6 @@
+import { useMemo } from "react";
+import { structureKey } from "../../core/compiler/structure";
+import { CPU_HIGH, CPU_OVER, estimateCpu } from "../../core/cost";
 import { usePreview } from "../../state/preview";
 import { hasUnsavedChanges, useEditor } from "../../state/store";
 import { SidePaneTabs } from "./SidePanes";
@@ -37,6 +40,32 @@ function EngineStatus() {
   return null;
 }
 
+/**
+ * About how much of the Organelle's CPU the patch takes (`core/cost.ts`), amber from
+ * `CPU_HIGH` and red from `CPU_OVER`; the tooltip names the costliest modules. It depends
+ * only on the patch's structure, so it is worked out again only when that changes.
+ */
+function CpuMeter() {
+  const key = useEditor((s) => structureKey(s.doc));
+  const estimate = useMemo(() => estimateCpu(useEditor.getState().doc), [key]);
+  const percent = Math.round(estimate.percent);
+  const level = percent >= CPU_OVER ? " cpu-over" : percent >= CPU_HIGH ? " cpu-high" : "";
+  const costliest = estimate.parts
+    .filter((part) => part.percent >= 0.5)
+    .slice(0, 3)
+    .map((part) => `${part.name}${part.copies > 1 ? ` × ${part.copies}` : ""}: ${Math.round(part.percent)} %`);
+  const title = [
+    `About ${percent} % of the Organelle's CPU${percent >= CPU_OVER ? ": it will crackle there" : ""}. From about ${CPU_OVER} % it does.`,
+    ...(costliest.length > 0 ? [`Costliest: ${costliest.join(", ")}.`] : []),
+    "Estimated from measurements on an Organelle M.",
+  ].join(" ");
+  return (
+    <span className={`status cpu-meter${level}`} title={title}>
+      CPU ≈ {percent} %
+    </span>
+  );
+}
+
 export function TopBar() {
   const name = useEditor((s) => s.doc.name);
   const unsaved = useEditor(hasUnsavedChanges);
@@ -66,6 +95,7 @@ export function TopBar() {
       </div>
       <div className="topbar-side topbar-side-right">
         <EngineStatus />
+        <CpuMeter />
         <SidePaneTabs side="right" />
       </div>
     </header>

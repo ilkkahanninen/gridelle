@@ -30,6 +30,7 @@ cd src-tauri && cargo test --test module_dsp -- --nocapture   # prints measured 
 cd src-tauri && cargo test --test sample_dsp                  # the sample helpers and modules, on a sample whose contents say what was read
 cd src-tauri && cargo test --test wavetable_dsp -- --nocapture   # the Wavetable oscillator: prints what is between the harmonics, note by note
 cd src-tauri && cargo test --test arpeggiator -- --nocapture     # the Arpeggiator: the order of each mode, Hold, and its steps to the sample
+cd src-tauri && cargo test --test module_cost -- --ignored --nocapture   # measures what every module costs in real Pd and writes src/core/modules/costs.json
 cd src-tauri && cargo test --test voicing -- --nocapture         # mono note priority and legato, and a unison group's copies' places
 cd src-tauri && cargo test --test engine_audio -- --ignored   # opt-in: plays through the real audio device at -40 dB; the only test of the audio callback, scopes included
 cd src-tauri && ORGANELLE_ADDRESS=<ip> cargo test --test organelle_send -- --ignored --nocapture   # opt-in: writes the patch Gridelle_Test to a real Organelle and starts it
@@ -267,6 +268,14 @@ When a module's tile changes shape, older documents can have tiles on top of eac
 - `structure.ts`'s `structureKey(doc)` is the string that decides reload vs. live update. It must cover everything that changes the emitted patch *structure* and exclude param values, positions and the name.
 - `src/core/pd/patch.ts` (`PdPatch`) is the only place that writes Pd file syntax; callers pass box text as it appears in Pd and it handles `$` / `,` / `;` escaping and connection indices.
 
+### The CPU estimate (`src/core/cost.ts`)
+
+Every module runs all the time, so a patch costs the sum over its modules of what one copy costs times how many run: once outside the voices, once per voice in them, times a group's size in a unison group. Each voice adds `ge-voice` (`@voice`), and the Organelle's Pd has a base of its own.
+
+- What one copy costs is measured in two steps. `module_cost.rs` runs every module in real Pd on the development computer, sixteen copies fed as the compiler feeds them unpatched (what to measure is `tests/cost/modules.json`, which `cost.test.ts` writes from the registry), and writes `modules/costs.json`, each module's cost in Saws. The CPU probe (`pd-lib/cpu-probe`: banks of Saws, Low-passes and Reverbs switched on by knob 1, the bank picked by knob 2, and the Pd process's `[cputime]` over `[realtime]` on the screen) was sent to an Organelle M with OS 3.2 with the `organelle_send` test, and gave the base (6.5 %) and what a copy adds: Saw 1.39, Low-pass 2.69, Reverb 5.0 %, all in a straight line with the count. The table's relative costs matched the device's within 9 %, so one constant, `ORGANELLE_PER_SAW` (1.35, fitted to the three), turns Saws into percent.
+- The top bar shows the estimate (`CpuMeter`, amber from `CPU_HIGH` 70 %, red from `CPU_OVER` 85 %, the costliest modules in its tooltip), worked out again only when `structureKey` changes. From 85 % `compile` adds the `cpu-load` warning. That line is where the device was heard to fail: Basic Synth with its saw in a unison group played cleanly at 11 copies (estimated 80 %) and crackled now and then at 12 (86 %); Pd needs room for the rest of the Organelle's work.
+- After adding a module or changing one's DSP, run `module_cost` again: `cost.test.ts` fails for a module the table lacks. The table is in Saws, so it does not matter that the computer is faster than the Organelle; a new probe on the device would only change the two constants.
+
 ### State (`src/state`, zustand)
 
 - `store.ts`: the document, undo/redo history (with coalescing for continuous gestures such as knob drags), selection, file path.
@@ -317,7 +326,7 @@ Exported patches must run on the device's stock Pd (0.49 on OS 3.x and 4.x: its 
 - Input from the host: `notes` (pitch velocity), `knob1`–`knob4` (0–1), `aux`, and its audio input as the signals `inL` / `inR` (read with `r~`; seen in the `mother.pd` of a device with OS 3.2).
 - Output to the host: `throw~ outL` / `throw~ outR`, `screenLine1`–`screenLine5`, `led`.
 - Exports never contain `dac~` or `adc~`. In the preview and in the Rust tests `pd-lib/host.pd` stands in for the host (catch → clip → `dac~`, plus the Scope buses on outputs 3–10), and `src/ui/organelle/VirtualOrganelle.tsx` sends and displays exactly the messages above.
-- `pd-lib/spike` is a hand-written patch for checking a real device, not compiler output.
+- `pd-lib/spike` is a hand-written patch for checking a real device, not compiler output. So is `pd-lib/cpu-probe` (generated once, not by the compiler), which measures CPU on the device: see The CPU estimate.
 
 ### Sending over Wi-Fi (`src-tauri/src/organelle.rs`)
 

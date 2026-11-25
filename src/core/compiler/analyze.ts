@@ -61,6 +61,7 @@ export interface Diagnostic {
     | "unknown-bank"
     | "no-recorder"
     | "bad-group"
+    | "cpu-load"
     | "missing-abstraction";
   message: string;
   module?: ModuleId;

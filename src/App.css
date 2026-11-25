@@ -355,6 +355,20 @@ input {
   color: var(--danger);
 }
 
+/* What the patch takes of the Organelle's CPU: quiet while there is room. */
+.cpu-meter {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.cpu-high {
+  color: var(--hint-gate);
+}
+
+.cpu-over {
+  color: var(--danger);
+}
+
 /* Dock */
 
 .dock {

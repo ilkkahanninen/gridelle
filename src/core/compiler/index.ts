@@ -2,6 +2,7 @@ import type { ModuleId, PatchDocument } from "../model/types";
 import { KEYBOARD_ABSTRACTION, MONO_ABSTRACTION, PLACE_ABSTRACTION, VOICE_ABSTRACTION } from "../modules/registry";
 import { objectClasses } from "../pd/inspect";
 import { isPdObject } from "../pd/vanilla049";
+import { CPU_OVER, estimateFromAnalysis } from "../cost";
 import { analyze, type Diagnostic } from "./analyze";
 import {
   emitGroup,
@@ -93,6 +94,18 @@ function withHelpers(roots: string[], library: AbstractionLibrary): string[] {
 export function compile(doc: PatchDocument, library: AbstractionLibrary): CompileResult {
   const analysis = analyze(doc);
   const diagnostics = [...analysis.diagnostics];
+  // More than the Organelle can do: it plays here, and crackles there.
+  const cost = estimateFromAnalysis(analysis);
+  if (cost.percent >= CPU_OVER) {
+    const costliest = cost.parts[0];
+    diagnostics.push({
+      severity: "warning",
+      code: "cpu-load",
+      message: `The patch takes about ${Math.round(cost.percent)} % of the Organelle's CPU, so it will crackle there.${
+        costliest ? ` ${costliest.name}${costliest.copies > 1 ? ` (${costliest.copies} copies)` : ""} costs most: ${Math.round(costliest.percent)} %.` : ""
+      }`,
+    });
+  }
 
   const needed = withHelpers(
     [
