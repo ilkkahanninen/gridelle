@@ -8,7 +8,7 @@
 #X obj 30 275 ge-audio-out ge6;
 #X obj 290 205 sig~ 1;
 #X obj 550 30 loadbang;
-#X msg 550 65 \; ge1-tune 0 \; ge1-fine 0 \; ge1-depth 0.25 \; ge1-mode 0 \; ge2-cutoff 300 \; ge2-res 0.5 \; ge2-mod 48 \; ge3-level 1 \; ge4-attack 5 \; ge4-decay 120 \; ge4-shape 1 \; ge4-loop 1 \; ge5-attack 10 \; ge5-release 120 \; ge6-level 0.25;
+#X msg 550 65 \; ge1-tune 0 \; ge1-fine 0 \; ge1-depth 0.25 \; ge1-mode 0 \; ge2-cutoff 300 \; ge2-mod 48 \; ge2-res 0.5 \; ge3-level 1 \; ge4-attack 5 \; ge4-decay 120 \; ge4-shape 1 \; ge4-loop 1 \; ge5-attack 10 \; ge5-release 120 \; ge6-level 0.25;
 #X connect 1 0 2 0;
 #X connect 1 1 2 1;
 #X connect 2 0 3 0;

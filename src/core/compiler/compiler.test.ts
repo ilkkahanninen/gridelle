@@ -229,7 +229,7 @@ describe("compile", () => {
       expect(errors(shelved)).toEqual([]);
       const { files } = compile(shelved, abstractionLibrary);
       const [voice, copy] = [files["voice.pd"], files["ge-unison-ge9.pd"]];
-      expect(voice).toContain(`#X connect ${at(voice, "ge-voice")} 1 ${at(voice, "ge-filter-lp")} 3;`);
+      expect(voice).toContain(`#X connect ${at(voice, "ge-voice")} 1 ${at(voice, "ge-filter-lp")} 2;`);
       // Velocity goes into the group at its edge (cables first), and the pitch the saw's pre-cord takes after it.
       expect(voice).toContain(`#X connect ${at(voice, "ge-voice")} 2 ${at(voice, "clone")} 0;`);
       expect(voice).toContain(`#X connect ${at(voice, "ge-voice")} 0 ${at(voice, "clone")} 1;`);
@@ -653,10 +653,10 @@ describe("compile", () => {
     );
     expect(result.params).toEqual([
       { receiver: "ge1-cutoff", value: 18000 },
-      { receiver: "ge1-res", value: 0.2 },
       { receiver: "ge1-mod", value: 36 },
+      { receiver: "ge1-res", value: 0.2 },
     ]);
-    expect(result.files["main.pd"]).toContain("\\; ge1-cutoff 18000 \\; ge1-res 0.2 \\; ge1-mod 36;");
+    expect(result.files["main.pd"]).toContain("\\; ge1-cutoff 18000 \\; ge1-mod 36 \\; ge1-res 0.2;");
   });
 
   it("is deterministic", () => {

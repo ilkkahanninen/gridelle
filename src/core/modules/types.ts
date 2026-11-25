@@ -27,6 +27,11 @@ export interface PortDef {
    */
   unpatched?: number;
   /**
+   * Inputs only: the input whose value this one moves (adds to), such as Width modulation's
+   * Width. It comes right after that input, and the tile joins the two and labels this one ±.
+   */
+  modulates?: string;
+  /**
    * `notes`: the port carries notes, not a signal: `pitch velocity` messages, at a control
    * `inlet` or `outlet` of the abstraction. A note output goes to note inputs only, and a
    * note input with no cable gets the keyboard's notes. Only modules that run once have them.

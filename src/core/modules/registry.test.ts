@@ -70,6 +70,16 @@ describe("module registry", () => {
     }
   });
 
+  it("puts a modulation input right after the input it moves, in the rows layout", () => {
+    const pairs = moduleDefs.flatMap((def) =>
+      def.inputs.flatMap((port, i) => (port.modulates ? [[def.type, def.layout, def.inputs[i - 1]?.id, port.modulates] as const] : [])),
+    );
+    expect(pairs.length).toBeGreaterThan(0);
+    for (const [type, layout, above, moves] of pairs) {
+      expect(`${type}: ${layout} ${above}`).toBe(`${type}: rows ${moves}`);
+    }
+  });
+
   it("ties an input to a real setting, and each setting to one input at most", () => {
     for (const def of moduleDefs) {
       const tied = def.inputs.flatMap((port) => (port.param ? [port.param] : []));

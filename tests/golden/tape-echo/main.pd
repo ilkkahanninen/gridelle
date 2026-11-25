@@ -14,7 +14,7 @@
 #X obj 290 205 sig~ 1;
 #X obj 810 30 ge-sample-tape 1 1;
 #X obj 550 30 loadbang;
-#X msg 550 65 \; ge1-tune 0 \; ge1-fine 0 \; ge1-depth 0.25 \; ge1-mode 0 \; ge2-level 1 \; ge3-attack 5 \; ge3-decay 200 \; ge3-sustain 0.6 \; ge3-release 60 \; ge5-level1 1 \; ge5-level2 0.4 \; ge5-level3 1 \; ge5-level4 1 \; ge5-level5 1 \; ge5-level6 1 \; ge5-level7 1 \; ge5-level8 1 \; ge6-record 1 \; ge6-overdub 0 \; ge6-mode 0 \; ge7-delay 120 \; ge8-cutoff 3000 \; ge8-res 0 \; ge8-mod 0 \; ge9-drive 0 \; ge9-mod 12 \; ge9-bias 0 \; ge10-level 0.25;
+#X msg 550 65 \; ge1-tune 0 \; ge1-fine 0 \; ge1-depth 0.25 \; ge1-mode 0 \; ge2-level 1 \; ge3-attack 5 \; ge3-decay 200 \; ge3-sustain 0.6 \; ge3-release 60 \; ge5-level1 1 \; ge5-level2 0.4 \; ge5-level3 1 \; ge5-level4 1 \; ge5-level5 1 \; ge5-level6 1 \; ge5-level7 1 \; ge5-level8 1 \; ge6-record 1 \; ge6-overdub 0 \; ge6-mode 0 \; ge7-delay 120 \; ge8-cutoff 3000 \; ge8-mod 0 \; ge8-res 0 \; ge9-drive 0 \; ge9-mod 12 \; ge9-bias 0 \; ge10-level 0.25;
 #X connect 1 0 2 0;
 #X connect 1 1 2 1;
 #X connect 2 0 3 0;
@@ -34,7 +34,7 @@
 #X connect 12 0 7 2;
 #X connect 12 0 8 0;
 #X connect 12 0 9 1;
-#X connect 12 0 9 2;
+#X connect 12 0 9 3;
 #X connect 12 0 10 1;
 #X connect 12 0 10 3;
 #X connect 12 0 11 2;

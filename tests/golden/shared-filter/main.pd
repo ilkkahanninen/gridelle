@@ -10,7 +10,7 @@
 #X obj 550 275 ge-fx-delay ge10;
 #X obj 290 205 sig~ 1;
 #X obj 550 30 loadbang;
-#X msg 550 65 \; ge1-tune 0 \; ge1-fine -8 \; ge1-depth 0.25 \; ge1-mode 0 \; ge2-tune 12 \; ge2-fine 8 \; ge2-depth 0.25 \; ge2-mode 0 \; ge3-attack 5 \; ge3-decay 200 \; ge3-sustain 0.6 \; ge3-release 400 \; ge4-level 0.5 \; ge5-level 0.5 \; ge8-cutoff 2500 \; ge8-res 0.2 \; ge8-mod 36 \; ge9-level 0.25 \; ge10-time 150 \; ge10-feedback 0.2 \; ge10-tone 6000 \; ge10-mix 0.35;
+#X msg 550 65 \; ge1-tune 0 \; ge1-fine -8 \; ge1-depth 0.25 \; ge1-mode 0 \; ge2-tune 12 \; ge2-fine 8 \; ge2-depth 0.25 \; ge2-mode 0 \; ge3-attack 5 \; ge3-decay 200 \; ge3-sustain 0.6 \; ge3-release 400 \; ge4-level 0.5 \; ge5-level 0.5 \; ge8-cutoff 2500 \; ge8-mod 36 \; ge8-res 0.2 \; ge9-level 0.25 \; ge10-time 150 \; ge10-feedback 0.2 \; ge10-tone 6000 \; ge10-mix 0.35;
 #X connect 1 0 2 0;
 #X connect 1 1 2 1;
 #X connect 2 0 3 0;
@@ -24,7 +24,7 @@
 #X connect 5 1 7 1;
 #X connect 0 0 1 0;
 #X connect 9 0 6 1;
-#X connect 9 0 6 2;
+#X connect 9 0 6 3;
 #X connect 9 0 7 2;
 #X connect 9 0 8 1;
 #X connect 9 0 8 2;

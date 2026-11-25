@@ -233,6 +233,26 @@
   display: none;
 }
 
+/*
+ * A modulation input and the input it moves, joined from the centre of one port down and
+ * in to the centre of the other, under the dots; the modulation input is named by its sign.
+ */
+.tile-mod-link {
+  position: absolute;
+  margin-left: -1px;
+  border-left: 2px solid var(--mod-link);
+  border-bottom: 2px solid var(--mod-link);
+  border-bottom-left-radius: 6px;
+  --mod-link: color-mix(in srgb, var(--hint-mod) 55%, transparent);
+  pointer-events: none;
+}
+
+.port .port-label-sign,
+.tile-knob-sign .knob-label {
+  font-size: 15px;
+  line-height: 1;
+}
+
 /* A tile one cell wide has no room for names: its tooltips have them. */
 .tile-narrow .tile-row-knob .knob-label {
   display: none;

@@ -1,7 +1,7 @@
 #N canvas 0 0 1000 460 12;
 #X obj 30 20 inlet~;
 #X obj 100 20 inlet~;
-#X obj 240 20 inlet~;
+#X obj 170 20 inlet~;
 #X obj 330 70 r \$1-cutoff;
 #X obj 330 100 ftom;
 #X obj 330 130 pack f 20;
@@ -19,7 +19,7 @@
 #X obj 900 20 loadbang;
 #X obj 900 50 metro 10;
 #X obj 600 100 snapshot~;
-#X obj 170 20 inlet~;
+#X obj 240 20 inlet~;
 #X obj 600 130 *;
 #X obj 660 70 r \$1-res;
 #X obj 600 160 change;

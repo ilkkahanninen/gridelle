@@ -25,8 +25,17 @@ const choice = (id: string, label: string, options: string[], def = 0): ParamDef
 const pitchInput: PortDef = { id: "pitch", label: "Pitch", hint: "pitch", precord: "pitch" };
 const audioInput: PortDef = { id: "in", label: "In", hint: "audio" };
 const audioOutput: PortDef = { id: "out", label: "Out", hint: "audio" };
-/** A Mod input, with the knob that says how far it moves what it modulates. It rests at 0. */
-const modInput = (amount: string): PortDef => ({ id: "mod", label: "Modulation", hint: "mod", param: amount });
+/**
+ * A Mod input, with the knob that says how far it moves what it modulates: the input
+ * `target`, or, on an oscillator, the pitch or the level as its mode says. It rests at 0.
+ */
+const modInput = (amount: string, target?: string): PortDef => ({
+  id: "mod",
+  label: "Modulation",
+  hint: "mod",
+  param: amount,
+  ...(target ? { modulates: target } : {}),
+});
 
 /** How tall a rows tile is for this many inputs: two rows to a cell, under a half-cell header. */
 const rowsHeight = (inputs: PortDef[]) => Math.ceil((inputs.length + 1) / 2);
@@ -94,7 +103,7 @@ const filter = (
 ): ModuleDef => {
   const resonance: ParamDef = { id: "res", label: "Resonance", short: "Res", min: 0, max: 1, default: 0.2, curve: "lin" };
   // The Cutoff input multiplies the frequency; Mod adds to it in semitones, by its own knob.
-  const inputs = [audioInput, settingInput("cutoff", "Cutoff"), ...(res ? [settingInput("res", "Resonance")] : []), modInput("mod")];
+  const inputs = [audioInput, settingInput("cutoff", "Cutoff"), modInput("mod", "cutoff"), ...(res ? [settingInput("res", "Resonance")] : [])];
   return {
     type,
     name,
@@ -106,9 +115,9 @@ const filter = (
     outputs,
     params: [
       { id: "cutoff", label: "Cutoff", min: 20, max: 18000, default: 1200, curve: "exp", unit: "Hz" },
-      ...(res ? [resonance] : []),
       // Semitones of cutoff sweep per unit of the mod input.
       { id: "mod", label: "Modulation", short: "Mod", min: -96, max: 96, default: 36, curve: "lin", unit: "st" },
+      ...(res ? [resonance] : []),
     ],
     pd: `ge-${type}`,
   };
@@ -116,13 +125,12 @@ const filter = (
 
 /**
  * A shaper: its settings in the order of their rows. Each has an input of its own, except
- * Mod, whose input is the Mod input, and choices, which have none.
+ * Mod, whose input is the Mod input and moves the setting before it, and choices, which
+ * have none.
  */
 const shaper = (type: string, name: string, params: ParamDef[]): ModuleDef => {
-  const inputs = [
-    audioInput,
-    ...params.filter((p) => !p.options).map((p) => (p.id === "mod" ? modInput("mod") : settingInput(p.id, p.label))),
-  ];
+  const rows = params.filter((p) => !p.options);
+  const inputs = [audioInput, ...rows.map((p, i) => (p.id === "mod" ? modInput("mod", rows[i - 1].id) : settingInput(p.id, p.label)))];
   return {
     type,
     name,
@@ -463,7 +471,7 @@ const DEFS: ModuleDef[] = [
   // The output has no DC, so a narrow pulse peaks above 1 (up to 1.9 at the ends of Width).
   // Width is its knob times its input; PWM then adds to it, half a cycle for a signal of 1.
   oscillator("osc-pulse", "Pulse", {
-    inputs: [settingInput("width", "Width"), { id: "pwm", label: "Width modulation", hint: "mod" }],
+    inputs: [settingInput("width", "Width"), { id: "pwm", label: "Width modulation", hint: "mod", modulates: "width" }],
     params: [{ id: "width", label: "Width", min: 5, max: 95, default: 50, curve: "lin", unit: "%" }],
   }),
   {
@@ -472,7 +480,7 @@ const DEFS: ModuleDef[] = [
     // of 1. The wavetable is a sample slot's: one of the editor's own, or a sound file cut
     // into cycles. It is read at the level that has only the harmonics the pitch has room for.
     ...oscillator("osc-wavetable", "Wavetable", {
-      inputs: [settingInput("position", "Position"), { id: "scan", label: "Position modulation", hint: "mod" }],
+      inputs: [settingInput("position", "Position"), { id: "scan", label: "Position modulation", hint: "mod", modulates: "position" }],
       params: [level("position", "Position", 1, 0), { ...sampleChoice, label: "Wavetable" }],
     }),
     sample: "wavetable",
@@ -716,7 +724,7 @@ const DEFS: ModuleDef[] = [
     } satisfies ModuleDef;
   })(),
   // The pitch modules take and give a pitch as the oscillators do: a note number.
-  pitchModule("pitch-transpose", "Transpose", [settingInput("octave", "Octave"), settingInput("semi", "Semitones"), modInput("mod")], [
+  pitchModule("pitch-transpose", "Transpose", [settingInput("octave", "Octave"), settingInput("semi", "Semitones"), modInput("mod", "semi")], [
     { id: "octave", label: "Octave", min: -4, max: 4, default: 0, curve: "lin", step: 1, unit: "oct" },
     { id: "semi", label: "Semitones", short: "Semi", min: -12, max: 12, default: 0, curve: "lin", step: 1, unit: "st" },
     // Semitones per unit of the mod input: an LFO here is vibrato.
@@ -728,7 +736,7 @@ const DEFS: ModuleDef[] = [
   ]),
   // Snaps a pitch to the nearest note of a scale. What comes in at Mod is added first,
   // Range semitones for a signal of 1, so an LFO or Random plays notes of the scale.
-  pitchModule("pitch-quantize", "Quantizer", [modInput("mod")], [
+  pitchModule("pitch-quantize", "Quantizer", [modInput("mod", "pitch")], [
     { id: "mod", label: "Range", min: -48, max: 48, default: 12, curve: "lin", unit: "st" },
     choice("root", "Root", ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]),
     // In the order of the tables in `ge-pitch-quantize`.
@@ -785,9 +793,9 @@ const DEFS: ModuleDef[] = [
   // Rate is how many samples a second get through, Bits how finely each is measured.
   shaper("shaper-crush", "Bitcrusher", [
     { id: "rate", label: "Rate", min: 100, max: 18000, default: 6000, curve: "exp", unit: "Hz" },
-    { id: "bits", label: "Bits", min: 1, max: 16, default: 8, curve: "lin" },
     // Semitones of Rate per unit of the mod input.
     { id: "mod", label: "Modulation", short: "Mod", min: -96, max: 96, default: 24, curve: "lin", unit: "st" },
+    { id: "bits", label: "Bits", min: 1, max: 16, default: 8, curve: "lin" },
   ]),
   // An echo. Each repeat comes back through a low-pass at Tone, times Feedback.
   effect("fx-delay", "Delay", [

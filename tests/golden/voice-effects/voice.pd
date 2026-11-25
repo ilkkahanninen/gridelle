@@ -25,7 +25,7 @@
 #X connect 10 0 2 1;
 #X connect 10 0 2 2;
 #X connect 10 0 3 1;
-#X connect 10 0 3 2;
+#X connect 10 0 3 3;
 #X connect 10 0 4 1;
 #X connect 10 0 4 2;
 #X connect 10 0 4 3;

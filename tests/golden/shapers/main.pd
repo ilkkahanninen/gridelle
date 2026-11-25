@@ -8,7 +8,7 @@
 #X obj 30 275 ge-audio-out ge8;
 #X obj 290 205 sig~ 1;
 #X obj 550 30 loadbang;
-#X msg 550 65 \; ge1-tune 0 \; ge1-fine 0 \; ge1-depth 0.25 \; ge1-mode 0 \; ge2-level 1 \; ge3-attack 5 \; ge3-decay 200 \; ge3-sustain 0.6 \; ge3-release 200 \; ge4-drive 12 \; ge4-mod 12 \; ge4-symmetry 0.4 \; ge4-shape 1 \; ge5-order 3.5 \; ge5-mod 2 \; ge5-drive -3 \; ge6-drive 9 \; ge6-mod 12 \; ge6-bias 0.5 \; ge7-drive 3 \; ge7-mod 12 \; ge8-level 0.25 \; ge9-amount 0.8 \; ge9-mod 0.5 \; ge10-rate 4000 \; ge10-bits 5 \; ge10-mod 24;
+#X msg 550 65 \; ge1-tune 0 \; ge1-fine 0 \; ge1-depth 0.25 \; ge1-mode 0 \; ge2-level 1 \; ge3-attack 5 \; ge3-decay 200 \; ge3-sustain 0.6 \; ge3-release 200 \; ge4-drive 12 \; ge4-mod 12 \; ge4-symmetry 0.4 \; ge4-shape 1 \; ge5-order 3.5 \; ge5-mod 2 \; ge5-drive -3 \; ge6-drive 9 \; ge6-mod 12 \; ge6-bias 0.5 \; ge7-drive 3 \; ge7-mod 12 \; ge8-level 0.25 \; ge9-amount 0.8 \; ge9-mod 0.5 \; ge10-rate 4000 \; ge10-mod 24 \; ge10-bits 5;
 #X obj 30 400 loadbang;
 #X msg 30 428 0;
 #X obj 30 596 s ge-page;

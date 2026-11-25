@@ -11,6 +11,16 @@ export const PORT_TOP = 36;
 export const PORT_GAP = 20;
 /** Port centre, measured in from the tile's left or right edge. */
 export const PORT_INSET = 11;
+/**
+ * How much further in a modulation input (`PortDef.modulates`) and its knob sit than the
+ * other rows: it belongs to the input above it.
+ */
+export const MOD_INDENT = 10;
+
+/** How far in from its side of the tile a port's centre is. */
+export function portInset(def: Pick<ModuleDef, "inputs">, side: "in" | "out", index: number): number {
+  return PORT_INSET + (side === "in" && def.inputs[index]?.modulates ? MOD_INDENT : 0);
+}
 
 /**
  * A module with the `rows` layout lists its inputs as rows, two to a grid cell, under a
@@ -85,7 +95,7 @@ export function portPosition(
 ): Point {
   const rect = tileRect(module, def);
   return {
-    x: side === "in" ? rect.left + PORT_INSET : rect.left + rect.width - PORT_INSET,
+    x: side === "in" ? rect.left + portInset(def, side, index) : rect.left + rect.width - portInset(def, side, index),
     y: rect.top + portOffset(def, index),
   };
 }

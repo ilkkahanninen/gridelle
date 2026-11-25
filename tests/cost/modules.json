@@ -298,8 +298,8 @@
     "inlets": [
       "main",
       1,
-      1,
-      "mod"
+      "mod",
+      1
     ],
     "args": ""
   },
@@ -309,8 +309,8 @@
     "inlets": [
       "main",
       1,
-      1,
-      "mod"
+      "mod",
+      1
     ],
     "args": ""
   },
@@ -320,8 +320,8 @@
     "inlets": [
       "main",
       1,
-      1,
-      "mod"
+      "mod",
+      1
     ],
     "args": ""
   },
@@ -331,8 +331,8 @@
     "inlets": [
       "main",
       1,
-      1,
-      "mod"
+      "mod",
+      1
     ],
     "args": ""
   },
@@ -342,8 +342,8 @@
     "inlets": [
       "main",
       1,
-      1,
-      "mod"
+      "mod",
+      1
     ],
     "args": ""
   },
@@ -353,8 +353,8 @@
     "inlets": [
       "main",
       1,
-      1,
-      "mod"
+      "mod",
+      1
     ],
     "args": ""
   },
@@ -364,8 +364,8 @@
     "inlets": [
       "main",
       1,
-      1,
-      "mod"
+      "mod",
+      1
     ],
     "args": ""
   },
@@ -448,8 +448,8 @@
     "inlets": [
       "main",
       1,
-      1,
-      "mod"
+      "mod",
+      1
     ],
     "args": ""
   },

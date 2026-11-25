@@ -65,9 +65,9 @@ fn inlets_of(name: &str) -> &'static [Inlet] {
     match name {
         "ge-osc-sine" | "ge-osc-tri" | "ge-osc-saw" => &[Main, Setting, Setting, Mod],
         "ge-osc-pulse" => &[Main, Setting, Setting, Setting, Pwm, Mod],
-        "ge-filter-lp" | "ge-filter-hp" | "ge-filter-bp" | "ge-filter-notch" | "ge-filter-allpass" => &[Main, Setting, Setting, Mod],
+        "ge-filter-lp" | "ge-filter-hp" | "ge-filter-bp" | "ge-filter-notch" | "ge-filter-allpass" => &[Main, Setting, Mod, Setting],
         "ge-fx-delay" | "ge-fx-chorus" | "ge-fx-phaser" | "ge-fx-reverb" | "ge-fx-room" | "ge-fx-hall" => &[Main, Setting, Setting, Setting, Setting],
-        "ge-filter-ladder" | "ge-filter-resonator" => &[Main, Setting, Setting, Mod],
+        "ge-filter-ladder" | "ge-filter-resonator" => &[Main, Setting, Mod, Setting],
         "ge-filter-soft-lp" | "ge-filter-soft-hp" => &[Main, Setting, Mod],
         "ge-fx-cavern" | "ge-follower" => &[Main, Setting, Setting],
         "ge-sample-hold" | "ge-pitch-quantize" => &[Main, Mod],
@@ -81,7 +81,7 @@ fn inlets_of(name: &str) -> &'static [Inlet] {
         "ge-pitch-glide" => &[Main, Setting],
         "ge-shaper-soft" | "ge-shaper-fold" | "ge-shaper-cheby" => &[Main, Setting, Mod, Setting],
         "ge-shaper-hard" | "ge-shaper-rectify" => &[Main, Setting, Mod],
-        "ge-shaper-crush" => &[Main, Setting, Setting, Mod],
+        "ge-shaper-crush" => &[Main, Setting, Mod, Setting],
         "ge-amp" => &[Main, Setting],
         // In is the input of Level, with no rest value: no cable, no signal.
         "ge-attenuator" => &[Main],
@@ -1497,7 +1497,7 @@ fn resonator(pd: &mut Pd, dir: &Path) {
         tuned(pd, 1000.0, 0.4);
         let direct = levels(pd, 500.0).0;
         set(pd, &[("res", 0.8)]);
-        pd.send_float("t-in2", 0.5);
+        pd.send_float("t-in3", 0.5);
         render(pd, 0.05);
         close(levels(pd, 500.0).0, direct, 0.2, "resonator's Res input multiplies Res");
         println!("ge-filter-resonator at 1 kHz: band {:.1} dB at the cutoff, {:.1} / {:.1} an octave down at Res 0.5 / 0.9; low output {low_lows:.1} dB at 125 Hz, {low_highs:.1} at 8 kHz", at.0, below.0, narrow.0);
@@ -2483,13 +2483,13 @@ fn setting_inputs(pd: &mut Pd, dir: &Path) {
         ("ge-osc-pulse", 2, "fine", 80.0, 0.5),
         ("ge-osc-pulse", 3, "width", 80.0, 0.25),
         ("ge-filter-lp", 1, "cutoff", 4000.0, 0.25),
-        ("ge-filter-lp", 2, "res", 0.8, 0.5),
+        ("ge-filter-lp", 3, "res", 0.8, 0.5),
         ("ge-filter-hp", 1, "cutoff", 250.0, 4.0),
-        ("ge-filter-hp", 2, "res", 0.4, 2.0),
+        ("ge-filter-hp", 3, "res", 0.4, 2.0),
         ("ge-filter-bp", 1, "cutoff", 2400.0, 0.125),
-        ("ge-filter-bp", 2, "res", 1.0, 0.25),
+        ("ge-filter-bp", 3, "res", 1.0, 0.25),
         ("ge-filter-notch", 1, "cutoff", 660.0, 0.5),
-        ("ge-filter-notch", 2, "res", 0.6, 0.5),
+        ("ge-filter-notch", 3, "res", 0.6, 0.5),
         ("ge-shaper-soft", 1, "drive", 24.0, 0.5),
         ("ge-shaper-soft", 3, "bias", 0.8, 0.5),
         ("ge-shaper-hard", 1, "drive", 24.0, 0.25),
@@ -2498,7 +2498,7 @@ fn setting_inputs(pd: &mut Pd, dir: &Path) {
         ("ge-shaper-cheby", 1, "order", 6.0, 0.5),
         ("ge-shaper-cheby", 3, "drive", -12.0, 0.5),
         ("ge-shaper-rectify", 1, "amount", 1.0, 0.25),
-        ("ge-shaper-crush", 2, "bits", 8.0, 0.5),
+        ("ge-shaper-crush", 3, "bits", 8.0, 0.5),
         ("ge-lfo", 1, "rate", 16.0, 0.5),
         ("ge-lfo", 2, "level", 0.8, 0.5),
         ("ge-fx-delay", 1, "time", 160.0, 0.5),
@@ -2519,7 +2519,7 @@ fn setting_inputs(pd: &mut Pd, dir: &Path) {
         ("ge-fx-reverb", 4, "mix", 0.8, 0.5),
         ("ge-filter-allpass", 1, "cutoff", 4000.0, 0.25),
         ("ge-filter-ladder", 1, "cutoff", 4000.0, 0.25),
-        ("ge-filter-ladder", 2, "res", 0.8, 0.5),
+        ("ge-filter-ladder", 3, "res", 0.8, 0.5),
         ("ge-filter-resonator", 1, "cutoff", 2000.0, 0.5),
         ("ge-filter-soft-lp", 1, "cutoff", 4000.0, 0.0625),
         ("ge-filter-soft-hp", 1, "cutoff", 250.0, 4.0),

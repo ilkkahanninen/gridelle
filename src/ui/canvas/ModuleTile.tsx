@@ -9,7 +9,7 @@ import { useUi } from "../../state/ui";
 import { Knob } from "../controls/Knob";
 import { GLYPHS } from "../palette/glyphs";
 import { precordText } from "../precordText";
-import { PORT_INSET, portOffset, tileRect } from "./geometry";
+import { MOD_INDENT, PORT_INSET, portInset, portOffset, tileRect } from "./geometry";
 import { ScopeView } from "./ScopeView";
 
 interface TileProps {
@@ -38,7 +38,10 @@ interface TileProps {
 let lastAssigned = { knob: "", at: 0 };
 const DOUBLE_CLICK_MS = 500;
 
-function ParamKnob({ module, param, size }: { module: ModuleInstance; param: ParamDef; size: number }) {
+/** The sign a modulation input has for a name: it moves the input above it up and down. */
+const MODULATES = "±";
+
+function ParamKnob({ module, param, size, name = param.label }: { module: ModuleInstance; param: ParamDef; size: number; name?: string }) {
   const [active, setActive] = useState(false);
   const value = ops.paramValue(module, param.id);
   // The knob page and Organelle knob (0–3) that play this parameter, as one number so that
@@ -53,7 +56,8 @@ function ParamKnob({ module, param, size }: { module: ModuleInstance; param: Par
   const onShownPage = useUi((s) => s.knobPage === page);
   return (
     <div
-      className="tile-knob"
+      // A knob named by a sign (a modulation input's amount) shows it larger, but not its value.
+      className={`tile-knob${!active && name !== param.label ? " tile-knob-sign" : ""}`}
       // Not while something is being dragged across the tile: the label would keep showing the value.
       onPointerEnter={(e) => e.buttons === 0 && setActive(true)}
       onPointerLeave={(e) => e.buttons === 0 && setActive(false)}
@@ -75,7 +79,7 @@ function ParamKnob({ module, param, size }: { module: ModuleInstance; param: Par
         size={size}
         value={toNormalized(param, value)}
         defaultValue={toNormalized(param, param.default)}
-        label={active ? formatParam(param, value) : param.label}
+        label={active ? formatParam(param, value) : name}
         ariaLabel={param.label}
         onChange={(position) =>
           useEditor
@@ -125,8 +129,12 @@ function Port({
   const idle = side === "in" && !cabled && port.precord && !precord ? port.precord : null;
   // An input in a row that has a knob: the knob's label names the row.
   const knobbed = side === "in" && def.layout === "rows" && !!port.param;
+  // A modulation input is named by its sign; the tooltip says what it moves.
+  const moves = side === "in" && port.modulates ? def.inputs.find((p) => p.id === port.modulates) : undefined;
   const hint = keyboard
     ? `${port.label}: the keyboard's, until you patch a cable in from another note output.`
+    : moves
+    ? `${port.label} input: moves ${moves.label}${port.param ? ", as far as its knob says" : ""}.`
     : precord
     ? `${port.label}: follows ${precordText(precord, inVoices)} until you patch a cable in. Click to turn that off.`
     : idle
@@ -137,7 +145,7 @@ function Port({
   return (
     <div
       className={`port port-${side} hint-${port.hint}${cabled ? " port-cabled" : ""}${precord || keyboard ? " port-precord" : ""}${target ? " port-target" : ""}${knobbed ? " port-knobbed" : ""}`}
-      style={{ top: portOffset(def, index), [side === "in" ? "left" : "right"]: PORT_INSET }}
+      style={{ top: portOffset(def, index), [side === "in" ? "left" : "right"]: portInset(def, side, index) }}
       data-port-module={module.id}
       data-port-id={port.id}
       data-port-side={side}
@@ -145,7 +153,7 @@ function Port({
       onPointerDown={(e) => onPointerDown(e, module.id, port.id, side)}
     >
       <span className="port-dot" />
-      <span className="port-label">{port.label}</span>
+      <span className={`port-label${moves ? " port-label-sign" : ""}`}>{moves ? MODULATES : port.label}</span>
     </div>
   );
 }
@@ -211,6 +219,17 @@ export const ModuleTile = memo(function ModuleTile({
       {narrow && picture && <Glyph type={def.type} className="tile-glyph-body" />}
       {entry && <span className="tile-value">{shownValue(ops.paramValue(module, entry.id))}</span>}
       {def.tap && <ScopeView module={module} />}
+      {/* A modulation input is joined to the input it moves, the row above it, from which it is indented. */}
+      {def.inputs.map(
+        (port, i) =>
+          port.modulates && (
+            <span
+              key={`link-${port.id}`}
+              className="tile-mod-link"
+              style={{ top: portOffset(def, i - 1), height: portOffset(def, i) - portOffset(def, i - 1), left: PORT_INSET, width: MOD_INDENT }}
+            />
+          ),
+      )}
       {def.inputs.map((port, i) => (
         <Port
           key={port.id}
@@ -249,10 +268,10 @@ export const ModuleTile = memo(function ModuleTile({
               <div
                 key={param.id}
                 className="tile-row-knob"
-                style={{ top: portOffset(def, i) }}
+                style={{ top: portOffset(def, i), ...(port.modulates ? { marginLeft: MOD_INDENT } : {}) }}
                 onPointerDown={(e) => e.stopPropagation()}
               >
-                <ParamKnob module={module} param={param} size={24} />
+                <ParamKnob module={module} param={param} size={24} name={port.modulates ? MODULATES : undefined} />
               </div>
             )
           );

@@ -10,7 +10,7 @@
 #X obj 30 420 outlet~;
 #X connect 0 0 1 0;
 #X connect 2 0 3 0;
-#X connect 5 0 3 3;
+#X connect 5 0 3 2;
 #X connect 3 0 4 0;
 #X connect 6 0 4 1;
 #X connect 1 0 2 0;
@@ -19,7 +19,7 @@
 #X connect 7 0 2 1;
 #X connect 7 0 2 2;
 #X connect 7 0 3 1;
-#X connect 7 0 3 2;
+#X connect 7 0 3 3;
 #X connect 7 0 5 1;
 #X connect 7 0 5 2;
 #X connect 7 0 5 3;

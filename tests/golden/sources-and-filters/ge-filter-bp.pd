@@ -1,7 +1,7 @@
 #N canvas 0 0 760 560 12;
 #X obj 30 20 inlet~;
 #X obj 100 20 inlet~;
-#X obj 240 20 inlet~;
+#X obj 170 20 inlet~;
 #X obj 330 70 r \$1-cutoff;
 #X obj 330 100 ftom;
 #X obj 330 130 pack f 20;
@@ -15,7 +15,7 @@
 #X obj 240 250 mtof~;
 #X obj 100 250 *~;
 #X obj 100 280 clip~ 8.1758 19912.1;
-#X obj 170 20 inlet~;
+#X obj 240 20 inlet~;
 #X obj 600 70 r \$1-res;
 #X obj 600 100 pack f 20;
 #X obj 600 130 line~;
