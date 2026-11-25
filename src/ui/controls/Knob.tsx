@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useRef, type ReactNode } from "react";
 import "./Knob.css";
 
 interface KnobProps {
@@ -7,8 +7,10 @@ interface KnobProps {
   onChange: (value: number) => void;
   /** Position restored on double-click. */
   defaultValue?: number;
-  /** Text shown under the dial. */
-  label?: string;
+  /** Shown under the dial: text, or a field that stands in its place. */
+  label?: ReactNode;
+  /** A double-click on the label; without it the label takes none. */
+  onLabelDoubleClick?: () => void;
   /** Accessible name, when it should differ from the visible label. */
   ariaLabel?: string;
   size?: number;
@@ -30,7 +32,7 @@ function arc(r: number, from: number, to: number) {
 }
 
 /** Rotary control: drag vertically, hold Shift for fine steps, double-click to reset. */
-export function Knob({ value, onChange, defaultValue = 0.5, label, ariaLabel, size = 44 }: KnobProps) {
+export function Knob({ value, onChange, defaultValue = 0.5, label, onLabelDoubleClick, ariaLabel, size = 44 }: KnobProps) {
   const drag = useRef<{ y: number; value: number } | null>(null);
   const angle = START + value * SWEEP;
   const [px, py] = polar(16, 16, 7, angle);
@@ -43,7 +45,7 @@ export function Knob({ value, onChange, defaultValue = 0.5, label, ariaLabel, si
         height={size}
         viewBox="0 0 32 32"
         role="slider"
-        aria-label={ariaLabel ?? label}
+        aria-label={ariaLabel ?? (typeof label === "string" ? label : undefined)}
         aria-valuemin={0}
         aria-valuemax={1}
         aria-valuenow={Number(value.toFixed(3))}
@@ -75,7 +77,11 @@ export function Knob({ value, onChange, defaultValue = 0.5, label, ariaLabel, si
         <circle className="knob-cap" cx={16} cy={16} r={9.5} />
         <line className="knob-pointer" x1={16} y1={16} x2={px} y2={py} />
       </svg>
-      {label && <span className="knob-label">{label}</span>}
+      {label && (
+        <span className="knob-label" onDoubleClick={onLabelDoubleClick}>
+          {label}
+        </span>
+      )}
     </div>
   );
 }

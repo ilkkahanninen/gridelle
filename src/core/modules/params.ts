@@ -32,6 +32,26 @@ export function clampParam(param: ParamDef, value: number): number {
   return snap(param, Number.isFinite(value) ? value : param.default);
 }
 
+/**
+ * A value typed for a parameter: a number (a comma counts as the point), and after it no
+ * unit, the parameter's own, or the larger one `formatParam` shows (`2k` or `1.2 kHz` for
+ * Hz, `2.5 s` for ms). So what the readout says can be typed back as it is. `null` when
+ * the text is not that. Not clamped: `ops.setParam` keeps it in range and on its step.
+ */
+export function parseParam(param: ParamDef, text: string): number | null {
+  const match = /^\s*([-+]?(?:\d+(?:[.,]\d*)?|[.,]\d+))\s*([a-z%]*)\s*$/i.exec(text);
+  if (!match) return null;
+  const number = Number(match[1].replace(",", "."));
+  const unit = match[2].toLowerCase();
+  const scale =
+    unit === "" || unit === param.unit?.toLowerCase()
+      ? 1
+      : (param.unit === "Hz" && (unit === "k" || unit === "khz")) || (param.unit === "ms" && unit === "s")
+        ? 1000
+        : null;
+  return scale === null || !Number.isFinite(number) ? null : number * scale;
+}
+
 /** Short readout for tiles and the inspector, e.g. `1.2 kHz`, `-12 st`, `0.60`. */
 export function formatParam(param: ParamDef, value: number): string {
   if (param.options) return param.options[clampParam(param, value)] ?? "";

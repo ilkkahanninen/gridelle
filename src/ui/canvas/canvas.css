@@ -197,6 +197,24 @@
     0 0 0 2.5px var(--text);
 }
 
+/* A knob's value being typed in, where its label was. */
+.tile-knob-field {
+  width: 7.5ch;
+  padding: 0 3px;
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 11.5px;
+  line-height: 16px;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.tile-knob-field:focus {
+  outline: none;
+}
+
 .tile-knob .knob-label {
   width: 44px;
   text-align: center;

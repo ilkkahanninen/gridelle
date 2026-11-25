@@ -1,7 +1,7 @@
-import { memo, useState } from "react";
+import { memo, useRef, useState } from "react";
 import * as ops from "../../core/model/ops";
 import { KNOBS_PER_PAGE, type ModuleInstance } from "../../core/model/types";
-import { formatParam, fromNormalized, toNormalized } from "../../core/modules/params";
+import { formatParam, fromNormalized, parseParam, toNormalized } from "../../core/modules/params";
 import type { ModuleDef, ParamDef, PortDef } from "../../core/modules/types";
 import { assignToArmed } from "../../state/assign";
 import { useEditor } from "../../state/store";
@@ -38,11 +38,48 @@ interface TileProps {
 let lastAssigned = { knob: "", at: 0 };
 const DOUBLE_CLICK_MS = 500;
 
+/**
+ * A knob's value typed in, in the place of its label: it starts with the value as the label
+ * shows it, selected. Enter or leaving the field sets what was typed (an undo step of its
+ * own, kept in range by `setParam`; text that is not a value changes nothing), Escape
+ * leaves the value as it was.
+ */
+function ValueField({ module, param, value, onDone }: { module: ModuleInstance; param: ParamDef; value: number; onDone(): void }) {
+  const done = useRef(false);
+  const finish = (text: string | null) => {
+    if (done.current) return;
+    done.current = true;
+    const typed = text === null ? null : parseParam(param, text);
+    if (typed !== null) useEditor.getState().apply((doc) => ops.setParam(doc, module.id, param.id, typed));
+    onDone();
+  };
+  return (
+    <input
+      className="tile-knob-field"
+      type="text"
+      aria-label={param.label}
+      defaultValue={formatParam(param, value)}
+      spellCheck={false}
+      autoFocus
+      onFocus={(e) => e.currentTarget.select()}
+      onPointerDown={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") finish(e.currentTarget.value);
+        else if (e.key === "Escape") finish(null);
+      }}
+      onBlur={(e) => finish(e.currentTarget.value)}
+    />
+  );
+}
+
 /** The sign a modulation input has for a name: it moves the input above it up and down. */
 const MODULATES = "±";
 
 function ParamKnob({ module, param, size, name = param.label }: { module: ModuleInstance; param: ParamDef; size: number; name?: string }) {
   const [active, setActive] = useState(false);
+  // The value is being typed in, in the place of the label.
+  const [editing, setEditing] = useState(false);
   const value = ops.paramValue(module, param.id);
   // The knob page and Organelle knob (0–3) that play this parameter, as one number so that
   // the selector's result compares equal from edit to edit; -1 for none.
@@ -57,7 +94,7 @@ function ParamKnob({ module, param, size, name = param.label }: { module: Module
   return (
     <div
       // A knob named by a sign (a modulation input's amount) shows it larger, but not its value.
-      className={`tile-knob${!active && name !== param.label ? " tile-knob-sign" : ""}`}
+      className={`tile-knob${!active && !editing && name !== param.label ? " tile-knob-sign" : ""}`}
       // Not while something is being dragged across the tile: the label would keep showing the value.
       onPointerEnter={(e) => e.buttons === 0 && setActive(true)}
       onPointerLeave={(e) => e.buttons === 0 && setActive(false)}
@@ -79,7 +116,16 @@ function ParamKnob({ module, param, size, name = param.label }: { module: Module
         size={size}
         value={toNormalized(param, value)}
         defaultValue={toNormalized(param, param.default)}
-        label={active ? formatParam(param, value) : name}
+        label={
+          editing ? (
+            <ValueField module={module} param={param} value={value} onDone={() => setEditing(false)} />
+          ) : active ? (
+            formatParam(param, value)
+          ) : (
+            name
+          )
+        }
+        onLabelDoubleClick={() => setEditing(true)}
         ariaLabel={param.label}
         onChange={(position) =>
           useEditor

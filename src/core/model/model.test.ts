@@ -3,7 +3,7 @@ import { basicSynth } from "../fixtures";
 import { getModuleDef } from "../modules/registry";
 import { visibleDef } from "../modules/shape";
 import { useEditor } from "../../state/store";
-import { formatParam, fromNormalized, toNormalized } from "../modules/params";
+import { formatParam, fromNormalized, parseParam, toNormalized } from "../modules/params";
 import {
   addModule,
   settle,
@@ -187,6 +187,24 @@ describe("parameters", () => {
     for (const t of [0, 0.1, 0.5, 0.9, 1]) {
       expect(toNormalized(cutoff, fromNormalized(cutoff, t))).toBeCloseTo(t);
       expect(toNormalized(res, fromNormalized(res, t))).toBeCloseTo(t);
+    }
+  });
+
+  it("reads a typed value, in what the readout shows", () => {
+    const def = (type: string, id: string) => getModuleDef(type)!.params.find((p) => p.id === id)!;
+    const [cutoff, release, tune, sustain] = [def("filter-lp", "cutoff"), def("env-adsr", "release"), def("osc-saw", "tune"), def("env-adsr", "sustain")];
+    expect(parseParam(cutoff, "440")).toBe(440);
+    expect(parseParam(cutoff, " 440 Hz ")).toBe(440);
+    expect(parseParam(cutoff, "2k")).toBe(2000);
+    expect(parseParam(cutoff, "1,2 kHz")).toBe(1200);
+    expect(parseParam(release, "2.5 s")).toBe(2500);
+    expect(parseParam(release, "300ms")).toBe(300);
+    expect(parseParam(tune, "-12 st")).toBe(-12);
+    expect(parseParam(sustain, ".6")).toBe(0.6);
+    for (const text of ["", "abc", "12 xyz", "2k", "1 2"]) expect(parseParam(text === "2k" ? tune : sustain, text)).toBeNull();
+    // Whatever the readout says reads back as the value it stands for.
+    for (const [param, value] of [[cutoff, 1200], [cutoff, 440], [release, 2500], [release, 5], [tune, -12], [sustain, 0.6]] as const) {
+      expect(parseParam(param, formatParam(param, value))).toBe(value);
     }
   });
 
