@@ -31,6 +31,16 @@
   white-space: pre;
 }
 
+/* The device's top row: 8 of its 64 pixels, across the width of the 21 characters. */
+.oled-meters {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin-bottom: 4px;
+  fill: currentColor;
+  filter: drop-shadow(0 0 3px rgb(160 200 255 / 0.45));
+}
+
 .oled-line {
   overflow: hidden;
 }

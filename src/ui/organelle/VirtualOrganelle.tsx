@@ -2,10 +2,88 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { engine } from "../../bridge/engine";
 import { usePreview } from "../../state/preview";
 import { Knob } from "../controls/Knob";
+import { METER_TICK_MS, meterSegments, nextPeaks, SEGMENTS, SILENT, type Levels } from "./meters";
 import "./VirtualOrganelle.css";
 
 /** LED colours by the value a patch sends to `led` (same table as the device). */
 const LED_COLORS = ["#2a2c30", "#ff4a3d", "#ffd23d", "#3ddc68", "#3dd6e0", "#4a7dff", "#e052e0", "#f4f4f4"];
+
+/** The small font's I and O, as the screen has them: a byte per column, the lowest bit on top. */
+const GLYPH_I = [0x00, 0x41, 0x7f, 0x41, 0x00];
+const GLYPH_O = [0x3e, 0x41, 0x41, 0x41, 0x3e];
+
+/**
+ * The segments the meters show, read from the engine as often as the device reads them.
+ * Nothing is read while there is no audio preview.
+ */
+function useMeters(): Levels {
+  const ready = usePreview((s) => s.engine.kind === "ready");
+  const [lit, setLit] = useState<Levels>(SILENT);
+  useEffect(() => {
+    if (!ready) return;
+    let held = SILENT;
+    let busy = false;
+    const timer = window.setInterval(() => {
+      if (busy) return;
+      busy = true;
+      engine
+        .levels()
+        .then((latest) => {
+          held = nextPeaks(held, latest);
+          const next = meterSegments(held);
+          setLit((old) => (old.every((n, i) => n === next[i]) ? old : next));
+        })
+        .catch(() => {})
+        .finally(() => (busy = false));
+    }, METER_TICK_MS);
+    return () => window.clearInterval(timer);
+  }, [ready]);
+  return lit;
+}
+
+/**
+ * The top row of the screen, as the Organelle M draws it (`OledScreen::drawInfoBar`) on its
+ * 128 by 64 pixels: I and the input's meter, O and the output's, each the left channel over
+ * the right, eleven segments of 2 by 3 pixels with a dot where one is not lit. The battery
+ * and Wi-Fi signs at its right end are the device's own and are left out.
+ */
+function Meters() {
+  const [inL, inR, outL, outR] = useMeters();
+  const pixels: React.ReactNode[] = [];
+  const glyph = (columns: number[], x: number) =>
+    columns.forEach((bits, i) => {
+      for (let y = 0; y < 8; y++) if ((bits >> y) & 1) pixels.push(<rect key={`g${x + i}-${y}`} x={x + i} y={y} width={1} height={1} />);
+    });
+  const meter = (x: number, y: number, lit: number) => {
+    for (let i = 0; i < SEGMENTS; i++) {
+      const at = x + 3 * i;
+      pixels.push(
+        i < lit ? (
+          <rect key={`m${at}-${y}`} x={at} y={y} width={2} height={3} />
+        ) : (
+          <rect key={`m${at}-${y}`} x={at + 1} y={y + 1} width={1} height={1} />
+        ),
+      );
+    }
+  };
+  glyph(GLYPH_I, 0);
+  meter(7, 0, inL);
+  meter(7, 4, inR);
+  glyph(GLYPH_O, 45);
+  meter(54, 0, outL);
+  meter(54, 4, outR);
+  return (
+    <svg
+      className="oled-meters"
+      viewBox="0 0 128 8"
+      shapeRendering="crispEdges"
+      role="img"
+      aria-label={`Levels: input ${inL} and ${inR}, output ${outL} and ${outR} of ${SEGMENTS}`}
+    >
+      {pixels}
+    </svg>
+  );
+}
 
 /** The Organelle's keys play MIDI notes 60–83 at a fixed velocity. */
 const FIRST_NOTE = 60;
@@ -25,7 +103,8 @@ interface Props {
 /**
  * On-screen stand-in for the Organelle's panel. It sends exactly what the device's
  * host patch sends (`notes`, `knob1`–`knob4`, `aux`) and shows what the patch sends
- * back (`screenLine1`–`screenLine5`, `led`).
+ * back (`screenLine1`–`screenLine5`, `led`). Above the lines the screen has the device's
+ * input and output meters, which the preview measures as the device's host patch does.
  */
 export function VirtualOrganelle({ revision }: Props) {
   const [knobs, setKnobs] = useState([0.5, 0.5, 0.5, 0.5]);
@@ -106,6 +185,7 @@ export function VirtualOrganelle({ revision }: Props) {
     <section className="organelle" aria-label="Virtual Organelle">
       <div className="organelle-top">
         <div className="oled" aria-label="Screen">
+          <Meters />
           {lines.map((text, i) => (
             <div className="oled-line" key={i}>
               {text || " "}

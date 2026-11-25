@@ -66,8 +66,9 @@ struct Shared {
     fade: AtomicU32,
     /// User volume 0..1, stored as f32 bits.
     volume: AtomicU32,
-    /// Peak of the last callback, stored as f32 bits.
-    peak: AtomicU32,
+    /// The highest level since it was last read: input left and right, output left and
+    /// right (after the volume, as heard). See `Engine::levels`.
+    levels: [AtomicU32; 4],
     /// A change of audio input for the output callback to pick up: a new feed, or none.
     input_change: Mutex<Option<Option<InputFeed>>>,
 }
@@ -78,6 +79,13 @@ fn load(a: &AtomicU32) -> f32 {
 
 fn store(a: &AtomicU32, v: f32) {
     a.store(v.to_bits(), Ordering::Relaxed)
+}
+
+/// Raise a level to `v` if it is higher. A float of 0 or more orders as its bits do.
+fn raise(a: &AtomicU32, v: f32) {
+    if v.is_finite() && v > 0.0 {
+        a.fetch_max(v.to_bits(), Ordering::Relaxed);
+    }
 }
 
 struct Loaded {
@@ -148,7 +156,7 @@ impl Engine {
         let shared = Arc::new(Shared {
             fade: AtomicU32::new(1.0f32.to_bits()),
             volume: AtomicU32::new(0.8f32.to_bits()),
-            peak: AtomicU32::new(0),
+            levels: Default::default(),
             input_change: Mutex::new(None),
         });
         let (producer, consumer) = rtrb::RingBuffer::<Message>::new(1024);
@@ -179,9 +187,11 @@ impl Engine {
         self.sample_rate
     }
 
-    /// Peak output level of the most recent audio callback.
-    pub fn peak(&self) -> f32 {
-        load(&self.shared.peak)
+    /// The highest level of the input's left and right and the output's left and right
+    /// since this was last asked, each from 0 to 1 and over: what the meters show. The input
+    /// is silent while the patch has no Audio In, since the input is open only then.
+    pub fn levels(&self) -> [f32; 4] {
+        self.shared.levels.each_ref().map(|level| f32::from_bits(level.swap(0, Ordering::Relaxed)))
     }
 
     /// What the Scope module on `slot` (counted from 0) shows: its last `length` samples as
@@ -430,10 +440,15 @@ where
         }
 
         let target = load(&shared.fade) * load(&shared.volume);
-        let mut peak = 0.0f32;
+        let (mut out_left, mut out_right) = (0.0f32, 0.0f32);
         for frame in data.chunks_mut(channels) {
             if pos >= block_len {
                 input.next_block(&mut input_block);
+                // The input as Pd gets it, left and right interleaved.
+                for side in 0..2 {
+                    let level = input_block.iter().skip(side).step_by(2).fold(0.0f32, |m, s| m.max(s.abs()));
+                    raise(&shared.levels[side], level);
+                }
                 pd.process_with_input(&input_block, &mut block);
                 pos = 0;
             }
@@ -441,7 +456,8 @@ where
             let (left, right) = (block[pos] * gain, block[pos + 1] * gain);
             scopes.write(&block[pos + 2..pos + PD_OUTPUTS]);
             pos += PD_OUTPUTS;
-            peak = peak.max(left.abs()).max(right.abs());
+            out_left = out_left.max(left.abs());
+            out_right = out_right.max(right.abs());
             match frame {
                 [mono] => *mono = T::from_sample((left + right) * 0.5),
                 [l, r, rest @ ..] => {
@@ -452,7 +468,8 @@ where
                 [] => {}
             }
         }
-        store(&shared.peak, peak);
+        raise(&shared.levels[2], out_left);
+        raise(&shared.levels[3], out_right);
     };
 
     device

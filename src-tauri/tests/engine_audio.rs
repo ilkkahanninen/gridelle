@@ -13,6 +13,14 @@ use gridelle_lib::samples::SampleFile;
 
 const VOLUME: f32 = 0.01;
 
+/// The output's level over the last moment: the engine's levels are the highest since last asked.
+fn peak(engine: &Engine) -> f32 {
+    engine.levels();
+    sleep(Duration::from_millis(60));
+    let levels = engine.levels();
+    levels[2].max(levels[3])
+}
+
 #[test]
 #[ignore = "needs an audio output device"]
 fn engine_renders_loaded_patch_to_the_device() {
@@ -27,22 +35,25 @@ fn engine_renders_loaded_patch_to_the_device() {
     ]);
     let _ = engine.load(&files, "main.pd", &[]).expect("patch loads");
     sleep(Duration::from_millis(150));
-    assert!(engine.peak() < 1e-5, "silent before any note, peak {}", engine.peak());
+    assert!(peak(&engine) < 1e-5, "silent before any note, peak {}", peak(&engine));
 
     engine.send("knob1", vec![Atom::Float(1.0)]).unwrap();
     engine.send("notes", vec![Atom::Float(57.0), Atom::Float(100.0)]).unwrap();
     sleep(Duration::from_millis(300));
-    let playing = engine.peak();
+    let playing = peak(&engine);
     assert!(playing > VOLUME * 0.01, "note should reach the output, peak {playing}");
     assert!(playing <= VOLUME * 1.001, "volume caps the output, peak {playing}");
+    // The spike patch has no Audio In, so the input is closed and its meters stay down.
+    let levels = engine.levels();
+    assert_eq!([levels[0], levels[1]], [0.0, 0.0], "no input without an Audio In");
 
     // Reloading while a note sounds must leave a working, silent patch behind.
     let _ = engine.load(&files, "main.pd", &[]).expect("patch reloads");
     sleep(Duration::from_millis(200));
-    assert!(engine.peak() < 1e-5, "fresh patch is silent, peak {}", engine.peak());
+    assert!(peak(&engine) < 1e-5, "fresh patch is silent, peak {}", peak(&engine));
     engine.send("notes", vec![Atom::Float(57.0), Atom::Float(100.0)]).unwrap();
     sleep(Duration::from_millis(300));
-    assert!(engine.peak() > VOLUME * 0.01, "reloaded patch plays");
+    assert!(peak(&engine) > VOLUME * 0.01, "reloaded patch plays");
     engine.send("notes", vec![Atom::Float(57.0), Atom::Float(0.0)]).unwrap();
     sleep(Duration::from_millis(200));
 
@@ -87,10 +98,10 @@ fn engine_renders_loaded_patch_to_the_device() {
     let flac = format!("{}/tests/sounds/tone.flac", env!("CARGO_MANIFEST_DIR"));
     let _ = engine.load(&sampler, "main.pd", &[sound(&flac)]).expect("the sampler loads");
     sleep(Duration::from_millis(150));
-    assert!(engine.peak() < 1e-5, "the sampler is silent before a note, peak {}", engine.peak());
+    assert!(peak(&engine) < 1e-5, "the sampler is silent before a note, peak {}", peak(&engine));
     engine.send("notes", vec![Atom::Float(60.0), Atom::Float(100.0)]).unwrap();
     sleep(Duration::from_millis(150));
-    let sampled = engine.peak();
+    let sampled = peak(&engine);
     assert!(sampled > VOLUME * 0.02, "the sound file is heard, peak {sampled}");
     engine.send("notes", vec![Atom::Float(60.0), Atom::Float(0.0)]).unwrap();
     sleep(Duration::from_millis(400));
@@ -99,7 +110,7 @@ fn engine_renders_loaded_patch_to_the_device() {
     assert!(error.starts_with("kick.wav is not where the patch expects it"), "{error}");
     engine.send("notes", vec![Atom::Float(60.0), Atom::Float(100.0)]).unwrap();
     sleep(Duration::from_millis(150));
-    assert!(engine.peak() > VOLUME * 0.02, "the patch from before still plays");
+    assert!(peak(&engine) > VOLUME * 0.02, "the patch from before still plays");
     engine.send("notes", vec![Atom::Float(60.0), Atom::Float(0.0)]).unwrap();
     sleep(Duration::from_millis(300));
 

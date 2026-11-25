@@ -93,8 +93,8 @@ fn engine_scope(state: State<EngineState>, slot: usize, length: usize, columns: 
 }
 
 #[tauri::command]
-fn engine_peak(state: State<EngineState>) -> Result<f32, String> {
-    Ok(state.get()?.peak())
+fn engine_levels(state: State<EngineState>) -> Result<[f32; 4], String> {
+    Ok(state.get()?.levels())
 }
 
 #[tauri::command(async)]
@@ -223,7 +223,7 @@ pub fn run() {
             engine_load,
             engine_send,
             engine_set_volume,
-            engine_peak,
+            engine_levels,
             engine_scope,
             sample_info,
             wavetable_info,

@@ -39,7 +39,11 @@ export interface PreviewEngine {
   /** Send to a receiver in the patch: a hardware name (`knob1`, `notes`) or a parameter. */
   send(recv: string, ...atoms: Atom[]): Promise<void>;
   setVolume(volume: number): Promise<void>;
-  peak(): Promise<number>;
+  /**
+   * The highest level of the input's left and right and the output's left and right since
+   * this was last asked (the output after the volume): what the Organelle's meters show.
+   */
+  levels(): Promise<[number, number, number, number]>;
   /**
    * What a Scope module shows. `slot` is the scope's number less one; the answer is the
    * last `length` samples it tapped as `columns` pairs of lowest and highest, left to
@@ -56,7 +60,7 @@ const desktopEngine: PreviewEngine = {
   load: (files, entry, sounds) => invoke<string | null>("engine_load", { files, entry, samples: sounds }),
   send: (recv, ...atoms) => invoke("engine_send", { recv, atoms }),
   setVolume: (volume) => invoke("engine_set_volume", { volume }),
-  peak: () => invoke<number>("engine_peak"),
+  levels: () => invoke<[number, number, number, number]>("engine_levels"),
   scope: (slot, length, columns, trigger) => invoke<number[]>("engine_scope", { slot, length, columns, trigger }),
   onEvent: (handler) => listen<PdEvent>("pd-event", (e) => handler(e.payload)),
 };
@@ -67,7 +71,7 @@ const silentEngine: PreviewEngine = {
   load: async () => null,
   send: async () => {},
   setVolume: async () => {},
-  peak: async () => 0,
+  levels: async () => [0, 0, 0, 0],
   scope: async () => [],
   onEvent: async () => () => {},
 };
