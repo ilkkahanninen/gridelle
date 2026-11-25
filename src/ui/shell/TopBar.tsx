@@ -41,9 +41,10 @@ function EngineStatus() {
 }
 
 /**
- * About how much of the Organelle's CPU the patch takes (`core/cost.ts`), amber from
- * `CPU_HIGH` and red from `CPU_OVER`; the tooltip names the costliest modules. It depends
- * only on the patch's structure, so it is worked out again only when that changes.
+ * About how much of the Organelle's CPU the patch takes (`core/cost.ts`), as a bar and a
+ * figure: the bar amber from `CPU_HIGH` and red from `CPU_OVER`, where a tick on it stands,
+ * and full beyond 100 %; the tooltip names the costliest modules. It depends only on the
+ * patch's structure, so it is worked out again only when that changes.
  */
 function CpuMeter() {
   const key = useEditor((s) => structureKey(s.doc));
@@ -60,8 +61,22 @@ function CpuMeter() {
     "Estimated from measurements on an Organelle M.",
   ].join(" ");
   return (
-    <span className={`status cpu-meter${level}`} title={title}>
-      CPU ≈ {percent} %
+    <span
+      className={`cpu-meter${level}`}
+      title={title}
+      role="meter"
+      aria-label="Organelle CPU"
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={Math.min(percent, 100)}
+      aria-valuetext={`About ${percent} %`}
+    >
+      <span className="cpu-meter-label">CPU</span>
+      <span className="cpu-meter-track">
+        <span className="cpu-meter-fill" style={{ width: `${Math.min(percent, 100)}%` }} />
+        <span className="cpu-meter-limit" style={{ left: `${CPU_OVER}%` }} />
+      </span>
+      <span className="cpu-meter-figure">{percent} %</span>
     </span>
   );
 }

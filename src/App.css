@@ -355,18 +355,67 @@ input {
   color: var(--danger);
 }
 
-/* What the patch takes of the Organelle's CPU: quiet while there is room. */
+/*
+ * What the patch takes of the Organelle's CPU: a bar, quiet while there is room, amber
+ * when little is left and red past the tick where the device crackles; its track is a faint
+ * step of the same colour. The figure keeps the text's colour.
+ */
 .cpu-meter {
-  font-variant-numeric: tabular-nums;
+  --cpu: var(--text-dim);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   white-space: nowrap;
 }
 
 .cpu-high {
-  color: var(--hint-gate);
+  --cpu: var(--hint-gate);
 }
 
 .cpu-over {
-  color: var(--danger);
+  --cpu: var(--danger);
+}
+
+.cpu-meter-label {
+  color: var(--text-dim);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+.cpu-meter-track {
+  position: relative;
+  width: 84px;
+  height: 6px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--cpu) 22%, transparent);
+}
+
+.cpu-meter-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 3px;
+  background: var(--cpu);
+  transition: width 200ms ease-out, background-color 200ms;
+}
+
+/* Where the Organelle starts to crackle. */
+.cpu-meter-limit {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 2px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: var(--text-dim);
+  box-shadow: 0 0 0 1px var(--chrome);
+}
+
+.cpu-meter-figure {
+  min-width: 4.2ch;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
 }
 
 /* Dock */
