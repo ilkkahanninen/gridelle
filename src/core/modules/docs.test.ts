@@ -7,12 +7,12 @@ describe("module documentation", () => {
     expect(Object.keys(MODULE_DOCS).sort()).toEqual(moduleDefs.map((def) => def.type).sort());
   });
 
-  it.each(moduleDefs.map((def) => [def.name, def] as const))("%s: is a few whole sentences", (_name, def) => {
+  it.each(moduleDefs.map((def) => [def.name, def] as const))("%s: is one short sentence", (_name, def) => {
     const text = MODULE_DOCS[def.type];
-    expect(text).toMatch(/^[A-Z].*\.$/);
+    expect(text).toMatch(/^[A-Z][^.]*\.$/);
     expect(text).toBe(text.trim());
-    // The settings pane has room for a short paragraph.
-    expect(text.length).toBeLessThanOrEqual(320);
+    // One line in the settings pane.
+    expect(text.length).toBeLessThanOrEqual(72);
   });
 
   it.each(moduleDefs.map((def) => [def.name, def] as const))("%s: names only ports and settings it has", (_name, def) => {

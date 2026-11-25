@@ -40,7 +40,7 @@ interface UiState {
 }
 
 export const useUi = create<UiState>((set) => ({
-  view: { panX: 60, panY: 50, zoom: 1 },
+  view: { panX: 60, panY: 50, zoom: 0.8 },
   viewport: { width: 0, height: 0 },
   placing: null,
   cableDrag: null,

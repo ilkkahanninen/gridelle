@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { containerOf, groupParent, groupsOf, placement } from "../../core/model/area";
+import { groupsOf, placement } from "../../core/model/area";
 import * as ops from "../../core/model/ops";
 import {
   MAX_MODULE_NAME,
@@ -182,7 +182,6 @@ function ModuleInspector({ module, def }: { module: ModuleInstance; def: ModuleD
                 />
                 <span>
                   {port.label} follows {precordText(port.precord!, inVoices)}
-                  {cabled && " (replaced by a cable)"}
                 </span>
               </label>
             );
@@ -252,11 +251,9 @@ function VoiceSettings() {
   );
 }
 
-/** A unison group: how many copies it runs, and what that means. */
+/** A unison group: what it does, and how many copies it runs. */
 function GroupInspector({ group }: { group: UnisonGroup }) {
   const apply = useEditor((s) => s.apply);
-  const inVoices = useEditor((s) => groupParent(s.doc, group) === "voice");
-  const count = useEditor((s) => s.doc.modules.filter((m) => containerOf(s.doc, m) === group.id).length);
   return (
     <>
       <header className="inspector-title category-groups">
@@ -264,13 +261,7 @@ function GroupInspector({ group }: { group: UnisonGroup }) {
         <h2>Unison group</h2>
       </header>
       <section className="inspector-doc">
-        <p>
-          What is in the group runs {group.size} times side by side{inVoices ? ", in every voice" : ""}, and the copies are added up
-          where a cable leaves the group; a cable into it gives every copy the same signal. The Index on the group&apos;s shelf, its
-          left column, gives each copy its place among them, from -1 to 1 (and 0–1 from 0 to 1): into an oscillator&apos;s Fine tune,
-          it detunes the copies by as many cents as the knob says. Only what is in the group is copied, so the rest of the patch
-          costs no more.
-        </p>
+        <p>Runs what is in it several times side by side and adds up the copies.</p>
       </section>
       <section>
         <label className="inspector-field">
@@ -283,10 +274,6 @@ function GroupInspector({ group }: { group: UnisonGroup }) {
             onChange={(e) => apply((doc) => ops.setGroupSize(doc, group.id, Math.round(Number(e.target.value))))}
           />
         </label>
-        <p className="inspector-note">
-          {count === 0 ? "Nothing is in it yet: drag modules into it." : `${count} ${count === 1 ? "module" : "modules"} in it.`} Delete removes the
-          group with what is in it.
-        </p>
       </section>
     </>
   );

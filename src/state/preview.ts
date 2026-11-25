@@ -20,8 +20,6 @@ interface PreviewState {
   diagnostics: Diagnostic[];
   /** What the patch has written to the Organelle's screen (`screenLine1`–`screenLine5`), one entry per line. */
   screen: string[];
-  /** The colour number the patch last sent to `led`; 0 is off. */
-  led: number;
   /** Bumped every time a patch finishes loading into the engine. */
   revision: number;
   /** What Pd printed since the patch was first loaded, most recent last; the Problems pane shows it. */
@@ -45,7 +43,6 @@ export const usePreview = create<PreviewState>(() => ({
   engine: { kind: "starting" },
   diagnostics: [],
   screen: blankScreen(),
-  led: 0,
   revision: 0,
   console: [],
   loadError: null,
@@ -108,7 +105,7 @@ export function startPreviewSync(): () => void {
       usePreview.setState({ diagnostics: result.diagnostics });
       if (result.ok && usePreview.getState().engine.kind === "ready") {
         // A patch writes to the screen while it loads, so blank it before the load starts.
-        usePreview.setState({ screen: blankScreen(), led: 0 });
+        usePreview.setState({ screen: blankScreen() });
         started = true;
         const inputProblem = await engine.load(result.files, result.entry, result.samples);
         if (stopped) return;
@@ -144,7 +141,7 @@ export function startPreviewSync(): () => void {
     if (state.doc !== previous.doc) onDocument(state.doc);
   });
 
-  // The screen and LED are kept here, not in the component that draws them: the patch only
+  // The screen is kept here, not in the component that draws it: the patch only
   // writes a line when it changes, so a display that forgot its contents would stay blank.
   const onEvent = (event: PdEvent) => {
     if (event.kind === "print") {
@@ -162,8 +159,6 @@ export function startPreviewSync(): () => void {
     if (line) {
       const text = event.atoms.map(atomText).join(" ").slice(0, SCREEN_COLUMNS);
       usePreview.setState((s) => ({ screen: s.screen.map((old, i) => (i === Number(line[1]) - 1 ? text : old)) }));
-    } else if (event.recv === "led" && typeof event.atoms[0] === "number") {
-      usePreview.setState({ led: event.atoms[0] });
     }
   };
   const events = engine.onEvent(onEvent);

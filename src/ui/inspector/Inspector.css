@@ -133,12 +133,6 @@
   width: 64px;
 }
 
-.inspector-note {
-  margin: 0;
-  line-height: 1.4;
-  color: var(--text-dim);
-}
-
 .inspector-check {
   display: flex;
   align-items: baseline;

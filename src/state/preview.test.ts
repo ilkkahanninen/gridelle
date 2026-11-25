@@ -34,7 +34,6 @@ describe("preview sync", () => {
       engine: { kind: "starting" },
       diagnostics: [],
       screen: ["", "", "", "", ""],
-      led: 0,
       revision: 0,
       console: [],
       loadError: null,
@@ -57,30 +56,27 @@ describe("preview sync", () => {
     expect(send).not.toHaveBeenCalled();
   });
 
-  it("keeps what the patch sends to the screen and the LED", () => {
+  it("keeps what the patch sends to the screen", () => {
     const emit = vi.mocked(engine.onEvent).mock.calls[0][0];
     emit({ kind: "message", recv: "screenLine2", atoms: ["Low-pass", "Res", 0.30000001192092896] });
     emit({ kind: "message", recv: "screenLine5", atoms: ["A", "page", "name", "that", "is", "far", "too", "long"] });
-    emit({ kind: "message", recv: "led", atoms: [4] });
     expect(usePreview.getState().screen).toEqual(["", "Low-pass Res 0.3", "", "", "A page name that is f"]);
-    expect(usePreview.getState().led).toBe(4);
   });
 
   it("blanks the screen before a load starts, so the new patch writes onto an empty screen", async () => {
     const emit = vi.mocked(engine.onEvent).mock.calls[0][0];
     emit({ kind: "message", recv: "screenLine1", atoms: ["Old"] });
-    emit({ kind: "message", recv: "led", atoms: [3] });
     let atLoad: unknown;
     load.mockImplementationOnce(async () => {
-      const { screen, led, revision } = usePreview.getState();
-      atLoad = { screen, led, revision };
+      const { screen, revision } = usePreview.getState();
+      atLoad = { screen, revision };
       // The patch writes to the screen while it loads.
       emit({ kind: "message", recv: "screenLine1", atoms: ["New"] });
       return null;
     });
     useEditor.getState().apply((doc) => ({ ...doc, voices: 2 }));
     await settle();
-    expect(atLoad).toEqual({ screen: ["", "", "", "", ""], led: 0, revision: 1 });
+    expect(atLoad).toEqual({ screen: ["", "", "", "", ""], revision: 1 });
     expect(usePreview.getState()).toMatchObject({ screen: ["New", "", "", "", ""], revision: 2 });
   });
 

@@ -5,9 +5,6 @@ import { Knob } from "../controls/Knob";
 import { METER_TICK_MS, meterSegments, nextPeaks, SEGMENTS, SILENT, type Levels } from "./meters";
 import "./VirtualOrganelle.css";
 
-/** LED colours by the value a patch sends to `led` (same table as the device). */
-const LED_COLORS = ["#2a2c30", "#ff4a3d", "#ffd23d", "#3ddc68", "#3dd6e0", "#4a7dff", "#e052e0", "#f4f4f4"];
-
 /** The small font's I and O, as the screen has them: a byte per column, the lowest bit on top. */
 const GLYPH_I = [0x00, 0x41, 0x7f, 0x41, 0x00];
 const GLYPH_O = [0x3e, 0x41, 0x41, 0x41, 0x3e];
@@ -102,15 +99,17 @@ interface Props {
 
 /**
  * On-screen stand-in for the Organelle's panel. It sends exactly what the device's
- * host patch sends (`notes`, `knob1`–`knob4`, `aux`) and shows what the patch sends
- * back (`screenLine1`–`screenLine5`, `led`). Above the lines the screen has the device's
+ * host patch sends (`notes`, `knob1`–`knob4`, `aux`) and shows the screen lines the patch
+ * sends back (`screenLine1`–`screenLine5`). Above the lines the screen has the device's
  * input and output meters, which the preview measures as the device's host patch does.
+ * The keys are hidden until the button beside the knobs shows them; the computer's keys
+ * play either way.
  */
 export function VirtualOrganelle({ revision }: Props) {
   const [knobs, setKnobs] = useState([0.5, 0.5, 0.5, 0.5]);
   const [volume, setVolume] = useState(0.8);
   const lines = usePreview((s) => s.screen);
-  const led = usePreview((s) => s.led);
+  const [keysShown, setKeysShown] = useState(false);
   const [held, setHeld] = useState<ReadonlySet<number>>(new Set());
   const [aux, setAux] = useState(false);
   const knobsRef = useRef(knobs);
@@ -198,10 +197,23 @@ export function VirtualOrganelle({ revision }: Props) {
           ))}
           <Knob value={volume} onChange={setVolume} defaultValue={0.8} label="Volume" />
         </div>
-        <div className="organelle-led" style={{ background: LED_COLORS[((Math.trunc(led) % 8) + 8) % 8] }} aria-label="LED" />
+        <button
+          type="button"
+          className={`organelle-keys-toggle${keysShown ? " organelle-keys-toggle-on" : ""}`}
+          aria-pressed={keysShown}
+          aria-label={keysShown ? "Hide the keys" : "Show the keys"}
+          title={keysShown ? "Hide the keys" : "Show the keys"}
+          onClick={() => setKeysShown((shown) => !shown)}
+        >
+          <svg viewBox="0 0 20 14" aria-hidden="true">
+            <rect x="1" y="1" width="18" height="12" rx="2" />
+            <path d="M5.5 8V13M10 8V13M14.5 8V13" />
+            <path className="organelle-keys-black" d="M4.5 1H6.5V8H4.5ZM9 1H11V8H9ZM13.5 1H15.5V8H13.5Z" />
+          </svg>
+        </button>
       </div>
 
-      <div className="organelle-keys">
+      <div className="organelle-keys" hidden={!keysShown}>
         <button
           className={`key key-aux${aux ? " key-down" : ""}`}
           aria-label="Aux"

@@ -50,15 +50,43 @@
   gap: 14px;
 }
 
-.organelle-led {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
+/* Shows or hides the keys: a keyboard, lit while they are shown. */
+.organelle-keys-toggle {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 26px;
+  padding: 0;
   border: 1px solid var(--line-strong);
-  transition: background 80ms;
+  border-radius: 5px;
+  background: var(--surface-raised);
+  color: var(--text-dim);
+  cursor: pointer;
 }
 
-.organelle-keys {
+.organelle-keys-toggle:hover {
+  color: var(--text);
+}
+
+.organelle-keys-toggle-on {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.organelle-keys-toggle svg {
+  width: 20px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.3;
+}
+
+.organelle-keys-toggle .organelle-keys-black {
+  fill: currentColor;
+  stroke: none;
+}
+
+.organelle-keys:not([hidden]) {
   display: flex;
   align-items: flex-start;
   gap: 10px;
