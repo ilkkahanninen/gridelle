@@ -36,6 +36,7 @@ import {
   setGroupSize,
   wrapInGroup,
   wrapProblem,
+  ungroup,
   nextFreeKnob,
   nextModuleId,
   paramValue,
@@ -1003,6 +1004,23 @@ describe("unison groups", () => {
     const pasted = pasteModules(cabled, copyModules(cabled, new Set(["ge1"]))!, { x: 30, y: 1 });
     expect(pasted.doc.cables).toContainEqual({ from: port(pasted.ids[1], "index"), to: port(pasted.ids[0], "fine") });
     expect(removeModules(cabled, new Set(["ge1"])).cables).toEqual([]);
+  });
+
+  it("ungroups: the group goes, what was in it stays where it is, and the cables from its shelf go", () => {
+    // A saw in a group in the voices, detuned by the group's Index, into a filter beside it.
+    let doc = addModule(addModule(grouped(), "osc-saw", { x: 4, y: 2 }).doc, "filter-lp", { x: 8, y: 2 }).doc;
+    doc = connect(connect(doc, port("ge1", "index"), port("ge2", "fine")), port("ge2", "out"), port("ge3", "in"));
+    const { doc: loose, ids } = ungroup(doc, new Set(["ge1"]));
+    expect(ids).toEqual(["ge2"]);
+    expect(loose.groups).toEqual([]);
+    expect(at(loose, "ge2")).toEqual([4, 2]);
+    expect(where(loose, "ge2")).toBe("voice");
+    expect(loose.cables).toEqual([{ from: port("ge2", "out"), to: port("ge3", "in") }]);
+    // Nothing to ungroup: the same document.
+    expect(ungroup(doc, new Set(["ge2"])).doc).toBe(doc);
+    // A group outside the voices leaves its modules outside them.
+    const outside = addModule(grouped({ x: 20, y: 1 }), "osc-saw", { x: 21, y: 2 }).doc;
+    expect(where(ungroup(outside, new Set(["ge1"])).doc, "ge2")).toBe("main");
   });
 
   it("runs from one copy to sixteen", () => {

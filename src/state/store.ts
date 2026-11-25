@@ -46,6 +46,8 @@ interface EditorState {
   duplicateSelection(): ModuleId[];
   /** Put the selected modules in a new unison group (`ops.wrapInGroup`) and select it. Returns its id. */
   wrapSelection(): ModuleId | null;
+  /** Take away the selected unison groups, keeping what is in them (`ops.ungroup`), and select that. */
+  ungroupSelection(): ModuleId[];
 
   /** Replace the document (New, Open). Clears history and selection. */
   load(doc: PatchDocument, filePath: string | null): void;
@@ -148,6 +150,17 @@ export const useEditor = create<EditorState>((set, get) => ({
     });
     if (added.length > 0) set({ selection: new Set(added), selectedCable: null });
     return added;
+  },
+
+  ungroupSelection() {
+    let freed: ModuleId[] = [];
+    get().apply((doc) => {
+      const result = ops.ungroup(doc, get().selection);
+      freed = result.ids;
+      return result.doc;
+    });
+    if (freed.length > 0) set({ selection: new Set(freed), selectedCable: null });
+    return freed;
   },
 
   wrapSelection() {

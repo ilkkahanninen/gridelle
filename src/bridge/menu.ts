@@ -1,5 +1,6 @@
 import { isTauri } from "@tauri-apps/api/core";
 import { Menu, MenuItem, PredefinedMenuItem, Submenu } from "@tauri-apps/api/menu";
+import { groupsOf } from "../core/model/area";
 import * as ops from "../core/model/ops";
 import { runCommand, type Command } from "../state/commands";
 import { useEditor } from "../state/store";
@@ -37,6 +38,7 @@ async function build(): Promise<void> {
   const duplicate = await item("Duplicate", "duplicate", "CmdOrCtrl+D", false);
   const remove = await item("Delete", "delete", undefined, false);
   const group = await item("Put in Unison Group", "group", "CmdOrCtrl+G", false);
+  const ungroup = await item("Ungroup", "ungroup", "CmdOrCtrl+Shift+G", false);
 
   const menu = await Menu.new({
     items: [
@@ -81,6 +83,7 @@ async function build(): Promise<void> {
           await textOr("Select All", "selectAll", "selectAll", "CmdOrCtrl+A"),
           await separator(),
           group,
+          ungroup,
         ],
       }),
       await Submenu.new({ text: "View", items: [await PredefinedMenuItem.new({ item: "Fullscreen" })] }),
@@ -93,15 +96,20 @@ async function build(): Promise<void> {
   await menu.setAsAppMenu();
 
   // What applies to the selection is greyed out without one, and grouping where it cannot be done.
-  let shown = { any: false, groupable: false };
+  let shown = { any: false, groupable: false, grouped: false };
   const update = () => {
     const { doc, selection } = useEditor.getState();
-    const now = { any: selection.size > 0, groupable: ops.wrapProblem(doc, selection) === null };
+    const now = {
+      any: selection.size > 0,
+      groupable: ops.wrapProblem(doc, selection) === null,
+      grouped: groupsOf(doc).some((g) => selection.has(g.id)),
+    };
     if (now.any !== shown.any) {
       void duplicate.setEnabled(now.any);
       void remove.setEnabled(now.any);
     }
     if (now.groupable !== shown.groupable) void group.setEnabled(now.groupable);
+    if (now.grouped !== shown.grouped) void ungroup.setEnabled(now.grouped);
     shown = now;
   };
   update();

@@ -51,7 +51,7 @@ function useShortcuts() {
       } else if (command && key === "d") {
         run("duplicate");
       } else if (command && key === "g") {
-        run("group");
+        run(e.shiftKey ? "ungroup" : "group");
       } else if (key === "delete" || key === "backspace") {
         run("delete");
       } else if (key === "escape" && useUi.getState().assigning) {

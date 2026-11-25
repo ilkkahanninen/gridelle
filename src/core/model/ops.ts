@@ -648,6 +648,26 @@ export function wrapInGroup(doc: PatchDocument, ids: ReadonlySet<ModuleId>): { d
   return clear && layoutAllowed(next) ? { doc: next, id } : { doc, id: null };
 }
 
+/**
+ * Take away the unison groups among `ids`, leaving what was in them where it is: in the
+ * voice area or the patch the group was in, run once there. The cables between them and
+ * across the group's edge stay; those from its shelf go, with the place they gave. Returns
+ * the modules that were in them, and the unchanged document when no group is among `ids`.
+ */
+export function ungroup(doc: PatchDocument, ids: ReadonlySet<ModuleId>): { doc: PatchDocument; ids: ModuleId[] } {
+  const gone = groupsOf(doc).filter((g) => ids.has(g.id));
+  if (gone.length === 0) return { doc, ids: [] };
+  const freed = doc.modules.filter((m) => gone.some((g) => containerOf(doc, m) === g.id)).map((m) => m.id);
+  return {
+    doc: {
+      ...doc,
+      groups: groupsOf(doc).filter((g) => !ids.has(g.id)),
+      cables: doc.cables.filter((c) => !gone.some((g) => g.id === c.from.module)),
+    },
+    ids: freed,
+  };
+}
+
 /** Set how many copies a unison group runs: a whole number from `MIN_UNISON` to `MAX_UNISON`. */
 export function setGroupSize(doc: PatchDocument, id: ModuleId, size: number): PatchDocument {
   const group = groupsOf(doc).find((g) => g.id === id);

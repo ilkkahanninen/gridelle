@@ -18,7 +18,8 @@ export type Command =
   | "duplicate"
   | "delete"
   | "selectAll"
-  | "group";
+  | "group"
+  | "ungroup";
 
 const RUN: Record<Command, () => void> = {
   new: () => void newPatch(),
@@ -39,6 +40,7 @@ const RUN: Record<Command, () => void> = {
     editor.select(editor.doc.modules.map((m) => m.id));
   },
   group: () => void useEditor.getState().wrapSelection(),
+  ungroup: () => void useEditor.getState().ungroupSelection(),
 };
 
 /** Where a command came from: a key the page saw, or the menu bar (a click, or its shortcut). */
