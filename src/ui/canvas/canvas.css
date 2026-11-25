@@ -153,8 +153,8 @@
  */
 .tile-knob-badge {
   position: absolute;
-  top: -5px;
-  right: 1px;
+  top: -6px;
+  right: 0;
   width: 14px;
   height: 14px;
   display: grid;
@@ -190,11 +190,11 @@
   pointer-events: none;
 }
 
-/* On the page that the Knob pages panel shows. */
+/* On the page that the Knob pages panel shows: a thin white ring, a little apart from the badge. */
 .tile-knob-badge-shown {
   box-shadow:
     0 0 0 1.5px var(--tile),
-    0 0 0 3px var(--text);
+    0 0 0 2.5px var(--text);
 }
 
 .tile-knob .knob-label {
@@ -224,8 +224,8 @@
 }
 
 .tile-row-knob .tile-knob-badge {
-  top: -4px;
-  left: 15px;
+  top: -5px;
+  left: 16px;
   right: auto;
 }
 
